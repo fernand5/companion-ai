@@ -1,0 +1,30 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('training_schedules', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->string('activity_type');
+            $table->unsignedTinyInteger('day_of_week');
+            $table->time('start_time');
+            $table->unsignedSmallInteger('expected_duration_minutes');
+            $table->string('intensity')->nullable();
+            $table->text('notes')->nullable();
+            $table->timestamps();
+
+            $table->index(['user_id', 'day_of_week']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('training_schedules');
+    }
+};
