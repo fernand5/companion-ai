@@ -10,13 +10,14 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProgressController;
 use App\Http\Controllers\Api\RecoveryCheckinController;
 use App\Http\Controllers\Api\ScheduleController;
+use App\Http\Controllers\Api\WeeklyPlanController;
 use App\Http\Controllers\Api\WeightController;
 use App\Http\Controllers\Api\WorkoutController;
 use App\Http\Controllers\Api\WorkoutPlanController;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/auth/register', [AuthController::class, 'register']);
-Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
+Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -49,10 +50,20 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/recovery-checkins', [RecoveryCheckinController::class, 'index']);
     Route::post('/recovery-checkins', [RecoveryCheckinController::class, 'store']);
 
+    // Same shared-AI-capacity reasoning as the chat message throttle below —
+    // each call can trigger several sequential Gemini calls.
+    Route::post('/weekly-plan/generate', [WeeklyPlanController::class, 'generate'])->middleware('throttle:10,1');
+    Route::post('/weekly-plan/adapt', [WeeklyPlanController::class, 'adapt'])->middleware('throttle:10,1');
+
     Route::get('/conversations', [ConversationController::class, 'index']);
     Route::post('/conversations', [ConversationController::class, 'store']);
     Route::get('/conversations/{conversation}/messages', [ConversationController::class, 'messages']);
-    Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage']);
+    // Each message can trigger several sequential Gemini calls (the tool-calling
+    // loop), and the AI provider's free-tier request capacity is shared across
+    // every beta user — this caps a single confused/retrying user from being
+    // able to exhaust it for everyone else.
+    Route::post('/conversations/{conversation}/messages', [ConversationController::class, 'sendMessage'])
+        ->middleware('throttle:10,1');
 
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/progress', [ProgressController::class, 'index']);

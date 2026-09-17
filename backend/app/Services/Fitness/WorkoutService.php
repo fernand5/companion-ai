@@ -6,7 +6,6 @@ use App\Models\ActivityLog;
 use App\Models\User;
 use App\Models\WorkoutPlan;
 use App\Models\WorkoutSession;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -20,7 +19,7 @@ class WorkoutService
     {
         return $user->workoutSessions()
             ->with('exercises')
-            ->whereDate('logged_date', '>=', Carbon::today()->subDays($days - 1)->toDateString())
+            ->whereDate('logged_date', '>=', $user->localNow()->subDays($days - 1)->toDateString())
             ->orderByDesc('logged_date')
             ->get();
     }
@@ -96,7 +95,7 @@ class WorkoutService
      */
     private function writeSession(User $user, array $sessionData, array $exercises, ?WorkoutSession $existing = null): WorkoutSession
     {
-        $loggedDate = $sessionData['logged_date'] ?? Carbon::today()->toDateString();
+        $loggedDate = $sessionData['logged_date'] ?? $user->localToday();
         $durationMinutes = $sessionData['duration_minutes'] ?? null;
         $notes = $sessionData['notes'] ?? null;
 

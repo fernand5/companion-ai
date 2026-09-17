@@ -18,17 +18,19 @@ class WorkoutPlanController extends Controller
 
     public function index(Request $request)
     {
+        $today = $request->user()->localToday();
+
         if ($request->filled('from') || $request->filled('to')) {
             $plans = $this->workoutPlanService->forRange(
                 $request->user(),
-                $request->query('from', Carbon::today()->subDays(6)->toDateString()),
-                $request->query('to', Carbon::today()->toDateString()),
+                $request->query('from', Carbon::parse($today)->subDays(6)->toDateString()),
+                $request->query('to', $today),
             );
 
             return WorkoutPlanResource::collection($plans);
         }
 
-        $date = $request->query('date', Carbon::today()->toDateString());
+        $date = $request->query('date', $today);
         $plan = $this->workoutPlanService->forDate($request->user(), $date);
 
         return $plan ? new WorkoutPlanResource($plan) : response()->noContent();

@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useAuthStore } from '@/stores/auth'
+import { extractErrorMessage } from '@/utils/errors'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -23,8 +24,13 @@ async function handleSubmit() {
     await auth.login({ email: email.value, password: password.value })
     const redirect = (route.query.redirect as string) || '/'
     router.push(redirect)
-  } catch {
-    error.value = 'Those credentials were not recognized.'
+  } catch (e: unknown) {
+    // A hardcoded "credentials not recognized" here would be actively
+    // misleading for anything that isn't a wrong password — a rate limit
+    // (429, after repeated attempts) or the backend being briefly
+    // unreachable would show the exact same message, sending someone to
+    // second-guess a password that was never the problem.
+    error.value = extractErrorMessage(e, "Couldn't log in — please try again.")
   } finally {
     submitting.value = false
   }

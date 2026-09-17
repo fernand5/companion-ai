@@ -2,6 +2,7 @@
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, onMounted } from 'vue'
 
+import ErrorNotice from '@/components/ErrorNotice.vue'
 import ProgressChart from '@/components/ProgressChart.vue'
 import StatCard from '@/components/StatCard.vue'
 import WeeklySummaryCard from '@/components/WeeklySummaryCard.vue'
@@ -42,7 +43,16 @@ const workoutValues = computed(() => data.value?.weekly_workouts.map((d) => d.wo
       Progress
     </h1>
 
-    <div v-if="data" class="space-y-6">
+    <div v-if="store.progressLoading" class="flex items-center justify-center gap-2 py-12 text-center text-slate-400">
+      <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.md" spin />
+      Loading progress…
+    </div>
+
+    <div v-else-if="store.progressError" class="rounded-xl border border-slate-200 bg-white p-4">
+      <ErrorNotice :message="store.progressError" :on-retry="store.loadProgress" />
+    </div>
+
+    <div v-else-if="data" class="space-y-6">
       <WeeklySummaryCard
         :summary="store.weeklySummary"
         :loading="store.weeklySummaryLoading"
@@ -64,7 +74,15 @@ const workoutValues = computed(() => data.value?.weekly_workouts.map((d) => d.wo
         <StatCard label="Avg steps" :icon="icons.activityType.steps" :value="String(data.summary.average_steps)" />
       </div>
 
-      <section v-if="adherence" class="rounded-xl border border-slate-200 bg-white p-4">
+      <section v-if="store.adherenceError" class="rounded-xl border border-slate-200 bg-white p-4">
+        <h2 class="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+          <FontAwesomeIcon :icon="icons.adherence" :class="[ICON_SIZE.sm, 'text-slate-400']" />
+          Adherence
+        </h2>
+        <ErrorNotice :message="store.adherenceError" :on-retry="store.loadAdherence" />
+      </section>
+
+      <section v-else-if="adherence" class="rounded-xl border border-slate-200 bg-white p-4">
         <div class="mb-2 flex items-center justify-between">
           <h2 class="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
             <FontAwesomeIcon :icon="icons.adherence" :class="[ICON_SIZE.sm, 'text-slate-400']" />

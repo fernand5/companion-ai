@@ -4,7 +4,6 @@ namespace App\Services\Fitness;
 
 use App\Models\TrainingSchedule;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
 
@@ -49,7 +48,7 @@ class ScheduleService
     public function upcoming(User $user, int $days = 7): Collection
     {
         $schedules = $user->trainingSchedules()->get();
-        $today = Carbon::today();
+        $today = $user->localNow();
         $occurrences = collect();
 
         for ($offset = 0; $offset < $days; $offset++) {

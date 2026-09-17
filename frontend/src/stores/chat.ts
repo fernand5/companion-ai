@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 
 import * as conversationService from '@/services/conversations'
 import type { Conversation, Message } from '@/types'
+import { extractErrorMessage } from '@/utils/errors'
 
 export const useChatStore = defineStore('chat', () => {
   const conversations = ref<Conversation[]>([])
@@ -28,31 +29,47 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function ensureActiveConversation(): Promise<Conversation> {
+  async function ensureActiveConversation(): Promise<Conversation | null> {
     if (activeConversation.value) {
       return activeConversation.value
     }
 
-    await loadConversations()
+    loadingMessages.value = true
+    error.value = null
 
-    if (conversations.value.length > 0) {
-      const first = conversations.value[0]
-      await openConversation(first)
+    try {
+      await loadConversations()
 
-      return first
+      if (conversations.value.length > 0) {
+        const first = conversations.value[0]
+        await openConversation(first)
+
+        return first
+      }
+
+      const created = await conversationService.createConversation()
+      conversations.value.unshift(created)
+      activeConversation.value = created
+      messages.value = []
+
+      return created
+    } catch (e: unknown) {
+      error.value = extractErrorMessage(e, "Couldn't load your coach conversation.")
+
+      return null
+    } finally {
+      loadingMessages.value = false
     }
-
-    const created = await conversationService.createConversation()
-    conversations.value.unshift(created)
-    activeConversation.value = created
-    messages.value = []
-
-    return created
   }
 
   async function send(content: string) {
     error.value = null
     const conversation = await ensureActiveConversation()
+
+    if (!conversation) {
+      // ensureActiveConversation already set a specific error message.
+      return
+    }
 
     const tempId = -Date.now()
     messages.value.push({
@@ -69,9 +86,7 @@ export const useChatStore = defineStore('chat', () => {
       const assistantMessage = await conversationService.sendMessage(conversation.id, content)
       messages.value.push(assistantMessage)
     } catch (e: unknown) {
-      const apiMessage = (e as { response?: { data?: { message?: string } } })?.response?.data
-        ?.message
-      error.value = apiMessage ?? "Couldn't reach your coach — please try again."
+      error.value = extractErrorMessage(e, "Couldn't reach your coach — please try again.")
       // Compare by id, not object reference — Vue's reactive array wraps
       // pushed objects in a proxy, so the local object reference no longer
       // matches what filter() reads back out of messages.value.

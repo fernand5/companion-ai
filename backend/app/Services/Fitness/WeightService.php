@@ -4,7 +4,6 @@ namespace App\Services\Fitness;
 
 use App\Models\ActivityLog;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -33,7 +32,7 @@ class WeightService
         return DB::transaction(function () use ($user, $validated) {
             $log = $user->activityLogs()->create([
                 'type' => ActivityLog::TYPE_WEIGHT,
-                'logged_date' => $validated['logged_date'] ?? Carbon::today()->toDateString(),
+                'logged_date' => $validated['logged_date'] ?? $user->localToday(),
                 'metadata' => ['weight_kg' => $validated['weight_kg']],
             ]);
 

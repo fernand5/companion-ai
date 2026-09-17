@@ -19,6 +19,7 @@ class AuthController extends Controller
             'name' => $request->string('name'),
             'email' => $request->string('email'),
             'password' => Hash::make($request->string('password')),
+            'timezone' => $request->string('timezone')->toString() ?: null,
         ]);
 
         $token = $user->createToken('api')->plainTextToken;
@@ -37,6 +38,13 @@ class AuthController extends Controller
             throw ValidationException::withMessages([
                 'email' => ['These credentials do not match our records.'],
             ]);
+        }
+
+        // Refreshed on every login (not just captured once at registration)
+        // so a user who travels or whose browser was previously misdetected
+        // self-corrects the next time they sign in.
+        if ($request->filled('timezone')) {
+            $user->update(['timezone' => $request->string('timezone')->toString()]);
         }
 
         $token = $user->createToken('api')->plainTextToken;

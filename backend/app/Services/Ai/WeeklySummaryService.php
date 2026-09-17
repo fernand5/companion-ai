@@ -24,7 +24,7 @@ class WeeklySummaryService
 
     public function getForCurrentWeek(User $user): WeeklySummary
     {
-        $weekStart = Carbon::today()->startOfWeek()->toDateString();
+        $weekStart = $user->localNow()->startOfWeek()->toDateString();
 
         $existing = $user->weeklySummaries()->whereDate('week_start', $weekStart)->first();
 

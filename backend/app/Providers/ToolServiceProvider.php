@@ -18,6 +18,7 @@ use App\Services\Tools\GetWeeklyTrainingSummaryTool;
 use App\Services\Tools\GetWeightHistoryTool;
 use App\Services\Tools\LogActivityTool;
 use App\Services\Tools\LogWorkoutTool;
+use App\Services\Tools\ProposeWeeklyPlanChangesTool;
 use App\Services\Tools\RememberPreferenceTool;
 use App\Services\Tools\ToolRegistry;
 use App\Services\Tools\UpdateExerciseStatusTool;
@@ -51,6 +52,7 @@ class ToolServiceProvider extends ServiceProvider
                 $app->make(GetAdherenceSummaryTool::class),
                 $app->make(UpdateFitnessProfileTool::class),
                 $app->make(AddTrainingScheduleTool::class),
+                $app->make(ProposeWeeklyPlanChangesTool::class),
             ]);
         });
     }

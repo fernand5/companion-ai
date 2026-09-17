@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreRecoveryCheckinRequest;
 use App\Http\Resources\RecoveryCheckinResource;
 use App\Services\Fitness\RecoveryService;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 class RecoveryCheckinController extends Controller
@@ -15,9 +14,10 @@ class RecoveryCheckinController extends Controller
 
     public function index(Request $request)
     {
-        $date = $request->query('date', Carbon::today()->toDateString());
+        $today = $request->user()->localToday();
+        $date = $request->query('date', $today);
 
-        $checkin = $date === Carbon::today()->toDateString()
+        $checkin = $date === $today
             ? $this->recoveryService->today($request->user())
             : $request->user()->recoveryCheckins()->whereDate('checkin_date', $date)->first();
 

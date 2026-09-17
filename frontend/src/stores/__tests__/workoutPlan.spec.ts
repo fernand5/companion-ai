@@ -86,4 +86,15 @@ describe('workout plan store', () => {
     expect(store.today?.exercises[0].status).toBe('pending')
     expect(store.error).not.toBeNull()
   })
+
+  it('sets an error instead of leaving today null and silent when the initial load fails', async () => {
+    vi.mocked(workoutPlanService.fetchPlanForDate).mockRejectedValue(new Error('network error'))
+
+    const store = useWorkoutPlanStore()
+    await store.loadToday()
+
+    expect(store.today).toBeNull()
+    expect(store.loading).toBe(false)
+    expect(store.error).not.toBeNull()
+  })
 })

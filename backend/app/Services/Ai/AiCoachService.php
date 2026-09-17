@@ -6,6 +6,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use App\Services\Ai\Contracts\AiProvider;
+use App\Services\Fitness\WeeklyPlanService;
 use App\Services\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -23,6 +24,7 @@ class AiCoachService
         private readonly ToolRegistry $toolRegistry,
         private readonly FitnessContextBuilder $contextBuilder,
         private readonly SystemPromptBuilder $promptBuilder,
+        private readonly WeeklyPlanService $weeklyPlanService,
     ) {}
 
     public function respond(User $user, Conversation $conversation, string $userMessage): Message
@@ -54,11 +56,35 @@ class AiCoachService
 
     private function generateReply(User $user, Conversation $conversation, string $userMessage): Message
     {
-        $context = $this->contextBuilder->build($user, $userMessage, $conversation);
+        $startedAt = microtime(true);
+
+        // Ordinary chat needs to see the whole week (not just today) so it can
+        // reason about whether a historical activity the user just reported
+        // should affect an upcoming day, not only today's plan.
+        $weekRange = $this->weeklyPlanService->weekRange($user);
+        $context = $this->contextBuilder->build($user, $userMessage, $conversation, includeWeekPlan: true, weekRange: $weekRange);
         $systemPrompt = $this->promptBuilder->build($this->contextBuilder->toPromptText($context));
 
+        // Conversation::messages() carries a baked-in ->orderBy('created_at')
+        // (ascending — correct for the frontend's own GET .../messages, which
+        // uses this same relation to display the thread in order). Appending
+        // ->orderByDesc('created_at') on top of that does NOT override it —
+        // Eloquent appends order clauses rather than replacing them, so the
+        // relation's ascending clause silently wins and this call was a
+        // no-op. That meant this query actually returned messages OLDEST
+        // first, and the .reverse() below then flipped that into NEWEST
+        // first — planting the brand-new current message second in the
+        // array (right after the system prompt) with older turns AFTER it,
+        // ending on whatever the oldest retained message happened to be.
+        // Confirmed against a real conversation: the model was handed the
+        // transcript back-to-front, with the actual latest user message
+        // buried instead of last — which alone explains a reply that
+        // ignores new input and continues an old thread. reorder() clears
+        // the inherited clause so this query's own order actually applies;
+        // `id` remains as a deterministic tiebreaker for same-second ties.
         $history = $conversation->messages()
-            ->orderByDesc('created_at')
+            ->reorder('created_at', 'desc')
+            ->orderByDesc('id')
             ->limit(10)
             ->get()
             ->reverse()
@@ -126,6 +152,24 @@ class AiCoachService
             'meta' => $toolTrace !== [] ? ['tool_calls' => $toolTrace] : null,
         ]);
 
+        // Always-on, production-safe turn summary — structured metadata only,
+        // never message content, context values, or profile/fitness data, so
+        // it stays safe to enable in production unlike the full ai_debug dump
+        // below. Enough to audit history ordering/tool-calling behavior for a
+        // reported bug without needing AI_DEBUG on for a real user.
+        Log::info('ai_coach.turn', [
+            'conversation_id' => $conversation->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'history_message_count' => $history->count(),
+            'history_roles' => $history->pluck('role')->push(Message::ROLE_ASSISTANT)->all(),
+            'context_sections' => array_keys($context),
+            'tools_available_count' => count($tools),
+            'tool_call_count' => count($toolTrace),
+            'tool_names_called' => array_column($toolTrace, 'name'),
+            'response_type' => $toolTrace !== [] ? 'tool_assisted' : 'direct',
+            'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ]);
+
         if (config('ai.debug')) {
             Log::channel('ai_debug')->info('AI coach turn', [
                 'user_id' => $user->id,
@@ -153,9 +197,15 @@ class AiCoachService
      */
     public function dashboardRecommendation(User $user): string
     {
-        $cacheKey = "dashboard_recommendation:{$user->id}:".now()->toDateString();
+        // Keyed and expired against the user's own local calendar day, not
+        // the server's UTC clock — otherwise a user behind UTC (most of the
+        // Americas) would get a cache boundary hours before their actual
+        // midnight, either serving a stale recommendation into their new day
+        // or invalidating mid-evening while it's still "today" for them.
+        $localNow = $user->localNow();
+        $cacheKey = "dashboard_recommendation:{$user->id}:".$localNow->toDateString();
 
-        return Cache::remember($cacheKey, now()->endOfDay(), function () use ($user) {
+        return Cache::remember($cacheKey, $localNow->copy()->endOfDay(), function () use ($user) {
             set_time_limit(60);
 
             $context = $this->contextBuilder->build($user, 'What should I do today?');

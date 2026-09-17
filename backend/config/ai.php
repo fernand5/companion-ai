@@ -18,11 +18,22 @@ return [
 
     'model' => env('AI_MODEL', 'gemini-3.6-flash'),
 
-    'debug' => (bool) env('AI_DEBUG', false),
+    // Hard-disabled whenever APP_ENV=production, regardless of AI_DEBUG —
+    // when on, this logs full user fitness context (profile, activity,
+    // recovery/pain notes) to storage/logs/ai-debug-*.log on every chat
+    // turn. That's fine for local development, but a stray AI_DEBUG=true
+    // left in a real production .env would otherwise accumulate real
+    // users' health-adjacent data in a plaintext, unrotated file.
+    'debug' => env('APP_ENV') !== 'production' && (bool) env('AI_DEBUG', false),
 
     // Some turns need several sequential tool calls (e.g. an onboarding message
     // that states goals + equipment + two schedule days) — kept comfortably
     // above the common case now that the tool surface has grown.
     'max_tool_iterations' => env('AI_MAX_TOOL_ITERATIONS', 6),
+
+    // The weekly-plan adaptation flow is one bounded decision, not open
+    // conversation — kept smaller than max_tool_iterations and independently
+    // tunable.
+    'max_weekly_adaptation_iterations' => env('AI_MAX_WEEKLY_ADAPTATION_ITERATIONS', 3),
 
 ];

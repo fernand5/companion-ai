@@ -4,7 +4,6 @@ namespace App\Services\Tools;
 
 use App\Models\User;
 use App\Services\Fitness\AdherenceService;
-use Carbon\Carbon;
 
 class GetAdherenceSummaryTool implements AiTool
 {
@@ -35,11 +34,12 @@ class GetAdherenceSummaryTool implements AiTool
     public function execute(array $arguments, User $user): mixed
     {
         $weeks = min(max((int) ($arguments['weeks'] ?? 1), 1), 12);
+        $today = $user->localNow();
 
         return $this->adherenceService->summary(
             $user,
-            Carbon::today()->subWeeks($weeks)->addDay()->toDateString(),
-            Carbon::today()->toDateString(),
+            $today->copy()->subWeeks($weeks)->addDay()->toDateString(),
+            $today->toDateString(),
         );
     }
 }

@@ -184,6 +184,22 @@ export interface AdherenceData {
   summary: AdherenceSummary
 }
 
+export interface WeeklyPlanDay {
+  date: string
+  plan: WorkoutPlan | null
+}
+
+export interface WeeklyAdaptationResult {
+  applied: boolean
+  explanation: string | null
+  decision_summary?: string
+  reasoning_factors?: string[]
+  changes?: string[]
+  skipped?: Array<{ date: string; reason: string }>
+  cleared?: string[]
+  error?: string
+}
+
 export interface WeeklySummary {
   week_start: string
   stats: AdherenceSummary

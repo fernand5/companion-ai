@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useAuthStore } from '@/stores/auth'
+import { extractErrorMessage } from '@/utils/errors'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -29,9 +30,7 @@ async function handleSubmit() {
     })
     router.push('/')
   } catch (e: unknown) {
-    const message =
-      (e as { response?: { data?: { message?: string } } })?.response?.data?.message
-    error.value = message ?? 'Could not create your account — check the fields and try again.'
+    error.value = extractErrorMessage(e, 'Could not create your account — check the fields and try again.')
   } finally {
     submitting.value = false
   }

@@ -5,6 +5,7 @@ namespace App\Services\Ai;
 use App\Models\ActivityLog;
 use App\Models\Conversation;
 use App\Models\User;
+use App\Models\WorkoutPlan;
 use App\Services\Fitness\ActivityService;
 use App\Services\Fitness\AdherenceService;
 use App\Services\Fitness\RecoveryService;
@@ -13,7 +14,6 @@ use App\Services\Fitness\WorkoutPlanService;
 use App\Services\Memory\MemoryProvider;
 use App\Services\Tools\GetRecentActivityTool;
 use App\Services\Tools\GetTodaysPlanTool;
-use Carbon\Carbon;
 
 /**
  * Assembles a compact, selective context block for the AI coach — never a raw
@@ -42,10 +42,22 @@ class FitnessContextBuilder
      *   today_plan: array|null,
      *   adherence_signal: array,
      *   latest_recovery: array|null,
+     *   week_plan: array|null,
      * }
+     *
+     * $includeWeekPlan/$weekRange are opt-in per caller (not a default part of
+     * every context build) — only the flows that actually reason about more
+     * than "today" (the weekly-plan adaptation flow, and ordinary chat so it
+     * can consider whether a logged activity affects upcoming days) pass
+     * these, keeping every other call site's prompt size unchanged.
      */
-    public function build(User $user, string $userMessage, ?Conversation $conversation = null): array
-    {
+    public function build(
+        User $user,
+        string $userMessage,
+        ?Conversation $conversation = null,
+        bool $includeWeekPlan = false,
+        ?array $weekRange = null,
+    ): array {
         $profile = $user->fitnessProfile;
 
         $recentActivity = $this->activityService->recent($user, 10)
@@ -67,16 +79,43 @@ class FitnessContextBuilder
 
         $memories = $this->memoryProvider->recall($user, $userMessage, (int) config('memory.recall_limit', 5));
 
-        $today = Carbon::today()->toDateString();
+        // The user's own local calendar date, not the server's UTC clock —
+        // otherwise a user behind UTC would have "today" roll over hours
+        // before their actual local midnight, misdating anything logged
+        // without an explicit date and confusing today-vs-tomorrow reasoning.
+        $today = $user->localToday();
         $todayPlan = $this->workoutPlanService->forDate($user, $today);
 
         $adherenceSignal = $this->adherenceService->summary(
             $user,
-            Carbon::today()->subDays(6)->toDateString(),
+            $user->localNow()->subDays(6)->toDateString(),
             $today,
         );
 
         $latestRecovery = $this->recoveryService->latest($user);
+
+        $weekPlan = null;
+        if ($includeWeekPlan && $weekRange !== null) {
+            // A past day's title/reasoning was written by the AI when it was
+            // created (e.g. "Soccer Match Tonight") and is never re-labeled
+            // once that date passes — without an explicit marker here, that
+            // stale wording sits right next to `today` with nothing telling
+            // the model the two don't refer to the same day, which invites it
+            // to treat "tonight" as still current. relative_to_today makes
+            // that unambiguous from the data itself, not from prose alone.
+            $weekPlan = $this->workoutPlanService->forRange($user, $weekRange['start'], $weekRange['end'])
+                ->map(function (WorkoutPlan $plan) use ($today) {
+                    $presented = GetTodaysPlanTool::present($plan);
+                    $presented['relative_to_today'] = match (true) {
+                        $presented['planned_date'] < $today => 'past',
+                        $presented['planned_date'] === $today => 'today',
+                        default => 'future',
+                    };
+
+                    return $presented;
+                })
+                ->all();
+        }
 
         return [
             'today' => $today,
@@ -103,6 +142,7 @@ class FitnessContextBuilder
                 'perceived_difficulty' => $latestRecovery->perceived_difficulty,
                 'pain_notes' => $latestRecovery->pain_notes,
             ] : null,
+            'week_plan' => $weekPlan,
         ];
     }
 
@@ -142,6 +182,18 @@ class FitnessContextBuilder
         $lines[] = '';
         $lines[] = '## Latest recovery check-in';
         $lines[] = $context['latest_recovery'] ? json_encode($context['latest_recovery']) : 'No check-in recorded yet.';
+
+        if ($context['week_plan'] !== null) {
+            $lines[] = '';
+            $lines[] = "## This week's plan (Mon-Sun)";
+            $lines[] = $context['week_plan']
+                ? json_encode($context['week_plan'])
+                    .' — each entry\'s relative_to_today is "past", "today", or "future". A "past" entry\'s '
+                    .'title/reasoning was written when it was created and may say "tonight"/"today" even though '
+                    .'that date has since passed — treat it as historical record only, never as describing '
+                    .'anything happening today or later.'
+                : 'Nothing planned yet this week.';
+        }
 
         $lines[] = '';
         $lines[] = 'Use the available tools to fetch anything above that is missing or to look further back in history.';

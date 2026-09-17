@@ -37,9 +37,17 @@ return [
     | stack traces will be shown on every error that occurs within your
     | application. If disabled, a simple generic error page is shown.
     |
+    | Hard-disabled whenever APP_ENV=production, regardless of APP_DEBUG —
+    | there is no custom exception handler sanitizing API error responses,
+    | so a stray APP_DEBUG=true left in a real production .env would leak
+    | stack traces (including internal error messages) straight to API
+    | clients. APP_ENV=production is set automatically by every managed
+    | Laravel host, making this a much harder setting to forget than
+    | APP_DEBUG itself.
+    |
     */
 
-    'debug' => (bool) env('APP_DEBUG', false),
+    'debug' => env('APP_ENV') !== 'production' && (bool) env('APP_DEBUG', false),
 
     /*
     |--------------------------------------------------------------------------

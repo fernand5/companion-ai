@@ -24,6 +24,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/weekly-plan',
+      name: 'weekly-plan',
+      component: () => import('@/views/WeeklyPlanView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/coach',
       name: 'coach',
       component: () => import('@/views/CoachView.vue'),

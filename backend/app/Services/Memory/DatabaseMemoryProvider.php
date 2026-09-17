@@ -20,11 +20,30 @@ class DatabaseMemoryProvider implements MemoryProvider
         'to', 'of', 'in', 'on', 'for', 'with', 'that', 'this', 'it', 'have', 'has',
     ];
 
+    /**
+     * A message re-stated across several similarly-worded turns (e.g. the same
+     * step-count goal saved on 3 separate onboarding attempts) must not pile
+     * up as near-duplicate rows — each one counts toward this user's `recall()`
+     * limit and crowds out genuinely distinct preferences from the AI's
+     * context. Real paraphrases of the same fact ("Targets around 6-8k steps
+     * on average..." vs "User prefers 6-8k steps on average...") share almost
+     * no character sequences in common (similar_text() scores them 27-60%),
+     * so duplicate detection reuses the same keyword tokenizer as recall()
+     * and compares keyword-SET overlap instead of raw string similarity.
+     * Calibrated against real captured duplicates (0.33-0.44 overlap) vs a
+     * genuinely distinct preference (0 overlap) — 0.3 cleanly separates them.
+     */
+    private const DUPLICATE_KEYWORD_OVERLAP_THRESHOLD = 0.3;
+
     public function remember(User $user, string $content, array $metadata = []): void
     {
         $content = trim($content);
 
         if ($content === '') {
+            return;
+        }
+
+        if ($this->hasSimilarMemory($user, $content)) {
             return;
         }
 
@@ -34,6 +53,36 @@ class DatabaseMemoryProvider implements MemoryProvider
             'category' => $metadata['category'] ?? null,
             'metadata' => $metadata,
         ]);
+    }
+
+    private function hasSimilarMemory(User $user, string $content): bool
+    {
+        $newKeywords = $this->keywords($content);
+
+        if ($newKeywords === []) {
+            return false;
+        }
+
+        $existing = FitnessMemory::query()
+            ->where('user_id', $user->id)
+            ->pluck('content');
+
+        foreach ($existing as $other) {
+            $otherKeywords = $this->keywords($other);
+
+            if ($otherKeywords === []) {
+                continue;
+            }
+
+            $overlap = count(array_intersect($newKeywords, $otherKeywords));
+            $smallerSetSize = min(count($newKeywords), count($otherKeywords));
+
+            if (($overlap / $smallerSetSize) >= self::DUPLICATE_KEYWORD_OVERLAP_THRESHOLD) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function recall(User $user, string $query, int $limit = 10): array

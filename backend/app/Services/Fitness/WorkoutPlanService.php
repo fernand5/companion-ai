@@ -5,7 +5,6 @@ namespace App\Services\Fitness;
 use App\Models\User;
 use App\Models\WorkoutPlan;
 use App\Models\WorkoutPlanExercise;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -69,7 +68,7 @@ class WorkoutPlanService
             'exercises.*.planned_duration_seconds' => 'nullable|integer|min:0|max:7200',
         ])->validate();
 
-        $plannedDate = $validated['planned_date'] ?? Carbon::today()->toDateString();
+        $plannedDate = $validated['planned_date'] ?? $user->localToday();
 
         $trainingScheduleId = null;
         if (! empty($validated['training_schedule_id'])) {

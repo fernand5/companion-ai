@@ -9,6 +9,8 @@ use App\Services\Ai\AiProviderException;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\DTOs\AiResponse;
 use App\Services\Ai\DTOs\ToolCallRequest;
+use App\Services\Fitness\WorkoutPlanService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Support\FakeAiProvider;
 use Tests\Support\ThrowingAiProvider;
@@ -17,6 +19,12 @@ use Tests\TestCase;
 class AiCoachServiceTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
 
     public function test_respond_saves_user_message_and_persists_final_assistant_reply(): void
     {
@@ -210,6 +218,161 @@ class AiCoachServiceTest extends TestCase
         $userTurns = collect($secondCallMessages)->where('role', 'user')->pluck('content');
         $this->assertTrue($userTurns->contains('first message'));
         $this->assertTrue($userTurns->contains('second message'));
+    }
+
+    /**
+     * Root-cause regression. Conversation::messages() carries a baked-in
+     * ->orderBy('created_at') ascending (correct for the frontend's own
+     * GET .../messages display). Chaining ->orderByDesc('created_at') on top
+     * of that in generateReply() does NOT override it — Eloquent appends
+     * order clauses instead of replacing them — so with realistically
+     * distinct timestamps (never tied, unlike rapid-fire test execution) the
+     * query actually returned OLDEST-first, and the .reverse() that followed
+     * flipped that into NEWEST-first: the brand-new current message ended up
+     * second in the array (right after the system prompt) with older turns
+     * placed AFTER it, ending on whichever message happened to be oldest.
+     * Confirmed against real production data before the fix. Every message
+     * here is pinned to a distinct minute via Carbon::setTestNow() so this
+     * reproduces that exact (non-tied) condition — a fast run where every
+     * message ties to the same second would mask the bug entirely, which is
+     * exactly what let an earlier, insufficient version of this test pass
+     * against broken code.
+     */
+    public function test_the_current_user_message_is_always_the_last_message_sent_to_the_provider(): void
+    {
+        $fake = new FakeAiProvider;
+        $fake->queue(new AiResponse(text: 'first reply'), new AiResponse(text: 'second reply'));
+        $this->app->instance(AiProvider::class, $fake);
+
+        $user = User::factory()->create();
+        $conversation = $user->conversations()->create();
+
+        Carbon::setTestNow(Carbon::parse('2026-09-15 10:00:00'));
+        app(AiCoachService::class)->respond($user, $conversation, 'first message');
+
+        Carbon::setTestNow(Carbon::parse('2026-09-16 10:00:00'));
+        app(AiCoachService::class)->respond($user, $conversation, 'second message');
+
+        $lastMessageOfSecondCall = collect($fake->calls[1]['messages'])->last();
+        $this->assertSame('user', $lastMessageOfSecondCall['role']);
+        $this->assertSame('second message', $lastMessageOfSecondCall['content']);
+    }
+
+    public function test_history_is_sent_in_strict_chronological_order(): void
+    {
+        $fake = new FakeAiProvider;
+        $fake->queue(
+            new AiResponse(text: 'reply one'),
+            new AiResponse(text: 'reply two'),
+            new AiResponse(text: 'reply three'),
+        );
+        $this->app->instance(AiProvider::class, $fake);
+
+        $user = User::factory()->create();
+        $conversation = $user->conversations()->create();
+
+        Carbon::setTestNow(Carbon::parse('2026-09-14 09:00:00'));
+        app(AiCoachService::class)->respond($user, $conversation, 'message one');
+
+        Carbon::setTestNow(Carbon::parse('2026-09-15 09:00:00'));
+        app(AiCoachService::class)->respond($user, $conversation, 'message two');
+
+        Carbon::setTestNow(Carbon::parse('2026-09-16 09:00:00'));
+        app(AiCoachService::class)->respond($user, $conversation, 'message three');
+
+        $thirdCallMessages = collect($fake->calls[2]['messages']);
+        $conversationTurns = $thirdCallMessages->skip(1)->values(); // drop the leading system message
+
+        $this->assertSame([
+            ['role' => 'user', 'content' => 'message one'],
+            ['role' => 'assistant', 'content' => 'reply one'],
+            ['role' => 'user', 'content' => 'message two'],
+            ['role' => 'assistant', 'content' => 'reply two'],
+            ['role' => 'user', 'content' => 'message three'],
+        ], $conversationTurns->all());
+    }
+
+    public function test_two_conversations_for_the_same_user_never_leak_history_into_each_other(): void
+    {
+        $fake = new FakeAiProvider;
+        $fake->queue(new AiResponse(text: 'reply in A'), new AiResponse(text: 'reply in B'));
+        $this->app->instance(AiProvider::class, $fake);
+
+        $user = User::factory()->create();
+        $conversationA = $user->conversations()->create();
+        $conversationB = $user->conversations()->create();
+
+        app(AiCoachService::class)->respond($user, $conversationA, 'message only in A');
+        app(AiCoachService::class)->respond($user, $conversationB, 'message only in B');
+
+        $bCallContents = collect($fake->calls[1]['messages'])->pluck('content');
+        $this->assertTrue($bCallContents->contains('message only in B'));
+        $this->assertFalse($bCallContents->contains('message only in A'));
+    }
+
+    /**
+     * The exact reported failure mode, reproduced structurally: a prior
+     * assistant turn said a match was "tonight"; a WorkoutPlan row for that
+     * same past date still carries that wording (title/reasoning are written
+     * once and never re-labeled). The system prompt sent to the model for
+     * the NEXT turn must mark that entry "past" and warn that its wording may
+     * be stale — the model must not be left to infer this from prose alone
+     * anchored against its own prior turn.
+     */
+    public function test_a_past_dated_plan_still_worded_tonight_is_marked_past_in_the_prompt_sent_to_the_model(): void
+    {
+        $user = User::factory()->create();
+        $conversation = $user->conversations()->create();
+        $yesterday = Carbon::parse('2026-09-15')->toDateString();
+
+        Carbon::setTestNow(Carbon::parse('2026-09-15 20:39:00'));
+        app(WorkoutPlanService::class)->createOrReplace($user, [
+            'planned_date' => $yesterday,
+            'activity_type' => 'sport',
+            'title' => 'Soccer Match Tonight',
+            'reasoning' => "Focus on tonight's soccer match and keep the rest of the day light.",
+        ]);
+        $conversation->messages()->create(['role' => Message::ROLE_USER, 'content' => 'hello']);
+        $conversation->messages()->create([
+            'role' => Message::ROLE_ASSISTANT,
+            'content' => 'Hello! Since you have your soccer match scheduled for tonight, I recommend keeping today light.',
+        ]);
+
+        // The reported bug happened the NEXT day — this is the case that
+        // matters: a genuinely new "now" relative to the stored history.
+        Carbon::setTestNow(Carbon::parse('2026-09-16 16:22:00'));
+
+        $fake = new FakeAiProvider;
+        $fake->queue(new AiResponse(text: null, toolCalls: [
+            new ToolCallRequest(id: 'call_1', name: 'log_activity', arguments: [
+                'type' => 'sport',
+                'logged_date' => $yesterday,
+                'metadata' => ['steps' => 9000],
+            ]),
+        ]), new AiResponse(text: 'Logged your soccer session from yesterday.'));
+        $this->app->instance(AiProvider::class, $fake);
+
+        app(AiCoachService::class)->respond(
+            $user,
+            $conversation,
+            'Yesterday I did the soccer session, walking ~6k steps, so in total yesterday I did 9k steps',
+        );
+
+        $firstCallMessages = collect($fake->calls[0]['messages']);
+        $systemMessage = $firstCallMessages->firstWhere('role', 'system');
+
+        $this->assertStringContainsString('"relative_to_today":"past"', str_replace(' ', '', $systemMessage['content']));
+        $this->assertStringContainsString('historical record only', $systemMessage['content']);
+
+        // The critical assertion: the new message must be LAST overall, not
+        // just the last user-role entry — this is exactly what the reversed
+        // history bug violated (it landed second, right after the system
+        // prompt, with the "hello"/"soccer tonight" turns placed after it).
+        $lastMessageOverall = $firstCallMessages->last();
+        $this->assertSame(
+            'Yesterday I did the soccer session, walking ~6k steps, so in total yesterday I did 9k steps',
+            $lastMessageOverall['content'],
+        );
     }
 
     public function test_a_failed_provider_call_does_not_leave_an_orphaned_user_message(): void

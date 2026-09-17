@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\Fitness\AdherenceService;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 class AdherenceController extends Controller
@@ -15,13 +14,14 @@ class AdherenceController extends Controller
     {
         $weeks = min(max((int) $request->query('weeks', 8), 1), 26);
         $user = $request->user();
+        $today = $user->localNow();
 
         return response()->json([
             'series' => $this->adherenceService->weeklySeries($user, $weeks),
             'summary' => $this->adherenceService->summary(
                 $user,
-                Carbon::today()->subDays(6)->toDateString(),
-                Carbon::today()->toDateString(),
+                $today->copy()->subDays(6)->toDateString(),
+                $today->toDateString(),
             ),
         ]);
     }

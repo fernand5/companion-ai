@@ -130,6 +130,26 @@ class GeminiProviderTest extends TestCase
         }
     }
 
+    public function test_a_malformed_non_json_200_response_is_converted_to_an_ai_provider_exception(): void
+    {
+        // A 200 status with a body that isn't valid JSON (e.g. a truncated
+        // stream, an HTML error page from an intermediary proxy) must not
+        // crash with an uncaught TypeError — it should degrade the same way
+        // as any other provider failure.
+        Http::fake([
+            '*generativelanguage.googleapis.com*' => Http::response('not json at all <html>', 200),
+        ]);
+
+        try {
+            (new GeminiProvider(apiKey: 'test-key', model: 'gemini-3.6-flash'))->chat([
+                ['role' => 'user', 'content' => 'hi'],
+            ]);
+            $this->fail('Expected AiProviderException to be thrown.');
+        } catch (AiProviderException $e) {
+            $this->assertSame('unavailable', $e->userFacingReason());
+        }
+    }
+
     public function test_a_429_response_is_reported_as_rate_limited(): void
     {
         Http::fake([

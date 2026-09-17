@@ -3,6 +3,7 @@ import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed } from 'vue'
 
+import ErrorNotice from '@/components/ErrorNotice.vue'
 import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useWorkoutPlanStore } from '@/stores/workoutPlan'
@@ -123,5 +124,8 @@ function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
       <FontAwesomeIcon :icon="icons.warning" :class="ICON_SIZE.xs" />
       {{ store.error }}
     </p>
+  </div>
+  <div v-else-if="store.error" class="rounded-xl border border-slate-200 bg-white p-4">
+    <ErrorNotice :message="store.error" :on-retry="store.loadToday" />
   </div>
 </template>

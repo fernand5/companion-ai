@@ -49,6 +49,7 @@ import {
 export const icons = {
   nav: {
     dashboard: faGaugeHigh,
+    weeklyPlan: faCalendarDays,
     coach: faComments,
     activity: faClipboardList,
     progress: faChartLine,

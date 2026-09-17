@@ -5,7 +5,6 @@ namespace App\Services\Tools;
 use App\Models\User;
 use App\Models\WorkoutPlan;
 use App\Services\Fitness\WorkoutPlanService;
-use Carbon\Carbon;
 
 class GetTodaysPlanTool implements AiTool
 {
@@ -34,7 +33,7 @@ class GetTodaysPlanTool implements AiTool
 
     public function execute(array $arguments, User $user): mixed
     {
-        $date = $arguments['date'] ?? Carbon::today()->toDateString();
+        $date = $arguments['date'] ?? $user->localToday();
         $plan = $this->workoutPlanService->forDate($user, $date);
 
         if (! $plan) {

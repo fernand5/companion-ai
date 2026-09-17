@@ -2,6 +2,7 @@
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { onMounted, reactive, watch } from 'vue'
 
+import ErrorNotice from '@/components/ErrorNotice.vue'
 import ScheduleEditor from '@/components/ScheduleEditor.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useProfileStore } from '@/stores/profile'
@@ -67,7 +68,16 @@ async function submit() {
       Profile
     </h1>
 
-    <form class="space-y-4 rounded-xl border border-slate-200 bg-white p-4" @submit.prevent="submit">
+    <div v-if="store.loading" class="flex items-center justify-center gap-2 py-12 text-center text-slate-400">
+      <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.md" spin />
+      Loading profile…
+    </div>
+
+    <div v-else-if="store.error" class="rounded-xl border border-slate-200 bg-white p-4">
+      <ErrorNotice :message="store.error" :on-retry="store.load" />
+    </div>
+
+    <form v-else class="space-y-4 rounded-xl border border-slate-200 bg-white p-4" @submit.prevent="submit">
       <div class="grid grid-cols-2 gap-3">
         <label class="text-sm text-slate-600">
           Height (cm)
@@ -159,6 +169,6 @@ async function submit() {
       </p>
     </form>
 
-    <ScheduleEditor />
+    <ScheduleEditor v-if="!store.loading && !store.error" />
   </div>
 </template>

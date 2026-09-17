@@ -25,7 +25,9 @@ class ActivityService
      */
     public function recent(User $user, int $days = 7): Collection
     {
-        return $this->history($user, Carbon::today()->subDays($days - 1)->toDateString(), Carbon::today()->toDateString());
+        $today = $user->localNow();
+
+        return $this->history($user, $today->copy()->subDays($days - 1)->toDateString(), $today->toDateString());
     }
 
     /**
@@ -66,7 +68,7 @@ class ActivityService
      */
     public function today(User $user): Collection
     {
-        return $this->forDate($user, Carbon::today()->toDateString());
+        return $this->forDate($user, $user->localToday());
     }
 
     public function log(User $user, array $data): ActivityLog
@@ -86,7 +88,7 @@ class ActivityService
 
         return $user->activityLogs()->create([
             'type' => $validated['type'],
-            'logged_date' => $validated['logged_date'] ?? Carbon::today()->toDateString(),
+            'logged_date' => $validated['logged_date'] ?? $user->localToday(),
             'duration_minutes' => $validated['duration_minutes'] ?? null,
             'intensity' => $validated['intensity'] ?? null,
             'notes' => $validated['notes'] ?? null,
@@ -105,7 +107,7 @@ class ActivityService
      */
     public function weeklySummary(User $user, ?Carbon $reference = null): array
     {
-        $reference ??= Carbon::today();
+        $reference ??= $user->localNow();
         $weekStart = $reference->copy()->startOfWeek();
         $weekEnd = $reference->copy()->endOfWeek();
 

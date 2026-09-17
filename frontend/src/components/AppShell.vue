@@ -10,6 +10,7 @@ const router = useRouter()
 
 const navItems = [
   { name: 'dashboard', label: 'Dashboard', icon: icons.nav.dashboard },
+  { name: 'weekly-plan', label: 'Weekly Plan', icon: icons.nav.weeklyPlan },
   { name: 'coach', label: 'Coach', icon: icons.nav.coach },
   { name: 'activity', label: 'Activity', icon: icons.nav.activity },
   { name: 'progress', label: 'Progress', icon: icons.nav.progress },

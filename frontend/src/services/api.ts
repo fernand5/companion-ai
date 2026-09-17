@@ -29,6 +29,13 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('auth_token')
+      // Dispatched instead of importing the auth store directly, which would
+      // create a circular import (api.ts -> store -> services/auth.ts ->
+      // api.ts). App.vue listens for this and clears its reactive session
+      // state + redirects — without it, the store's `token` ref stays stale
+      // and the UI keeps rendering as authenticated while every request
+      // keeps silently 401ing.
+      window.dispatchEvent(new Event('auth:unauthorized'))
     }
 
     return Promise.reject(error)

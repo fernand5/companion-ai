@@ -44,4 +44,15 @@ describe('auth store', () => {
     expect(store.user).toBeNull()
     expect(localStorage.getItem('auth_token')).toBeNull()
   })
+
+  it('exposes clearSession directly, for reacting to a 401 without calling the logout endpoint', async () => {
+    const store = useAuthStore()
+    await store.login({ email: 'alonso@example.com', password: 'secret' })
+
+    store.clearSession()
+
+    expect(store.isAuthenticated).toBe(false)
+    expect(store.user).toBeNull()
+    expect(localStorage.getItem('auth_token')).toBeNull()
+  })
 })

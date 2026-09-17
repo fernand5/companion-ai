@@ -4,6 +4,7 @@ import { defineStore } from 'pinia'
 import * as workoutPlanService from '@/services/workoutPlans'
 import type { UpdateExerciseStatusPayload } from '@/services/workoutPlans'
 import type { PlanExerciseStatus, WorkoutPlan } from '@/types'
+import { extractErrorMessage } from '@/utils/errors'
 
 export const useWorkoutPlanStore = defineStore('workoutPlan', () => {
   const today = ref<WorkoutPlan | null>(null)
@@ -16,6 +17,8 @@ export const useWorkoutPlanStore = defineStore('workoutPlan', () => {
 
     try {
       today.value = await workoutPlanService.fetchPlanForDate()
+    } catch (e: unknown) {
+      error.value = extractErrorMessage(e, "Couldn't load today's plan.")
     } finally {
       loading.value = false
     }

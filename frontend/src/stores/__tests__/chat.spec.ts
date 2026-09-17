@@ -25,6 +25,7 @@ vi.mock('@/services/conversations', () => ({
 describe('chat store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
   it('creates a conversation on first send and appends both messages', async () => {
@@ -59,5 +60,28 @@ describe('chat store', () => {
 
     expect(store.messages).toHaveLength(0)
     expect(store.error).toBe('The AI coach is not configured yet.')
+  })
+
+  it('sets an error instead of leaving the conversation empty and silent when the initial load fails', async () => {
+    const store = useChatStore()
+    vi.mocked(conversationService.fetchConversations).mockRejectedValueOnce(new Error('network error'))
+
+    const result = await store.ensureActiveConversation()
+
+    expect(result).toBeNull()
+    expect(store.activeConversation).toBeNull()
+    expect(store.loadingMessages).toBe(false)
+    expect(store.error).not.toBeNull()
+  })
+
+  it('does nothing and keeps the load error when send is called while the conversation failed to load', async () => {
+    const store = useChatStore()
+    vi.mocked(conversationService.fetchConversations).mockRejectedValueOnce(new Error('network error'))
+
+    await store.send('What should I do today?')
+
+    expect(store.messages).toHaveLength(0)
+    expect(conversationService.sendMessage).not.toHaveBeenCalled()
+    expect(store.error).not.toBeNull()
   })
 })

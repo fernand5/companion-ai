@@ -4,7 +4,6 @@ namespace App\Services\Fitness;
 
 use App\Models\RecoveryCheckin;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Validator;
 
@@ -13,7 +12,7 @@ class RecoveryService
     public function today(User $user): ?RecoveryCheckin
     {
         return $user->recoveryCheckins()
-            ->whereDate('checkin_date', Carbon::today()->toDateString())
+            ->whereDate('checkin_date', $user->localToday())
             ->first();
     }
 
@@ -28,7 +27,7 @@ class RecoveryService
     public function recent(User $user, int $days = 14): Collection
     {
         return $user->recoveryCheckins()
-            ->whereDate('checkin_date', '>=', Carbon::today()->subDays($days - 1)->toDateString())
+            ->whereDate('checkin_date', '>=', $user->localNow()->subDays($days - 1)->toDateString())
             ->orderByDesc('checkin_date')
             ->get();
     }
@@ -48,7 +47,7 @@ class RecoveryService
             'pain_notes' => 'nullable|string|max:2000',
         ])->validate();
 
-        $checkinDate = $validated['checkin_date'] ?? Carbon::today()->toDateString();
+        $checkinDate = $validated['checkin_date'] ?? $user->localToday();
 
         $attributes = [
             'energy' => $validated['energy'],

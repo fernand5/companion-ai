@@ -6,7 +6,6 @@ use App\Models\ActivityLog;
 use App\Models\User;
 use App\Models\WorkoutPlan;
 use App\Models\WorkoutPlanExercise;
-use Carbon\Carbon;
 
 /**
  * Computes real adherence from workout_plans/workout_plan_exercises — never
@@ -56,7 +55,7 @@ class AdherenceService
      */
     public function summary(User $user, string $startDate, string $endDate): array
     {
-        $today = Carbon::today()->toDateString();
+        $today = $user->localToday();
 
         $duePlansQuery = fn () => $user->workoutPlans()
             ->whereDate('planned_date', '>=', $startDate)
@@ -111,7 +110,7 @@ class AdherenceService
         $series = [];
 
         for ($i = $weeks - 1; $i >= 0; $i--) {
-            $reference = Carbon::today()->subWeeks($i);
+            $reference = $user->localNow()->subWeeks($i);
             $weekStart = $reference->copy()->startOfWeek();
             $weekEnd = $reference->copy()->endOfWeek();
 

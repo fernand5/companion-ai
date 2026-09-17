@@ -77,4 +77,24 @@ class ConversationEndpointTest extends TestCase
             ->assertStatus(503)
             ->assertJsonPath('message', 'Your coach is at its request limit for now — please wait a moment and try again.');
     }
+
+    public function test_repeated_message_sends_are_rate_limited_to_protect_shared_ai_capacity(): void
+    {
+        $fake = new FakeAiProvider;
+        $fake->queue(...array_fill(0, 10, new AiResponse(text: 'ok')));
+        $this->app->instance(AiProvider::class, $fake);
+
+        $user = User::factory()->create();
+        $conversationId = $this->actingAs($user, 'sanctum')->postJson('/api/conversations', [])->json('id');
+
+        for ($i = 0; $i < 10; $i++) {
+            $this->actingAs($user, 'sanctum')
+                ->postJson("/api/conversations/{$conversationId}/messages", ['content' => "message {$i}"])
+                ->assertCreated();
+        }
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson("/api/conversations/{$conversationId}/messages", ['content' => 'one too many'])
+            ->assertStatus(429);
+    }
 }

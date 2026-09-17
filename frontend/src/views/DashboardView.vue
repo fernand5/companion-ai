@@ -2,6 +2,7 @@
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, onMounted } from 'vue'
 
+import ErrorNotice from '@/components/ErrorNotice.vue'
 import RecoveryCheckinForm from '@/components/RecoveryCheckinForm.vue'
 import StatCard from '@/components/StatCard.vue'
 import TodaysPlanCard from '@/components/TodaysPlanCard.vue'
@@ -45,6 +46,10 @@ const recommendationUnavailableMessage = computed(() => {
     <div v-if="store.loading" class="flex items-center justify-center gap-2 py-12 text-center text-slate-400">
       <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.md" spin />
       Loading dashboard…
+    </div>
+
+    <div v-else-if="store.error" class="rounded-xl border border-slate-200 bg-white p-4">
+      <ErrorNotice :message="store.error" :on-retry="store.loadDashboard" />
     </div>
 
     <template v-else-if="data">

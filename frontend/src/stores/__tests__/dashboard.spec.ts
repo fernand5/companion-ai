@@ -69,4 +69,37 @@ describe('dashboard store', () => {
     await promise
     expect(store.loading).toBe(false)
   })
+
+  it('sets an error instead of leaving dashboard null and silent when the fetch fails', async () => {
+    vi.mocked(dashboardService.fetchDashboard).mockRejectedValue(new Error('network error'))
+
+    const store = useDashboardStore()
+    await store.loadDashboard()
+
+    expect(store.dashboard).toBeNull()
+    expect(store.loading).toBe(false)
+    expect(store.error).not.toBeNull()
+  })
+
+  it('sets a progress-specific error when loadProgress fails, without touching adherence', async () => {
+    vi.mocked(dashboardService.fetchProgress).mockRejectedValue(new Error('network error'))
+
+    const store = useDashboardStore()
+    await store.loadProgress()
+
+    expect(store.progress).toBeNull()
+    expect(store.progressLoading).toBe(false)
+    expect(store.progressError).not.toBeNull()
+    expect(store.adherenceError).toBeNull()
+  })
+
+  it('sets an adherence-specific error when loadAdherence fails', async () => {
+    vi.mocked(adherenceService.fetchAdherence).mockRejectedValue(new Error('network error'))
+
+    const store = useDashboardStore()
+    await store.loadAdherence()
+
+    expect(store.adherence).toBeNull()
+    expect(store.adherenceError).not.toBeNull()
+  })
 })

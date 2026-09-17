@@ -8,6 +8,7 @@ use App\Models\TrainingSchedule;
 use App\Models\User;
 use App\Services\Fitness\WorkoutPlanService;
 use App\Services\Tools\ToolRegistry;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -172,6 +173,35 @@ class ToolAuthorizationTest extends TestCase
         $result = app(ToolRegistry::class)->call('get_adherence_summary', ['weeks' => 1], $intruder);
 
         $this->assertSame(0, $result['due_exercise_count']);
+    }
+
+    public function test_propose_weekly_plan_changes_only_ever_touches_the_authenticated_users_week(): void
+    {
+        $owner = User::factory()->create();
+        $intruder = User::factory()->create();
+        $monday = now()->startOfWeek(Carbon::MONDAY)->toDateString();
+
+        app(WorkoutPlanService::class)->createOrReplace($owner, [
+            'planned_date' => $monday,
+            'activity_type' => 'strength',
+            'title' => "Owner's Monday",
+        ]);
+
+        // There is no user/plan id field in the schema to spoof — this proves
+        // scoping-by-construction (the tool only ever writes through the
+        // authenticated $user) rather than testing a rejected spoof value.
+        app(ToolRegistry::class)->call('propose_weekly_plan_changes', [
+            'decision_summary' => 'Change Monday.',
+            'reasoning_factors' => ['x'],
+            'changes' => [
+                ['date' => $monday, 'action' => 'replace', 'activity_type' => 'recovery', 'title' => 'Recovery', 'reason' => 'x'],
+            ],
+        ], $intruder);
+
+        $workoutPlanService = app(WorkoutPlanService::class);
+        $this->assertSame("Owner's Monday", $workoutPlanService->forDate($owner, $monday)?->title);
+        $this->assertDatabaseMissing('workout_plans', ['user_id' => $owner->id, 'title' => 'Recovery']);
+        $this->assertSame('Recovery', $workoutPlanService->forDate($intruder, $monday)?->title);
     }
 
     public function test_unknown_tool_name_returns_an_error_instead_of_crashing(): void

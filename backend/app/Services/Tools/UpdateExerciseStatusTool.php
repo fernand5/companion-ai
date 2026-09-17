@@ -4,7 +4,6 @@ namespace App\Services\Tools;
 
 use App\Models\User;
 use App\Services\Fitness\WorkoutPlanService;
-use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class UpdateExerciseStatusTool implements AiTool
@@ -46,7 +45,7 @@ class UpdateExerciseStatusTool implements AiTool
             return ['error' => 'exercise_name and status are required.'];
         }
 
-        $date = $arguments['date'] ?? Carbon::today()->toDateString();
+        $date = $arguments['date'] ?? $user->localToday();
         $exercise = $this->workoutPlanService->findExerciseByName($user, $date, $arguments['exercise_name']);
 
         if (! $exercise) {

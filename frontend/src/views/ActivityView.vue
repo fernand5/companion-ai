@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, onMounted } from 'vue'
 
 import ActivityQuickLogForm from '@/components/ActivityQuickLogForm.vue'
+import ErrorNotice from '@/components/ErrorNotice.vue'
 import WeightLogForm from '@/components/WeightLogForm.vue'
 import WorkoutLogForm from '@/components/WorkoutLogForm.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
@@ -41,6 +42,11 @@ const timeline = computed(() =>
         <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.sm" spin />
         Loading…
       </p>
+      <ErrorNotice
+        v-else-if="activityStore.error"
+        :message="activityStore.error"
+        :on-retry="activityStore.load"
+      />
       <p v-else-if="timeline.length === 0" class="flex items-center gap-1.5 text-sm text-slate-400">
         <FontAwesomeIcon :icon="icons.activityFallback" :class="ICON_SIZE.sm" />
         Nothing logged yet.

@@ -102,7 +102,21 @@ class GeminiProvider implements AiProvider
             );
         }
 
-        return $this->toAiResponse($response->json());
+        $body = $response->json();
+
+        if ($body === null) {
+            Log::warning('Gemini API returned a non-JSON or empty body on a successful response', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            throw new AiProviderException(
+                'Gemini API returned a malformed (non-JSON) response body.',
+                reason: 'unavailable',
+            );
+        }
+
+        return $this->toAiResponse($body);
     }
 
     private function mapMessage(array $message): array

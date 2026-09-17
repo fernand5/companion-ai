@@ -4,7 +4,6 @@ namespace App\Services\Fitness;
 
 use App\Models\ActivityLog;
 use App\Models\User;
-use Carbon\Carbon;
 
 class ProgressService
 {
@@ -27,10 +26,11 @@ class ProgressService
 
         $week = $this->activityService->weeklySummary($user);
 
+        $today = $user->localNow();
         $recentSteps = $this->activityService->history(
             $user,
-            Carbon::today()->subDays($windowDays - 1)->toDateString(),
-            Carbon::today()->toDateString(),
+            $today->copy()->subDays($windowDays - 1)->toDateString(),
+            $today->toDateString(),
             ActivityLog::TYPE_STEPS,
         );
 
@@ -65,8 +65,10 @@ class ProgressService
      */
     public function stepsSeries(User $user, int $days = 30): array
     {
+        $today = $user->localNow();
+
         return $this->activityService
-            ->history($user, Carbon::today()->subDays($days - 1)->toDateString(), Carbon::today()->toDateString(), ActivityLog::TYPE_STEPS)
+            ->history($user, $today->copy()->subDays($days - 1)->toDateString(), $today->toDateString(), ActivityLog::TYPE_STEPS)
             ->sortBy('logged_date')
             ->map(fn (ActivityLog $log) => [
                 'date' => $log->logged_date->toDateString(),
@@ -84,7 +86,7 @@ class ProgressService
         $series = [];
 
         for ($i = $weeks - 1; $i >= 0; $i--) {
-            $reference = Carbon::today()->subWeeks($i);
+            $reference = $user->localNow()->subWeeks($i);
             $week = $this->activityService->weeklySummary($user, $reference);
 
             $series[] = [
