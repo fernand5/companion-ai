@@ -1,0 +1,66 @@
+worker_processes auto;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    keepalive_timeout 65;
+
+    # Render's own edge already allows up to ~100 minutes for a response
+    # (verified against Render's docs before this config was written — see
+    # the deployment-readiness report). These just need to comfortably cover
+    # the app's own worst case: the weekly-plan flow can loop up to
+    # ai.max_weekly_adaptation_iterations x ai.weekly_timeout (~270s) before
+    # PHP-FPM's request_terminate_timeout (310s, see php-fpm-pool.conf) cuts
+    # it — nginx must not cut the connection first.
+    fastcgi_read_timeout 320s;
+    fastcgi_send_timeout 320s;
+    send_timeout 320s;
+
+    # No file uploads anywhere in this app (see the deployment-readiness
+    # report's storage-requirements finding) — kept modest rather than
+    # unlimited, not because anything currently needs more.
+    client_max_body_size 10m;
+
+    access_log /dev/stdout;
+    error_log /dev/stderr warn;
+
+    server {
+        # Render injects PORT at container start (default 10000); this file
+        # is a template with ${PORT} substituted by docker/entrypoint.sh
+        # before nginx starts, since nginx config itself can't read env vars.
+        listen ${PORT} default_server;
+        server_name _;
+
+        root /var/www/html/public;
+        index index.php;
+
+        location / {
+            try_files $uri $uri/ /index.php?$query_string;
+        }
+
+        location ~ \.php$ {
+            fastcgi_pass unix:/run/php-fpm.sock;
+            fastcgi_index index.php;
+            include fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param HTTPS off;
+        }
+
+        # No direct execution of anything under storage/vendor, and no
+        # dotfiles served, even though nothing in the app's own routes
+        # exposes these paths today.
+        location ~ /\.(?!well-known) {
+            deny all;
+        }
+
+        location ~* ^/(storage|vendor)/.*\.php$ {
+            deny all;
+        }
+    }
+}

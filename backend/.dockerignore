@@ -1,0 +1,39 @@
+.git
+.gitignore
+.idea
+.vscode
+
+vendor
+node_modules
+
+.env
+.env.*
+!.env.example
+
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/testing/*
+storage/framework/views/*
+!storage/logs/.gitignore
+!storage/framework/cache/.gitignore
+!storage/framework/sessions/.gitignore
+!storage/framework/testing/.gitignore
+!storage/framework/views/.gitignore
+
+tests
+phpunit.xml
+.phpunit.result.cache
+
+# The unused Laravel-skeleton Blade/Vite asset pipeline — see the Dockerfile
+# comment. The real frontend lives in the separate top-level frontend/ dir,
+# which is outside this build context (backend/) entirely.
+resources
+package.json
+package-lock.json
+vite.config.js
+public/build
+
+README.md
+AGENTS.md
+CLAUDE.md

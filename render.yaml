@@ -1,0 +1,144 @@
+# Render Blueprint for a production-like staging environment.
+#
+# Three services, matching the target architecture exactly:
+#   - companion-ai-api  : Laravel API, Docker Web Service (nginx + PHP-FPM)
+#   - companion-ai-web  : Vue 3 SPA, Static Site
+#   - companion-ai-db   : MySQL, private service
+#
+# companion-ai-db is a `pserv` running the official mysql:8.0 image, NOT a
+# `databases:` entry — verified against Render's current docs before writing
+# this file: Render has no first-party managed MySQL product (only Postgres),
+# so MySQL must be self-hosted as a private service with its own disk, the
+# same pattern Render's own official MySQL template uses.
+#
+# No worker/cron service is defined — the app has no queue jobs and no
+# scheduled tasks (every AI call is synchronous within the HTTP request; see
+# the deployment-readiness report), so none is needed.
+#
+# `plan:` is intentionally omitted on every service — Render prompts for an
+# instance type per service during Blueprint creation, and no specific paid
+# tier was specified for this deployment.
+
+services:
+  - type: web
+    name: companion-ai-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /up
+    # Runs once per deploy, after the image builds and before it receives
+    # traffic — the one place `php artisan migrate --force` belongs, not in
+    # the container's own entrypoint (which would re-run it on every restart
+    # /scale event, not just on deploy).
+    preDeployCommand: php artisan migrate --force
+    envVars:
+      - key: APP_NAME
+        value: Companion AI Coach
+      - key: APP_ENV
+        value: production
+      # APP_ENV=production alone already hard-forces APP_DEBUG and AI_DEBUG
+      # off in config/app.php and config/ai.php regardless of these values —
+      # set explicitly anyway so the intent is visible in this file rather
+      # than relying only on that fallback.
+      - key: APP_DEBUG
+        value: "false"
+      # Generate with `php artisan key:generate --show` and paste the full
+      # `base64:...` output — NOT Render's `generateValue: true`, which
+      # produces a bare random value without the `base64:` prefix Laravel's
+      # own key format expects.
+      - key: APP_KEY
+        sync: false
+      # APP_URL is deliberately not set here — docker/entrypoint.sh falls
+      # back to Render's own injected RENDER_EXTERNAL_URL when APP_URL is
+      # unset, so it's correct without manual entry. Set it explicitly only
+      # if/when a custom domain replaces the onrender.com URL.
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: info
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        fromService:
+          type: pserv
+          name: companion-ai-db
+          property: host
+      # The official mysql image's fixed default port — not derived via
+      # fromService's `port` property, since that property's behavior is
+      # documented for Render's own PORT-binding convention, which this
+      # plain MySQL image does not use.
+      - key: DB_PORT
+        value: "3306"
+      # These three MUST exactly match companion-ai-db's MYSQL_DATABASE /
+      # MYSQL_USER / MYSQL_PASSWORD below — Render's Blueprint spec has no
+      # verified mechanism to alias one service's env var into another's
+      # under a different key name, so this pairing is manual by necessity,
+      # not an oversight. See the deployment report, section H.
+      - key: DB_DATABASE
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: AI_PROVIDER
+        value: gemini
+      - key: AI_MODEL
+        value: gemini-3.6-flash
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_DEBUG
+        value: "false"
+      - key: MEMORY_PROVIDER
+        value: database
+      - key: SESSION_DRIVER
+        value: database
+      - key: CACHE_STORE
+        value: database
+      - key: QUEUE_CONNECTION
+        value: database
+
+  - type: web
+    name: companion-ai-web
+    runtime: static
+    # Explicitly does not touch backend/ — the unused Laravel-skeleton asset
+    # pipeline (backend/package.json, backend/resources/) is never invoked.
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: ./frontend/dist
+    # The verified SPA-fallback mechanism for Vue Router's createWebHistory —
+    # Render's own docs confirm rewrites via the Dashboard or this `routes`
+    # key; a Netlify-style _redirects file (also included, harmlessly, at
+    # frontend/public/_redirects) is not documented as supported, so this
+    # rule is what the deployment actually relies on.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Build-time only (Vite inlines it into the built JS) — must point at
+      # companion-ai-api's public URL + /api, e.g.
+      # https://companion-ai-api.onrender.com/api. Known only after the API
+      # service's first deploy assigns its onrender.com subdomain, so this
+      # can't be filled in automatically ahead of time.
+      - key: VITE_API_URL
+        sync: false
+
+  - type: pserv
+    name: companion-ai-db
+    runtime: image
+    image:
+      url: docker.io/library/mysql:8.0
+    disk:
+      name: companion-ai-db-data
+      mountPath: /var/lib/mysql
+      sizeGB: 10
+    envVars:
+      # Must exactly match companion-ai-api's DB_DATABASE / DB_USERNAME /
+      # DB_PASSWORD above.
+      - key: MYSQL_DATABASE
+        sync: false
+      - key: MYSQL_USER
+        sync: false
+      - key: MYSQL_PASSWORD
+        sync: false
+      - key: MYSQL_ROOT_PASSWORD
+        generateValue: true

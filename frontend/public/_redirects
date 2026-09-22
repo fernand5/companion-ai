@@ -1,0 +1,11 @@
+# SPA fallback for Vue Router's createWebHistory, so a direct load/refresh of
+# e.g. /weekly-plan is served index.html instead of 404ing.
+#
+# NOTE: as of this writing, Render's own docs (render.com/docs/redirects-rewrites)
+# document rewrites only via the Dashboard or render.yaml's `routes` key — a
+# Netlify-style _redirects file is NOT confirmed/documented as supported by
+# Render. This file is included as a harmless, zero-cost fallback in case
+# Render does honor it, but the deployment does NOT rely on it: the actual,
+# verified fix is the `routes` rewrite rule on the static site service in
+# render.yaml at the repo root.
+/*  /index.html  200
