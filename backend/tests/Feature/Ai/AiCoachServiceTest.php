@@ -9,6 +9,7 @@ use App\Services\Ai\AiProviderException;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\DTOs\AiResponse;
 use App\Services\Ai\DTOs\ToolCallRequest;
+use App\Services\Fitness\ActivityService;
 use App\Services\Fitness\WorkoutPlanService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -428,6 +429,31 @@ class AiCoachServiceTest extends TestCase
         $this->assertSame('Take it easy today.', $first);
         $this->assertSame($first, $second);
         $this->assertCount(1, $fake->calls);
+    }
+
+    public function test_dashboard_recommendation_is_regenerated_after_the_users_data_changes(): void
+    {
+        $fake = new FakeAiProvider;
+        $fake->queue(
+            new AiResponse(text: 'Rest today, soccer is tonight.'),
+            new AiResponse(text: 'Great 9k step day — keep it light.'),
+        );
+        $this->app->instance(AiProvider::class, $fake);
+
+        $user = User::factory()->create();
+        $service = app(AiCoachService::class);
+
+        $before = $service->dashboardRecommendation($user);
+
+        // Logging new activity (e.g. via chat) must not leave the dashboard
+        // serving an answer that was written before it existed.
+        app(ActivityService::class)->log($user, ['type' => 'steps', 'metadata' => ['steps' => 9000]]);
+
+        $after = $service->dashboardRecommendation($user);
+
+        $this->assertSame('Rest today, soccer is tonight.', $before);
+        $this->assertSame('Great 9k step day — keep it light.', $after);
+        $this->assertCount(2, $fake->calls);
     }
 
     public function test_dashboard_recommendation_is_not_shared_across_users(): void

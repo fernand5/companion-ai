@@ -15,7 +15,7 @@ vi.mock('@/services/weeklyPlan', () => ({
 function makePlan(overrides: Partial<WorkoutPlan> = {}): WorkoutPlan {
   return {
     id: 1,
-    planned_date: getCurrentWeekRange().dates[2],
+    planned_date: getCurrentWeekRange(null).dates[2],
     activity_type: 'strength',
     title: 'Upper Body',
     source: 'ai',
@@ -37,7 +37,7 @@ function makeResult(overrides: Partial<WeeklyAdaptationResult> = {}): WeeklyAdap
     explanation: 'Swapped Wednesday for soccer.',
     decision_summary: 'Swapped Wednesday for soccer.',
     reasoning_factors: ['User has soccer Wednesday.'],
-    changes: [getCurrentWeekRange().dates[2]],
+    changes: [getCurrentWeekRange(null).dates[2]],
     ...overrides,
   }
 }
@@ -61,7 +61,7 @@ describe('weeklyPlan store', () => {
     expect(store.days.find((d) => d.date === plan.planned_date)?.plan).toEqual(plan)
   })
 
-  it('always asks the backend to fill any gap before fetching — it is a fast no-op when nothing is missing', async () => {
+  it('shows the existing week first, then asks the backend to fill gaps and refetches only if it generated something', async () => {
     const plan = makePlan()
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: true, explanation: null })
     vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([plan])
@@ -70,8 +70,53 @@ describe('weeklyPlan store', () => {
     await store.loadWeek()
 
     expect(weeklyPlanService.generateWeek).toHaveBeenCalledTimes(1)
-    expect(weeklyPlanService.fetchWeek).toHaveBeenCalledTimes(1)
+    expect(weeklyPlanService.fetchWeek).toHaveBeenCalledTimes(2)
     expect(store.days.find((d) => d.date === plan.planned_date)?.plan).toEqual(plan)
+    expect(store.generating).toBe(false)
+  })
+
+  it('does not refetch when the backend had nothing to generate', async () => {
+    vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
+    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([makePlan()])
+
+    const store = useWeeklyPlanStore()
+    await store.loadWeek()
+
+    expect(weeklyPlanService.fetchWeek).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the existing week visible and reports the error when gap-filling fails (e.g. provider outage)', async () => {
+    const plan = makePlan()
+    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([plan])
+    vi.mocked(weeklyPlanService.generateWeek).mockRejectedValue({
+      response: { data: { message: 'The AI coach is temporarily unavailable — please try again in a moment.' } },
+    })
+
+    const store = useWeeklyPlanStore()
+    await store.loadWeek()
+
+    expect(store.days).toHaveLength(7)
+    expect(store.days.find((d) => d.date === plan.planned_date)?.plan).toEqual(plan)
+    expect(store.error).toBe('The AI coach is temporarily unavailable — please try again in a moment.')
+    expect(store.loading).toBe(false)
+    expect(store.generating).toBe(false)
+  })
+
+  it('shows the plan immediately while generation is still running', async () => {
+    let resolveGenerate: (v: WeeklyAdaptationResult) => void = () => {}
+    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([makePlan()])
+    vi.mocked(weeklyPlanService.generateWeek).mockReturnValue(new Promise((resolve) => { resolveGenerate = resolve }))
+
+    const store = useWeeklyPlanStore()
+    const pending = store.loadWeek()
+    await vi.waitFor(() => expect(store.generating).toBe(true))
+
+    expect(store.loading).toBe(false)
+    expect(store.days.some((d) => d.plan !== null)).toBe(true)
+
+    resolveGenerate({ applied: false, explanation: null } as WeeklyAdaptationResult)
+    await pending
+    expect(store.generating).toBe(false)
   })
 
   it('sets loading true during loadWeek and false after, on both success and failure', async () => {

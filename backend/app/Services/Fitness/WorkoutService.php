@@ -27,7 +27,7 @@ class WorkoutService
     public function log(User $user, array $data): WorkoutSession
     {
         $validated = Validator::make($data, [
-            'logged_date' => 'nullable|date',
+            'logged_date' => ['nullable', 'date', 'before_or_equal:'.$user->localToday()],
             'duration_minutes' => 'nullable|integer|min:0|max:600',
             'notes' => 'nullable|string|max:2000',
             'exercises' => 'nullable|array',
@@ -37,6 +37,8 @@ class WorkoutService
             'exercises.*.weight_kg' => 'nullable|numeric|min:0|max:500',
             'exercises.*.duration_seconds' => 'nullable|integer|min:0|max:7200',
             'exercises.*.notes' => 'nullable|string|max:1000',
+        ], [
+            'logged_date.before_or_equal' => 'logged_date cannot be in the future: this records something that already happened. Upcoming sessions belong in the schedule or the plan.',
         ])->validate();
 
         return DB::transaction(
@@ -70,8 +72,16 @@ class WorkoutService
                 ? WorkoutSession::find($plan->workout_session_id)
                 : null;
 
+            // The activity happened when the user actually did it, which is
+            // never later than today: completing a future plan early must not
+            // push the activity onto the plan's date. Once a session exists it
+            // keeps its date, so later edits can't move it around.
+            $loggedDate = $existing
+                ? $existing->logged_date->toDateString()
+                : min($plan->planned_date->toDateString(), $user->localToday());
+
             $session = $this->writeSession($user, [
-                'logged_date' => $plan->planned_date->toDateString(),
+                'logged_date' => $loggedDate,
                 'duration_minutes' => $plan->duration_minutes,
                 'notes' => $plan->title,
             ], $exercises, $existing);

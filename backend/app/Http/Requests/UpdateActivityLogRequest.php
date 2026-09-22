@@ -14,7 +14,7 @@ class UpdateActivityLogRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'logged_date' => ['nullable', 'date'],
+            'logged_date' => ['nullable', 'date', 'before_or_equal:'.$this->user()->localToday()],
             'duration_minutes' => ['nullable', 'integer', 'min:0', 'max:600'],
             'intensity' => ['nullable', 'string', 'in:low,moderate,high'],
             'notes' => ['nullable', 'string', 'max:2000'],

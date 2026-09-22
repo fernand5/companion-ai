@@ -62,6 +62,9 @@ class GeminiProvider implements AiProvider
             ]];
         }
 
+        $timeout = (int) ($options['timeout_seconds'] ?? config('ai.timeout', 20));
+        unset($options['timeout_seconds']);
+
         if ($options !== []) {
             $payload['generationConfig'] = $options;
         }
@@ -76,7 +79,7 @@ class GeminiProvider implements AiProvider
             // slow/unreachable Gemini call surfaces as a clean AiProviderException
             // (caught below) instead of an uncaught fatal "max execution time" error.
             $response = Http::withHeaders(['x-goog-api-key' => $apiKey])
-                ->timeout(20)
+                ->timeout($timeout)
                 ->post($url, $payload);
         } catch (ConnectionException $e) {
             Log::warning('Gemini API request timed out or failed to connect', [
@@ -104,7 +107,9 @@ class GeminiProvider implements AiProvider
 
         $body = $response->json();
 
-        if ($body === null) {
+        // Valid JSON that isn't an object (a bare string/number) is as
+        // unusable as no JSON at all.
+        if (! is_array($body)) {
             Log::warning('Gemini API returned a non-JSON or empty body on a successful response', [
                 'status' => $response->status(),
                 'body' => $response->body(),
@@ -198,21 +203,49 @@ class GeminiProvider implements AiProvider
 
     private function toAiResponse(array $body): AiResponse
     {
-        $parts = $body['candidates'][0]['content']['parts'] ?? [];
+        // No candidate at all (e.g. the prompt was blocked) means the model
+        // produced nothing to act on — distinct from a candidate that simply
+        // has no parts, which is a valid empty turn the caller handles.
+        $candidate = $body['candidates'][0] ?? null;
+
+        if (! is_array($candidate)) {
+            Log::warning('Gemini API returned no candidates', [
+                'block_reason' => $body['promptFeedback']['blockReason'] ?? null,
+            ]);
+
+            throw new AiProviderException('Gemini API returned no usable candidates.', reason: 'unavailable');
+        }
+
+        $parts = $candidate['content']['parts'] ?? [];
 
         $text = null;
         $toolCalls = [];
 
-        foreach ($parts as $part) {
-            if (isset($part['text'])) {
+        foreach (is_array($parts) ? $parts : [] as $part) {
+            if (! is_array($part)) {
+                continue;
+            }
+
+            if (isset($part['text']) && is_string($part['text'])) {
                 $text = ($text ?? '').$part['text'];
             }
 
             if (isset($part['functionCall'])) {
+                $name = $part['functionCall']['name'] ?? null;
+
+                if (! is_string($name) || $name === '') {
+                    throw new AiProviderException('Gemini API returned a function call without a name.', reason: 'unavailable');
+                }
+
+                $args = $part['functionCall']['args'] ?? [];
+
                 $toolCalls[] = new ToolCallRequest(
                     id: (string) Str::uuid(),
-                    name: $part['functionCall']['name'],
-                    arguments: $part['functionCall']['args'] ?? [],
+                    name: $name,
+                    // Non-object args are handed to the tool as "no
+                    // arguments"; the tool's own validation then reports
+                    // what's missing back to the model.
+                    arguments: is_array($args) ? $args : [],
                     meta: isset($part['thoughtSignature']) ? ['thoughtSignature' => $part['thoughtSignature']] : [],
                 );
             }

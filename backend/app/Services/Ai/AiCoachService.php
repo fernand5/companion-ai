@@ -37,6 +37,8 @@ class AiCoachService
         // the worst case: max_tool_iterations x 20s + one forced final call).
         set_time_limit(200);
 
+        $startedAt = microtime(true);
+
         $userMessageRecord = $conversation->messages()->create([
             'role' => Message::ROLE_USER,
             'content' => $userMessage,
@@ -45,6 +47,16 @@ class AiCoachService
         try {
             return $this->generateReply($user, $conversation, $userMessage);
         } catch (AiProviderException $e) {
+            Log::warning('ai_coach.turn_failed', [
+                'conversation_id' => $conversation->id,
+                'user_message_id' => $userMessageRecord->id,
+                'provider' => config('ai.provider'),
+                'model' => config('ai.model'),
+                'error_type' => $e->userFacingReason(),
+                'status_code' => $e->statusCode,
+                'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            ]);
+
             // The model was never reached, so nothing meaningful happened this
             // turn — remove the orphaned user message rather than leaving a
             // question with no answer sitting in the conversation.
@@ -99,10 +111,12 @@ class AiCoachService
         $tools = $this->toolRegistry->declarations();
         $toolTrace = [];
         $finalText = null;
+        $providerCalls = 0;
         $maxIterations = (int) config('ai.max_tool_iterations', 4);
 
         for ($i = 0; $i < $maxIterations; $i++) {
             $response = $this->aiProvider->chat($llmMessages, $tools);
+            $providerCalls++;
 
             if (! $response->hasToolCalls()) {
                 // A model that just finished a string of tool calls sometimes
@@ -141,8 +155,11 @@ class AiCoachService
             }
         }
 
-        if ($finalText === null) {
+        $forcedFinalCall = $finalText === null;
+
+        if ($forcedFinalCall) {
             $response = $this->aiProvider->chat($llmMessages, []);
+            $providerCalls++;
             $finalText = $response->text ?? "Here's what I found from your recent activity and schedule — let me know if you'd like more detail.";
         }
 
@@ -158,8 +175,13 @@ class AiCoachService
         // below. Enough to audit history ordering/tool-calling behavior for a
         // reported bug without needing AI_DEBUG on for a real user.
         Log::info('ai_coach.turn', [
+            'user_id' => $user->id,
             'conversation_id' => $conversation->id,
             'assistant_message_id' => $assistantMessage->id,
+            'provider' => config('ai.provider'),
+            'model' => config('ai.model'),
+            'provider_calls' => $providerCalls,
+            'forced_final_call' => $forcedFinalCall,
             'history_message_count' => $history->count(),
             'history_roles' => $history->pluck('role')->push(Message::ROLE_ASSISTANT)->all(),
             'context_sections' => array_keys($context),
@@ -186,6 +208,27 @@ class AiCoachService
     }
 
     /**
+     * Changes whenever anything the recommendation is written from (activity,
+     * plans, recovery check-ins, schedule, profile) is added, edited or
+     * removed. Without it the day-long cache below would keep serving a
+     * recommendation written before the user logged the activity that
+     * invalidates it — the same "answering an old situation" symptom as a
+     * stale chat reply. Costs a handful of indexed aggregate queries per
+     * dashboard load, far cheaper than the model call it protects.
+     */
+    private function dashboardInputsFingerprint(User $user): string
+    {
+        $parts = [];
+
+        foreach ([$user->activityLogs(), $user->workoutPlans(), $user->recoveryCheckins(), $user->trainingSchedules(), $user->fitnessProfile()] as $relation) {
+            $row = $relation->toBase()->selectRaw('count(*) as c, max(updated_at) as m')->first();
+            $parts[] = ($row->c ?? 0).'|'.($row->m ?? '');
+        }
+
+        return substr(md5(implode('#', $parts)), 0, 12);
+    }
+
+    /**
      * A short, standalone recommendation for the dashboard widget — not tied to
      * any conversation, and not persisted as a message. Uses the same compact
      * context as a real chat turn but skips the tool loop to stay fast/cheap.
@@ -203,7 +246,7 @@ class AiCoachService
         // midnight, either serving a stale recommendation into their new day
         // or invalidating mid-evening while it's still "today" for them.
         $localNow = $user->localNow();
-        $cacheKey = "dashboard_recommendation:{$user->id}:".$localNow->toDateString();
+        $cacheKey = "dashboard_recommendation:{$user->id}:".$localNow->toDateString().':'.$this->dashboardInputsFingerprint($user);
 
         return Cache::remember($cacheKey, $localNow->copy()->endOfDay(), function () use ($user) {
             set_time_limit(60);

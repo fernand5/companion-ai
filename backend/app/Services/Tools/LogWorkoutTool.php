@@ -25,7 +25,7 @@ class LogWorkoutTool implements AiTool
         return [
             'type' => 'object',
             'properties' => [
-                'logged_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD, defaults to today.'],
+                'logged_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD of when it actually happened. Defaults to today; must not be in the future.'],
                 'duration_minutes' => ['type' => 'integer'],
                 'notes' => ['type' => 'string'],
                 'exercises' => [

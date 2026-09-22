@@ -26,6 +26,13 @@ return [
     // users' health-adjacent data in a plaintext, unrotated file.
     'debug' => env('APP_ENV') !== 'production' && (bool) env('AI_DEBUG', false),
 
+    // Per-request HTTP timeout to the provider, in seconds. Chat turns are
+    // short; the weekly-plan flow generates several days of structured output
+    // and was measured taking 60s+ on a slow provider day, so it gets its own,
+    // longer limit (still bounded, so a hung call fails cleanly).
+    'timeout' => (int) env('AI_REQUEST_TIMEOUT', 20),
+    'weekly_timeout' => (int) env('AI_WEEKLY_REQUEST_TIMEOUT', 90),
+
     // Some turns need several sequential tool calls (e.g. an onboarding message
     // that states goals + equipment + two schedule days) — kept comfortably
     // above the common case now that the tool surface has grown.

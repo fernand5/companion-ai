@@ -19,7 +19,8 @@ const navItems = [
 
 async function handleLogout() {
   await auth.logout()
-  router.push({ name: 'login' })
+  // Full navigation so no other store keeps this user's data in memory.
+  window.location.assign(router.resolve({ name: 'login' }).href)
 }
 </script>
 

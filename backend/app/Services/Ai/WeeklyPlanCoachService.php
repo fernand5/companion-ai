@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Fitness\WeeklyPlanService;
 use App\Services\Tools\ToolRegistry;
+use Illuminate\Support\Facades\Log;
 
 /**
  * A non-conversational, one-shot AI decision: does this one input change the
@@ -64,10 +65,44 @@ class WeeklyPlanCoachService
      */
     public function run(User $user, string $instruction): array
     {
+        $startedAt = microtime(true);
+        $latency = fn () => (int) round((microtime(true) - $startedAt) * 1000);
+
+        try {
+            $result = $this->decide($user, $instruction);
+        } catch (AiProviderException $e) {
+            Log::warning('weekly_plan.failed', [
+                'user_id' => $user->id,
+                'provider' => config('ai.provider'),
+                'model' => config('ai.model'),
+                'error_type' => $e->userFacingReason(),
+                'status_code' => $e->statusCode,
+                'latency_ms' => $latency(),
+            ]);
+
+            throw $e;
+        }
+
+        Log::info('weekly_plan.run', [
+            'user_id' => $user->id,
+            'provider' => config('ai.provider'),
+            'model' => config('ai.model'),
+            'applied' => $result['applied'],
+            'changed_days' => count($result['changes'] ?? []),
+            'skipped_days' => count($result['skipped'] ?? []),
+            'tool_error' => isset($result['error']),
+            'latency_ms' => $latency(),
+        ]);
+
+        return $result;
+    }
+
+    private function decide(User $user, string $instruction): array
+    {
         // Mirrors AiCoachService::respond() — the tool loop can make several
         // sequential Gemini calls, which can cumulatively exceed PHP's default
-        // script execution limit.
-        set_time_limit(120);
+        // script execution limit. Sized for the longer per-call timeout below.
+        set_time_limit(300);
 
         $weekRange = $this->weeklyPlanService->weekRange($user);
         $context = $this->contextBuilder->build($user, $instruction, includeWeekPlan: true, weekRange: $weekRange);
@@ -88,7 +123,7 @@ class WeeklyPlanCoachService
         $maxIterations = (int) config('ai.max_weekly_adaptation_iterations', 3);
 
         for ($i = 0; $i < $maxIterations; $i++) {
-            $response = $this->aiProvider->chat($messages, $tools);
+            $response = $this->aiProvider->chat($messages, $tools, ['timeout_seconds' => (int) config('ai.weekly_timeout', 90)]);
 
             if (! $response->hasToolCalls()) {
                 $text = $response->text !== null && trim($response->text) !== ''

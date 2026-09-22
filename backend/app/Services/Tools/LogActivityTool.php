@@ -28,7 +28,7 @@ class LogActivityTool implements AiTool
             'type' => 'object',
             'properties' => [
                 'type' => ['type' => 'string', 'description' => 'One of: steps, treadmill, sport, recovery.'],
-                'logged_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD, defaults to today.'],
+                'logged_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD of when it actually happened. Defaults to today; must not be in the future.'],
                 'duration_minutes' => ['type' => 'integer'],
                 'intensity' => ['type' => 'string', 'description' => 'low, moderate, or high.'],
                 'notes' => ['type' => 'string'],

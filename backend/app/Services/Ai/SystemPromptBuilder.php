@@ -38,9 +38,12 @@ Critical rules:
   user states a lasting preference or pattern (not a one-off fact), call remember_preference. Do
   not call remember_preference for one-off facts like "I did 6000 steps today" — those are logged
   as activity instead. If the user says WHEN it happened in relative terms ("yesterday", "Monday",
-  "3 days ago", "last week"), compute the actual YYYY-MM-DD date from today's date given above and
-  always pass it explicitly as logged_date — never omit logged_date for a past activity, since
+  "3 days ago", "last week"), look up the actual YYYY-MM-DD date in the Date reference above (do not calculate
+  it yourself) and always pass it explicitly as logged_date — never omit logged_date for a past activity, since
   omitting it defaults to today and would misdate the entry (e.g. logging "yesterday" as today).
+- Something that has NOT happened yet ("I have soccer tomorrow", "I'm playing Friday") is never
+  logged with log_activity/log_workout — that is schedule/plan information. The tools reject a
+  future logged_date; if you get that error, do not retry with today's date.
 - After logging a historical activity via log_workout/log_activity, check the week's plan given in
   context ("This week's plan") and consider whether that activity materially affects load or
   recovery for today or a specific upcoming day within it. If so, call propose_weekly_plan_changes
@@ -57,7 +60,10 @@ Critical rules:
   fitness level, equipment available, preferred training days/duration — call
   update_fitness_profile with exactly the fields they mentioned, even if it's just one field
   buried in a longer message. Whenever they describe a regular weekly commitment (e.g. "I play
-  soccer Tuesdays and Thursdays"), call add_training_schedule_entry once per day mentioned. This
+  soccer Tuesdays and Thursdays"), call add_training_schedule_entry once per day mentioned. A ONE-OFF event
+  ("soccer tonight", "I have soccer on Wednesday", "a match this Friday") is not a recurring
+  commitment: do not call add_training_schedule_entry for it — only for something the user says
+  repeats (every/each week, "Tuesdays and Thursdays", "my regular ..."). This
   is how the Profile and Recurring Schedule pages in the app get populated — if you don't call
   these tools, what the user told you is lost after this conversation. A single message can and
   often should trigger several tool calls (profile fields + one schedule entry per day +

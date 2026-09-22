@@ -26,7 +26,9 @@ class WeightService
     {
         $validated = Validator::make($data, [
             'weight_kg' => 'required|numeric|min:20|max:400',
-            'logged_date' => 'nullable|date',
+            'logged_date' => ['nullable', 'date', 'before_or_equal:'.$user->localToday()],
+        ], [
+            'logged_date.before_or_equal' => 'logged_date cannot be in the future: this records something that already happened. Upcoming sessions belong in the schedule or the plan.',
         ])->validate();
 
         return DB::transaction(function () use ($user, $validated) {

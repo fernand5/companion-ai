@@ -75,11 +75,13 @@ class ActivityService
     {
         $validated = Validator::make($data, [
             'type' => 'required|string|in:'.implode(',', self::TYPES),
-            'logged_date' => 'nullable|date',
+            'logged_date' => ['nullable', 'date', 'before_or_equal:'.$user->localToday()],
             'duration_minutes' => 'nullable|integer|min:0|max:600',
             'intensity' => 'nullable|string|in:low,moderate,high',
             'notes' => 'nullable|string|max:2000',
             'metadata' => 'nullable|array',
+        ], [
+            'logged_date.before_or_equal' => 'logged_date cannot be in the future: this records something that already happened. Upcoming sessions belong in the schedule or the plan.',
         ])->validate();
 
         if ($validated['type'] === ActivityLog::TYPE_WEIGHT) {

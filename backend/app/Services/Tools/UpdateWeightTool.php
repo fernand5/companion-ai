@@ -26,7 +26,7 @@ class UpdateWeightTool implements AiTool
             'type' => 'object',
             'properties' => [
                 'weight_kg' => ['type' => 'number'],
-                'logged_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD, defaults to today.'],
+                'logged_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD of when it actually happened. Defaults to today; must not be in the future.'],
             ],
             'required' => ['weight_kg'],
         ];

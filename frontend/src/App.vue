@@ -12,7 +12,10 @@ const router = useRouter()
 
 function handleUnauthorized() {
   auth.clearSession()
-  router.push({ name: 'login' })
+  // A full navigation, not router.push: every other store (chat, dashboard,
+  // activity...) would otherwise keep the signed-out user's data in memory
+  // and show it to whoever signs in next in this tab.
+  window.location.assign(router.resolve({ name: 'login' }).href)
 }
 
 onMounted(() => {

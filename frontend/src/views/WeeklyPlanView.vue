@@ -5,14 +5,16 @@ import { computed, onMounted, ref } from 'vue'
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
+import { useAuthStore } from '@/stores/auth'
 import { useWeeklyPlanStore } from '@/stores/weeklyPlan'
 import type { ActivityType } from '@/types'
 import { activityIcon, formatDate } from '@/utils/format'
-import { todayUtc } from '@/utils/week'
+import { todayIn } from '@/utils/week'
 
 const store = useWeeklyPlanStore()
 const input = ref('')
-const today = todayUtc()
+const auth = useAuthStore()
+const today = computed(() => todayIn(auth.user?.timezone))
 
 onMounted(() => {
   store.loadWeek()
@@ -46,6 +48,11 @@ function submit() {
     </div>
 
     <template v-else>
+      <p v-if="store.generating" class="flex items-center gap-1.5 text-sm text-slate-500">
+        <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.sm" spin />
+        Filling in the rest of your week — this can take a minute…
+      </p>
+
       <div class="space-y-2">
         <div
           v-for="day in store.days"

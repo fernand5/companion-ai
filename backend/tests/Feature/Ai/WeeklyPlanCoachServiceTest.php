@@ -245,4 +245,18 @@ class WeeklyPlanCoachServiceTest extends TestCase
         $this->assertNotContains('log_activity', $toolNames);
         $this->assertNotContains('update_fitness_profile', $toolNames);
     }
+
+    public function test_the_weekly_flow_asks_the_provider_for_its_longer_timeout(): void
+    {
+        config(['ai.weekly_timeout' => 75]);
+        $user = User::factory()->create();
+
+        $fake = new FakeAiProvider;
+        $fake->queue(new AiResponse(text: 'No change needed.'));
+        $this->app->instance(AiProvider::class, $fake);
+
+        app(WeeklyPlanCoachService::class)->run($user, 'Generate an initial plan for this week.');
+
+        $this->assertSame(75, $fake->calls[0]['options']['timeout_seconds']);
+    }
 }

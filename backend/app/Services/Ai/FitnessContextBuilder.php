@@ -119,6 +119,9 @@ class FitnessContextBuilder
 
         return [
             'today' => $today,
+            'weekday' => $user->localNow()->format('l'),
+            'timezone' => $user->localNow()->getTimezone()->getName(),
+            'date_reference' => $this->dateReference($user),
             'profile' => $profile ? [
                 'height_cm' => $profile->height_cm !== null ? (float) $profile->height_cm : null,
                 'weight_kg' => $profile->weight_kg !== null ? (float) $profile->weight_kg : null,
@@ -146,10 +149,39 @@ class FitnessContextBuilder
         ];
     }
 
+    /**
+     * Resolved calendar dates for the week either side of today, so relative
+     * references from the user ("yesterday", "Tuesday", "tomorrow") are looked
+     * up rather than derived — models are unreliable at weekday arithmetic,
+     * and a wrong date here silently misfiles a logged activity.
+     *
+     * @return array<int, array{date: string, weekday: string, label: string|null}>
+     */
+    private function dateReference(User $user): array
+    {
+        $today = $user->localNow()->startOfDay();
+        $labels = [-1 => 'yesterday', 0 => 'today', 1 => 'tomorrow'];
+
+        return array_map(function (int $offset) use ($today, $labels) {
+            $day = $today->copy()->addDays($offset);
+
+            return [
+                'date' => $day->toDateString(),
+                'weekday' => $day->format('l'),
+                'label' => $labels[$offset] ?? null,
+            ];
+        }, range(-7, 7));
+    }
+
     public function toPromptText(array $context): string
     {
         $lines = [];
-        $lines[] = "Today's date: {$context['today']}";
+        $lines[] = "Today's date: {$context['today']} ({$context['weekday']}), user's timezone: {$context['timezone']}";
+        $lines[] = 'Date reference — resolve every relative day ("yesterday", "Tuesday", "next Friday") by looking it up here, never by calculating it:';
+        $lines[] = implode('; ', array_map(
+            fn (array $d) => "{$d['weekday']} {$d['date']}".($d['label'] ? " ({$d['label']})" : ''),
+            $context['date_reference'],
+        ));
 
         $lines[] = '';
         $lines[] = '## User profile';

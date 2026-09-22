@@ -63,34 +63,49 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function send(content: string) {
-    error.value = null
-    const conversation = await ensureActiveConversation()
-
-    if (!conversation) {
-      // ensureActiveConversation already set a specific error message.
+    // One in-flight turn at a time. Two overlapping requests could otherwise
+    // resolve out of order and append the older reply after the newer one, or
+    // have the second turn built on a history missing the first turn's reply.
+    // The flag is taken before any await so two calls in the same tick can't
+    // both pass the check.
+    if (sending.value) {
       return
     }
 
-    const tempId = -Date.now()
-    messages.value.push({
-      id: tempId,
-      role: 'user',
-      content,
-      meta: null,
-      created_at: new Date().toISOString(),
-    })
-
     sending.value = true
+    error.value = null
 
     try {
-      const assistantMessage = await conversationService.sendMessage(conversation.id, content)
-      messages.value.push(assistantMessage)
-    } catch (e: unknown) {
-      error.value = extractErrorMessage(e, "Couldn't reach your coach — please try again.")
-      // Compare by id, not object reference — Vue's reactive array wraps
-      // pushed objects in a proxy, so the local object reference no longer
-      // matches what filter() reads back out of messages.value.
-      messages.value = messages.value.filter((m) => m.id !== tempId)
+      const conversation = await ensureActiveConversation()
+
+      if (!conversation) {
+        // ensureActiveConversation already set a specific error message.
+        return
+      }
+
+      const tempId = -Date.now()
+      messages.value.push({
+        id: tempId,
+        role: 'user',
+        content,
+        meta: null,
+        created_at: new Date().toISOString(),
+      })
+
+      try {
+        const assistantMessage = await conversationService.sendMessage(conversation.id, content)
+
+        // Only render the reply in the conversation it belongs to.
+        if (activeConversation.value?.id === conversation.id) {
+          messages.value.push(assistantMessage)
+        }
+      } catch (e: unknown) {
+        error.value = extractErrorMessage(e, "Couldn't reach your coach — please try again.")
+        // Compare by id, not object reference — Vue's reactive array wraps
+        // pushed objects in a proxy, so the local object reference no longer
+        // matches what filter() reads back out of messages.value.
+        messages.value = messages.value.filter((m) => m.id !== tempId)
+      }
     } finally {
       sending.value = false
     }

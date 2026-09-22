@@ -10,6 +10,7 @@ use App\Models\Conversation;
 use App\Services\Ai\AiCoachService;
 use App\Services\Ai\AiProviderException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class ConversationController extends Controller
 {
@@ -42,6 +43,20 @@ class ConversationController extends Controller
     {
         abort_unless($conversation->user_id === $request->user()->id, 403);
 
+        // One turn per conversation at a time. Two overlapping turns would
+        // each be built from a history that's missing the other's messages,
+        // and could persist their replies out of order — so a second request
+        // is turned away instead of racing. The TTL outlives the longest
+        // possible turn (see set_time_limit in AiCoachService::respond) so a
+        // crashed request can't leave the conversation locked.
+        $lock = Cache::lock("conversation-turn:{$conversation->id}", 210);
+
+        if (! $lock->get()) {
+            return response()->json([
+                'message' => 'Your coach is still working on your previous message — please wait for the reply first.',
+            ], 409);
+        }
+
         try {
             $assistantMessage = $this->coachService->respond(
                 $request->user(),
@@ -50,6 +65,8 @@ class ConversationController extends Controller
             );
         } catch (AiProviderException $e) {
             return response()->json(['message' => $e->userFacingMessage()], 503);
+        } finally {
+            $lock->release();
         }
 
         $conversation->touch();

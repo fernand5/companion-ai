@@ -1,30 +1,36 @@
 /**
- * Mirrors the backend's WeeklyPlanService::weekRange() exactly: Monday
- * through Sunday, computed in UTC (the app's "current week" is server-clock
- * UTC everywhere, not the viewer's local timezone — see that service's
- * docblock) so the week shown here always lines up with the week the coach
- * actually reasons about.
+ * Mirrors the backend's WeeklyPlanService::weekRange(): Monday through
+ * Sunday, computed from the user's own calendar date. The timezone comes from
+ * the same stored value the backend's User::localToday() reads (exposed on
+ * the /me payload), so both sides always agree on "today" and "this week".
+ * A missing timezone falls back to UTC, exactly as the backend does.
  */
-function toDateString(date: Date): string {
-  return date.toISOString().slice(0, 10)
+const FALLBACK_TIMEZONE = 'UTC'
+
+export function todayIn(timeZone: string | null | undefined): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timeZone || FALLBACK_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
 }
 
-export function getCurrentWeekRange(): { start: string; end: string; dates: string[] } {
-  const now = new Date()
-  const dayOfWeek = now.getUTCDay() // 0 = Sunday, 1 = Monday, ...
-  const diffToMonday = (dayOfWeek + 6) % 7
+export function getCurrentWeekRange(timeZone: string | null | undefined): {
+  start: string
+  end: string
+  dates: string[]
+} {
+  const [year, month, day] = todayIn(timeZone).split('-').map(Number)
 
-  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diffToMonday))
+  // Calendar arithmetic only — UTC here is just a stable container for a
+  // plain year/month/day, not a claim about the user's timezone.
+  const today = new Date(Date.UTC(year, month - 1, day))
+  const diffToMonday = (today.getUTCDay() + 6) % 7
 
-  const dates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday)
-    d.setUTCDate(monday.getUTCDate() + i)
-    return toDateString(d)
-  })
+  const dates = Array.from({ length: 7 }, (_, i) =>
+    new Date(Date.UTC(year, month - 1, day - diffToMonday + i)).toISOString().slice(0, 10),
+  )
 
   return { start: dates[0], end: dates[6], dates }
-}
-
-export function todayUtc(): string {
-  return toDateString(new Date())
 }

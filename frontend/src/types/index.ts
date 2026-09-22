@@ -2,6 +2,7 @@ export interface User {
   id: number
   name: string
   email: string
+  timezone: string | null
 }
 
 export interface FitnessProfile {
