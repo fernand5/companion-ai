@@ -17,6 +17,18 @@ envsubst '${PORT}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
 # explicitly-set APP_URL (e.g. a future custom domain) always wins.
 export APP_URL="${APP_URL:-${RENDER_EXTERNAL_URL:-}}"
 
+# Database credentials. On Render, companion-ai-api and companion-ai-db both
+# link the same env group, so the API receives the MySQL image's own variable
+# names (MYSQL_DATABASE / MYSQL_USER / MYSQL_PASSWORD) — Render can't alias
+# one service's variable into another under a different name — while Laravel
+# reads DB_DATABASE / DB_USERNAME / DB_PASSWORD. Map them here. MYSQL_* wins
+# when present so a stale hand-set DB_* value in the dashboard (e.g. an old
+# DB_USERNAME=root) can never override the shared credentials. Only the
+# application user is exposed to the API; MYSQL_ROOT_PASSWORD never is.
+if [ -n "${MYSQL_DATABASE:-}" ]; then export DB_DATABASE="$MYSQL_DATABASE"; fi
+if [ -n "${MYSQL_USER:-}" ]; then export DB_USERNAME="$MYSQL_USER"; fi
+if [ -n "${MYSQL_PASSWORD:-}" ]; then export DB_PASSWORD="$MYSQL_PASSWORD"; fi
+
 # Ownership only (not permissions) — the image already sets correct
 # permissions at build time; this just re-asserts ownership in case a mounted
 # volume overrode it, and is cheap/idempotent either way.

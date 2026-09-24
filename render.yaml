@@ -70,17 +70,13 @@ services:
       # plain MySQL image does not use.
       - key: DB_PORT
         value: "3306"
-      # These three MUST exactly match companion-ai-db's MYSQL_DATABASE /
-      # MYSQL_USER / MYSQL_PASSWORD below — Render's Blueprint spec has no
-      # verified mechanism to alias one service's env var into another's
-      # under a different key name, so this pairing is manual by necessity,
-      # not an oversight. See the deployment report, section H.
-      - key: DB_DATABASE
-        sync: false
-      - key: DB_USERNAME
-        sync: false
-      - key: DB_PASSWORD
-        sync: false
+      # Database credentials come from the shared env group below (same group
+      # the MySQL service links), so nothing is typed by hand and the two sides
+      # cannot drift. The group's MYSQL_* names arrive verbatim; the container
+      # entrypoint maps them to Laravel's DB_DATABASE / DB_USERNAME /
+      # DB_PASSWORD. The API gets the dedicated application user only — never
+      # MYSQL_ROOT_PASSWORD.
+      - fromGroup: companion-ai-db-credentials
       - key: AI_PROVIDER
         value: gemini
       - key: AI_MODEL
@@ -133,13 +129,26 @@ services:
       mountPath: /var/lib/mysql
       sizeGB: 10
     envVars:
-      # Must exactly match companion-ai-api's DB_DATABASE / DB_USERNAME /
-      # DB_PASSWORD above.
-      - key: MYSQL_DATABASE
-        sync: false
-      - key: MYSQL_USER
-        sync: false
-      - key: MYSQL_PASSWORD
-        sync: false
+      # Application database, application user and its generated password —
+      # shared with companion-ai-api via the env group below. MySQL creates the
+      # user (with privileges on that database only) on FIRST start of an empty
+      # data directory; changing these later does not alter an existing disk.
+      - fromGroup: companion-ai-db-credentials
+      # Root credential stays on this service only and is never given to the API.
       - key: MYSQL_ROOT_PASSWORD
+        generateValue: true
+
+envVarGroups:
+  # One source of truth for the database credentials, linked by both the API
+  # and MySQL services (Render env groups deliver variables under their
+  # original names to every linked service). The password is generated once by
+  # Render — this mirrors Render's own official MySQL Blueprint template
+  # (render-examples/mysql), which generates MYSQL_PASSWORD inside a group.
+  - name: companion-ai-db-credentials
+    envVars:
+      - key: MYSQL_DATABASE
+        value: companion_ai
+      - key: MYSQL_USER
+        value: companion_ai
+      - key: MYSQL_PASSWORD
         generateValue: true
