@@ -28,11 +28,10 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /up
-    # Runs once per deploy, after the image builds and before it receives
-    # traffic — the one place `php artisan migrate --force` belongs, not in
-    # the container's own entrypoint (which would re-run it on every restart
-    # /scale event, not just on deploy).
-    preDeployCommand: php artisan migrate --force
+    # No preDeployCommand: Render does not support it on the Free plan (the
+    # Blueprint fails validation). Migrations instead run from
+    # backend/docker/entrypoint.sh on every container start — before nginx and
+    # PHP-FPM start, so the app is never reachable against an unmigrated DB.
     envVars:
       - key: APP_NAME
         value: Companion AI Coach

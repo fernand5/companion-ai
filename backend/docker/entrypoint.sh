@@ -22,4 +22,28 @@ export APP_URL="${APP_URL:-${RENDER_EXTERNAL_URL:-}}"
 # volume overrode it, and is cheap/idempotent either way.
 chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
+# Migrations run here, before nginx/PHP-FPM start, so the app never serves
+# traffic against an unmigrated database. This replaces a Render
+# `preDeployCommand`, which Render does not support on the Free plan.
+#
+# Retries because the MySQL private service may still be booting (or waking)
+# when this container starts. `migrate --force` is idempotent — with nothing
+# pending it is a no-op — so re-running it on every start (including each
+# wake-up from Free-plan spin-down) is safe. If the database never becomes
+# reachable, exit non-zero rather than start an app that would 500 on every
+# request: the failure is then visible in Render's logs and Render restarts
+# the container. Single-instance only (Free plan cannot scale out), so no
+# migration locking is needed.
+attempts="${MIGRATE_MAX_ATTEMPTS:-30}"
+i=1
+until su -s /bin/sh www-data -c "php artisan migrate --force"; do
+    if [ "$i" -ge "$attempts" ]; then
+        echo "entrypoint: migrations failed after ${attempts} attempts — not starting the app." >&2
+        exit 1
+    fi
+    echo "entrypoint: migration attempt ${i}/${attempts} failed (database not ready?) — retrying in 5s." >&2
+    i=$((i + 1))
+    sleep 5
+done
+
 exec supervisord -c /etc/supervisord.conf
