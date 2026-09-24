@@ -15,14 +15,16 @@
 # scheduled tasks (every AI call is synchronous within the HTTP request; see
 # the deployment-readiness report), so none is needed.
 #
-# `plan:` is intentionally omitted on every service — Render prompts for an
-# instance type per service during Blueprint creation, and no specific paid
-# tier was specified for this deployment.
+# `plan:` is set only on companion-ai-api (free, for the staging/5-user beta).
+# It is intentionally omitted on companion-ai-db, so Render's default paid
+# instance applies (currently 0.5c-512mb) — a private service has no free tier.
+# Static sites have no compute plan.
 
 services:
   - type: web
     name: companion-ai-api
     runtime: docker
+    plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /up
