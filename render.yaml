@@ -85,6 +85,26 @@ services:
         sync: false
       - key: AI_DEBUG
         value: "false"
+      # Exercise demonstration images (Gemini image API -> Cloudflare R2).
+      - key: AI_IMAGE_MODEL
+        value: gemini-3.1-flash-image
+      - key: AI_IMAGE_TIMEOUT
+        value: "60"
+      # R2 credentials and location. All sync:false — Render prompts for these
+      # ONLY at initial Blueprint creation and ignores them on later syncs, so
+      # add them by hand under companion-ai-api > Environment. Until set, image
+      # generation fails cleanly and workouts are unaffected.
+      # R2_PUBLIC_URL is the bucket's public base URL (r2.dev or custom domain).
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_PUBLIC_URL
+        sync: false
       - key: MEMORY_PROVIDER
         value: database
       - key: SESSION_DRIVER

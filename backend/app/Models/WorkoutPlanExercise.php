@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\ExerciseSlug;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -42,6 +43,18 @@ class WorkoutPlanExercise extends Model
         'notes',
     ];
 
+    protected static function booted(): void
+    {
+        // The slug is what links an exercise to its global demonstration
+        // image; keeping it in the model means every creation path (the plan
+        // service, weekly adaptation, factories) stays consistent.
+        static::saving(function (self $exercise) {
+            if ($exercise->isDirty('exercise_name') || $exercise->exercise_slug === null) {
+                $exercise->exercise_slug = ExerciseSlug::from($exercise->exercise_name);
+            }
+        });
+    }
+
     protected function casts(): array
     {
         return [
@@ -61,5 +74,10 @@ class WorkoutPlanExercise extends Model
     public function workoutPlan(): BelongsTo
     {
         return $this->belongsTo(WorkoutPlan::class);
+    }
+
+    public function exerciseImage(): BelongsTo
+    {
+        return $this->belongsTo(ExerciseImage::class, 'exercise_slug', 'slug');
     }
 }

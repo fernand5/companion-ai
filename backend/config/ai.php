@@ -33,6 +33,15 @@ return [
     'timeout' => (int) env('AI_REQUEST_TIMEOUT', 20),
     'weekly_timeout' => (int) env('AI_WEEKLY_REQUEST_TIMEOUT', 90),
 
+    // Exercise demonstration images use Gemini's Interactions API (a different
+    // endpoint from chat). One image measured ~11s; the timeout leaves headroom.
+    // Aspect ratio / size are optional response_format hints — leave empty to
+    // let the model choose.
+    'image_model' => env('AI_IMAGE_MODEL', 'gemini-3.1-flash-image'),
+    'image_timeout' => (int) env('AI_IMAGE_TIMEOUT', 60),
+    'image_aspect_ratio' => env('AI_IMAGE_ASPECT_RATIO', '4:3'),
+    'image_size' => env('AI_IMAGE_SIZE', '1K'),
+
     // Some turns need several sequential tool calls (e.g. an onboarding message
     // that states goals + equipment + two schedule days) — kept comfortably
     // above the common case now that the tool surface has grown.

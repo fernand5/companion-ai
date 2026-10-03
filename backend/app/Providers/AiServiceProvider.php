@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Services\Ai\Contracts\AiProvider;
+use App\Services\Ai\Contracts\ImageGenerator;
+use App\Services\Ai\GeminiImageGenerator;
 use App\Services\Ai\GeminiProvider;
 use Illuminate\Support\ServiceProvider;
 
@@ -17,6 +19,13 @@ class AiServiceProvider extends ServiceProvider
                     model: config('ai.model'),
                 ),
             };
+        });
+
+        $this->app->singleton(ImageGenerator::class, function () {
+            return new GeminiImageGenerator(
+                apiKey: config('ai.api_key'),
+                model: config('ai.image_model'),
+            );
         });
     }
 }

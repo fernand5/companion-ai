@@ -39,6 +39,8 @@ function makePlan(overrides: Partial<WorkoutPlan> = {}): WorkoutPlan {
         actual_duration_seconds: null,
         completed_at: null,
         notes: null,
+        image_url: null,
+        image_status: null,
       },
     ],
     updated_at: null,

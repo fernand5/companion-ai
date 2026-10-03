@@ -53,6 +53,6 @@ class WorkoutPlanController extends Controller
 
         $this->workoutPlanService->updateExerciseStatus($request->user(), $exercise, $request->validated());
 
-        return new WorkoutPlanResource($plan->fresh('exercises'));
+        return new WorkoutPlanResource($plan->fresh('exercises.exerciseImage'));
     }
 }

@@ -120,6 +120,8 @@ export type WorkoutPlanStatus = 'planned' | 'in_progress' | 'completed' | 'parti
 
 export type WorkoutPlanSource = 'ai' | 'manual' | 'schedule'
 
+export type ExerciseImageStatus = 'pending' | 'generating' | 'ready' | 'failed'
+
 export interface WorkoutPlanExercise {
   id: number
   exercise_name: string
@@ -135,6 +137,9 @@ export interface WorkoutPlanExercise {
   actual_duration_seconds: number | null
   completed_at: string | null
   notes: string | null
+  /** Global demonstration image; only set once it has been generated. */
+  image_url: string | null
+  image_status: ExerciseImageStatus | null
 }
 
 export interface WorkoutPlan {

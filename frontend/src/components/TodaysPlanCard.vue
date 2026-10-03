@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed } from 'vue'
 
 import ErrorNotice from '@/components/ErrorNotice.vue'
+import ExerciseDemo from '@/components/ExerciseDemo.vue'
 import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useWorkoutPlanStore } from '@/stores/workoutPlan'
@@ -63,60 +64,67 @@ function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
     <WhyThisChangedCard :reasoning="plan.reasoning" :reasoning-factors="plan.reasoning_factors" />
 
     <ul v-if="plan.exercises.length > 0" class="space-y-1.5">
-      <li
-        v-for="exercise in plan.exercises"
-        :key="exercise.id"
-        class="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50"
-      >
-        <button
-          type="button"
-          class="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
-          @click="setStatus(exercise, exercise.status === 'completed' ? 'pending' : 'completed')"
-        >
-          <FontAwesomeIcon
-            :icon="icon(exercise.status)"
-            :class="[ICON_SIZE.sm, STATUS_COLOR[exercise.status]]"
-            fixed-width
-          />
-          <span
-            class="truncate"
-            :class="exercise.status === 'skipped' ? 'text-slate-400 line-through' : 'text-slate-800'"
-          >
-            {{ exercise.exercise_name }}
-          </span>
-          <span class="shrink-0 text-xs text-slate-400">{{ summary(exercise) }}</span>
-        </button>
-
-        <div class="flex shrink-0 items-center gap-1 text-xs">
+      <li v-for="exercise in plan.exercises" :key="exercise.id" class="rounded-lg px-2 py-1.5 hover:bg-slate-50">
+        <div class="flex items-center justify-between gap-2">
           <button
-            v-if="exercise.status !== 'pending'"
             type="button"
-            class="p-1 text-slate-400 hover:text-slate-600"
-            aria-label="Reset to pending"
-            title="Reset to pending"
-            @click="setStatus(exercise, 'pending')"
+            class="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
+            @click="setStatus(exercise, exercise.status === 'completed' ? 'pending' : 'completed')"
           >
-            <FontAwesomeIcon :icon="icons.action.reset" :class="ICON_SIZE.sm" />
+            <FontAwesomeIcon
+              :icon="icon(exercise.status)"
+              :class="[ICON_SIZE.sm, STATUS_COLOR[exercise.status]]"
+              fixed-width
+            />
+            <span
+              class="truncate"
+              :class="exercise.status === 'skipped' ? 'text-slate-400 line-through' : 'text-slate-800'"
+            >
+              {{ exercise.exercise_name }}
+            </span>
+            <span class="shrink-0 text-xs text-slate-400">{{ summary(exercise) }}</span>
           </button>
-          <template v-else>
+
+          <div class="flex shrink-0 items-center gap-1 text-xs">
             <button
+              v-if="exercise.status !== 'pending'"
               type="button"
-              class="flex items-center gap-1 text-slate-400 hover:text-amber-600"
-              @click="setStatus(exercise, 'partial')"
+              class="p-1 text-slate-400 hover:text-slate-600"
+              aria-label="Reset to pending"
+              title="Reset to pending"
+              @click="setStatus(exercise, 'pending')"
             >
-              <FontAwesomeIcon :icon="icons.planStatus.partial" :class="ICON_SIZE.xs" />
-              Partial
+              <FontAwesomeIcon :icon="icons.action.reset" :class="ICON_SIZE.sm" />
             </button>
-            <button
-              type="button"
-              class="flex items-center gap-1 text-slate-400 hover:text-red-500"
-              @click="setStatus(exercise, 'skipped')"
-            >
-              <FontAwesomeIcon :icon="icons.planStatus.skipped" :class="ICON_SIZE.xs" />
-              Skip
-            </button>
-          </template>
+            <template v-else>
+              <button
+                type="button"
+                class="flex items-center gap-1 text-slate-400 hover:text-amber-600"
+                @click="setStatus(exercise, 'partial')"
+              >
+                <FontAwesomeIcon :icon="icons.planStatus.partial" :class="ICON_SIZE.xs" />
+                Partial
+              </button>
+              <button
+                type="button"
+                class="flex items-center gap-1 text-slate-400 hover:text-red-500"
+                @click="setStatus(exercise, 'skipped')"
+              >
+                <FontAwesomeIcon :icon="icons.planStatus.skipped" :class="ICON_SIZE.xs" />
+                Skip
+              </button>
+            </template>
+          </div>
         </div>
+
+        <!-- After the status controls in DOM order: a failed or slow image can never get in the way of completing the exercise. -->
+        <ExerciseDemo
+          class="mt-1.5 pl-6"
+          :plan-id="plan.id"
+          :exercise-id="exercise.id"
+          :exercise-name="exercise.exercise_name"
+          :image-url="exercise.image_url"
+        />
       </li>
     </ul>
 

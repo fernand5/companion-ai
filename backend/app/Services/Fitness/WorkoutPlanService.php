@@ -23,7 +23,7 @@ class WorkoutPlanService
     public function forDate(User $user, string $date): ?WorkoutPlan
     {
         return $user->workoutPlans()
-            ->with('exercises')
+            ->with('exercises.exerciseImage')
             ->whereDate('planned_date', $date)
             ->first();
     }
@@ -34,7 +34,7 @@ class WorkoutPlanService
     public function forRange(User $user, string $start, string $end): Collection
     {
         return $user->workoutPlans()
-            ->with('exercises')
+            ->with('exercises.exerciseImage')
             ->whereDate('planned_date', '>=', $start)
             ->whereDate('planned_date', '<=', $end)
             ->orderBy('planned_date')
@@ -119,7 +119,7 @@ class WorkoutPlanService
                 ]);
             }
 
-            return $plan->load('exercises');
+            return $plan->load('exercises.exerciseImage');
         });
     }
 
