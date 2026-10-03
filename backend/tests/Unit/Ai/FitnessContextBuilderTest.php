@@ -19,6 +19,24 @@ class FitnessContextBuilderTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
+    /**
+     * The week-plan tests need a "past" day and a "future" day inside the
+     * current Monday-Sunday week, which only exists mid-week. Reading the real
+     * clock made them fail every Saturday and Sunday (today + 2 days lands in
+     * next week) and made one assertion branch on the weekday. Wednesday
+     * 2026-09-16 has Monday in the past and Thursday-Sunday ahead.
+     */
+    private function freezeMidWeek(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-16 12:00:00', 'UTC'));
+    }
+
     public function test_context_includes_profile_recent_activity_upcoming_schedule_and_memories(): void
     {
         $user = User::factory()->has(FitnessProfile::factory(), 'fitnessProfile')->create();
@@ -138,6 +156,7 @@ class FitnessContextBuilderTest extends TestCase
      */
     public function test_week_plan_marks_a_past_dated_entry_as_past_not_today_or_future(): void
     {
+        $this->freezeMidWeek();
         $user = User::factory()->create();
         $weekRange = app(WeeklyPlanService::class)->weekRange($user);
 
@@ -157,20 +176,21 @@ class FitnessContextBuilderTest extends TestCase
 
         $entry = collect($context['week_plan'])->firstWhere('planned_date', $weekRange['start']);
 
+        $this->assertSame('2026-09-14', $weekRange['start']);
         $this->assertNotNull($entry);
-        if ($weekRange['start'] === Carbon::today()->toDateString()) {
-            $this->assertSame('today', $entry['relative_to_today']);
-        } else {
-            $this->assertSame('past', $entry['relative_to_today']);
-        }
+        $this->assertSame('past', $entry['relative_to_today']);
     }
 
     public function test_week_plan_marks_todays_and_future_entries_correctly(): void
     {
+        $this->freezeMidWeek();
         $user = User::factory()->create();
         $weekRange = app(WeeklyPlanService::class)->weekRange($user);
         $today = Carbon::today()->toDateString();
         $future = Carbon::today()->addDays(2)->toDateString();
+
+        $this->assertSame('2026-09-16', $today);
+        $this->assertTrue($future >= $weekRange['start'] && $future <= $weekRange['end'], 'the future day must fall inside the week');
 
         app(WorkoutPlanService::class)->createOrReplace($user, [
             'planned_date' => $today,
