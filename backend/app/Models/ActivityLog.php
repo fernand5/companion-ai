@@ -27,6 +27,7 @@ class ActivityLog extends Model
         'type',
         'logged_date',
         'duration_minutes',
+        'distance_km',
         'intensity',
         'notes',
         'metadata',
@@ -38,6 +39,7 @@ class ActivityLog extends Model
         return [
             'logged_date' => 'date',
             'duration_minutes' => 'integer',
+            'distance_km' => 'decimal:2',
             'metadata' => 'array',
         ];
     }
@@ -50,5 +52,25 @@ class ActivityLog extends Model
     public function workoutSession(): BelongsTo
     {
         return $this->belongsTo(WorkoutSession::class);
+    }
+
+    /** Average speed, derived from distance and duration (never stored). */
+    public function speedKmh(): ?float
+    {
+        if (! $this->distance_km || ! $this->duration_minutes) {
+            return null;
+        }
+
+        return round((float) $this->distance_km / ($this->duration_minutes / 60), 1);
+    }
+
+    /** Average pace in seconds per kilometre, derived from distance and duration. */
+    public function paceSecondsPerKm(): ?int
+    {
+        if (! $this->distance_km || ! $this->duration_minutes) {
+            return null;
+        }
+
+        return (int) round($this->duration_minutes * 60 / (float) $this->distance_km);
     }
 }

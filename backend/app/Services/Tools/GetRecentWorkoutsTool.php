@@ -42,9 +42,13 @@ class GetRecentWorkoutsTool implements AiTool
                 'notes' => $session->notes,
                 'exercises' => $session->exercises->map(fn ($e) => [
                     'exercise_name' => $e->exercise_name,
-                    'sets' => $e->sets,
-                    'reps' => $e->reps,
-                    'weight_kg' => $e->weight_kg !== null ? (float) $e->weight_kg : null,
+                    'recorded_as' => $e->recorded_as ?? 'migrated',
+                    // A one-tap "done" only assumes the plan's targets. Those numbers
+                    // are not performance, so they are withheld from the model rather
+                    // than presented as if the user had measured them.
+                    'sets' => $e->isMeasured() ? $e->sets : null,
+                    'reps' => $e->isMeasured() ? $e->reps : null,
+                    'weight_kg' => $e->isMeasured() && $e->weight_kg !== null ? (float) $e->weight_kg : null,
                 ])->all(),
             ])
             ->all();

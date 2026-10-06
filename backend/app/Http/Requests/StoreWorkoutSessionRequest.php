@@ -24,6 +24,11 @@ class StoreWorkoutSessionRequest extends FormRequest
             'exercises.*.weight_kg' => ['nullable', 'numeric', 'min:0', 'max:500'],
             'exercises.*.duration_seconds' => ['nullable', 'integer', 'min:0', 'max:7200'],
             'exercises.*.notes' => ['nullable', 'string', 'max:1000'],
+            'exercises.*.set_details' => ['nullable', 'array', 'max:50'],
+            'exercises.*.set_details.*.reps' => ['nullable', 'integer', 'min:0', 'max:200'],
+            'exercises.*.set_details.*.weight_kg' => ['nullable', 'numeric', 'min:0', 'max:500'],
+            'exercises.*.set_details.*.duration_seconds' => ['nullable', 'integer', 'min:0', 'max:7200'],
+            'exercises.*.set_details.*.completed' => ['nullable', 'boolean'],
         ];
     }
 }

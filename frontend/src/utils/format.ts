@@ -1,7 +1,7 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 
 import { icons } from '@/constants/icons'
-import type { ActivityType } from '@/types'
+import type { ActivityType, PerformedSet } from '@/types'
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
   steps: 'Steps',
@@ -40,10 +40,61 @@ export function dayName(dayOfWeek: number): string {
   return DAY_NAMES[dayOfWeek] ?? '?'
 }
 
+/** 450 -> "7:30 /km". */
+export function formatPace(secondsPerKm: number): string {
+  const minutes = Math.floor(secondsPerKm / 60)
+  const seconds = Math.round(secondsPerKm % 60)
+
+  return `${minutes}:${String(seconds).padStart(2, '0')} /km`
+}
+
+function trimNumber(value: number): string {
+  return String(Number(value.toFixed(2)))
+}
+
+/**
+ * Compact set list, e.g. "10×40, 10×40, 8×40 kg". Sets the user did not
+ * complete are marked, so a missed set is never read as a finished one.
+ */
+export function formatPerformedSets(sets: PerformedSet[]): string {
+  const hasWeight = sets.some((set) => set.weight_kg !== null)
+  const text = sets
+    .map((set) => {
+      const parts: string[] = []
+
+      if (set.reps !== null && set.weight_kg !== null) parts.push(`${set.reps}×${trimNumber(set.weight_kg)}`)
+      else if (set.reps !== null) parts.push(`${set.reps} reps`)
+      else if (set.weight_kg !== null) parts.push(`${trimNumber(set.weight_kg)}`)
+
+      if (set.duration_seconds !== null) parts.push(`${set.duration_seconds}s`)
+
+      return set.completed ? parts.join(' ') : `${parts.join(' ')} (not completed)`
+    })
+    .join(', ')
+
+  return hasWeight ? `${text} kg` : text
+}
+
+function cardioSummary(log: {
+  duration_minutes: number | null
+  distance_km?: number | null
+  speed_kmh?: number | null
+}): string {
+  return [
+    log.distance_km != null ? `${trimNumber(log.distance_km)} km` : null,
+    log.duration_minutes ? `${log.duration_minutes} min` : null,
+    log.speed_kmh != null ? `${log.speed_kmh} km/h` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 export function activitySummary(log: {
   type: ActivityType
   metadata: Record<string, unknown> | null
   duration_minutes: number | null
+  distance_km?: number | null
+  speed_kmh?: number | null
 }): string {
   const meta = log.metadata ?? {}
 
@@ -53,7 +104,7 @@ export function activitySummary(log: {
     case 'weight':
       return `${meta.weight_kg ?? '?'} kg`
     case 'treadmill':
-      return log.duration_minutes ? `${log.duration_minutes} min` : 'Treadmill session'
+      return cardioSummary(log) || 'Treadmill session'
     case 'sport':
       return String(meta.sport ?? 'Sport session')
     case 'recovery':

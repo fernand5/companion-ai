@@ -37,6 +37,10 @@ export interface ActivityLog {
   type: ActivityType
   logged_date: string
   duration_minutes: number | null
+  distance_km: number | null
+  /** Derived by the server from distance and duration; never entered. */
+  speed_kmh: number | null
+  pace_seconds_per_km: number | null
   intensity: string | null
   notes: string | null
   metadata: Record<string, unknown> | null
@@ -44,9 +48,41 @@ export interface ActivityLog {
   created_at: string | null
 }
 
+/**
+ * How much to trust recorded numbers: `entered` was typed by the user,
+ * `as_planned` is the plan's target assumed after a one-tap "done" (weak
+ * evidence, not measured performance), `migrated` was converted from older logs.
+ */
+export type PerformanceRecordedAs = 'entered' | 'as_planned' | 'migrated'
+
+export interface PerformedSet {
+  set_number: number
+  reps: number | null
+  weight_kg: number | null
+  duration_seconds: number | null
+  completed: boolean
+}
+
+export interface PlannedTarget {
+  sets: number | null
+  reps: number | null
+  weight_kg: number | null
+  duration_seconds: number | null
+}
+
+/** What the user actually did for a planned exercise — kept apart from the plan's targets. */
+export interface ExercisePerformance {
+  recorded_as: PerformanceRecordedAs
+  sets: PerformedSet[]
+}
+
 export interface WorkoutExercise {
   id: number
   exercise_name: string
+  exercise_slug: string | null
+  recorded_as: PerformanceRecordedAs
+  planned: PlannedTarget | null
+  performed_sets: PerformedSet[]
   sets: number | null
   reps: number | null
   weight_kg: number | null
@@ -137,6 +173,8 @@ export interface WorkoutPlanExercise {
   actual_duration_seconds: number | null
   completed_at: string | null
   notes: string | null
+  /** What the user actually did (separate from the planned_* targets above); null until recorded. */
+  performance: ExercisePerformance | null
   /** Global demonstration image; only set once it has been generated. */
   image_url: string | null
   image_status: ExerciseImageStatus | null

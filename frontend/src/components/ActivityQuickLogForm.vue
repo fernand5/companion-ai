@@ -4,6 +4,7 @@ import { computed, reactive } from 'vue'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useActivityStore } from '@/stores/activity'
+import { formatPace } from '@/utils/format'
 
 const TYPE_ICON = {
   steps: icons.activityType.steps,
@@ -17,12 +18,23 @@ const form = reactive({
   type: 'steps' as 'steps' | 'treadmill' | 'sport',
   steps: 6000,
   duration_minutes: 20,
+  distance_km: null as number | null,
   intensity: 'moderate' as 'low' | 'moderate' | 'high',
   sport: 'Football',
   notes: '',
 })
 
 const submitting = computed(() => activityStore.loading)
+
+/** Average speed and pace, previewed from what is typed (the server derives the stored values). */
+const cardioPreview = computed(() => {
+  const km = form.distance_km
+  const minutes = form.duration_minutes
+
+  if (form.type !== 'treadmill' || !km || km <= 0 || !minutes || minutes <= 0) return null
+
+  return `${(km / (minutes / 60)).toFixed(1)} km/h · ${formatPace((minutes * 60) / km)}`
+})
 
 async function submit() {
   const metadata: Record<string, unknown> = {}
@@ -33,12 +45,14 @@ async function submit() {
   await activityStore.log({
     type: form.type,
     duration_minutes: form.type === 'steps' ? undefined : form.duration_minutes,
+    distance_km: form.type === 'treadmill' && form.distance_km ? form.distance_km : undefined,
     intensity: form.type === 'steps' ? undefined : form.intensity,
     notes: form.notes || undefined,
     metadata,
   })
 
   form.notes = ''
+  form.distance_km = null
 }
 </script>
 
@@ -84,6 +98,18 @@ async function submit() {
         />
       </label>
       <label class="text-sm text-slate-600">
+        Distance (km)
+        <input
+          v-model.number="form.distance_km"
+          type="number"
+          inputmode="decimal"
+          min="0"
+          step="0.1"
+          placeholder="optional"
+          class="ml-1 w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+        />
+      </label>
+      <label class="text-sm text-slate-600">
         Intensity
         <select v-model="form.intensity" class="ml-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
           <option value="low">Low</option>
@@ -91,6 +117,7 @@ async function submit() {
           <option value="high">High</option>
         </select>
       </label>
+      <p v-if="cardioPreview" class="w-full text-xs text-slate-500" data-testid="cardio-preview">{{ cardioPreview }}</p>
     </div>
 
     <div v-if="form.type === 'sport'" class="flex flex-wrap items-center gap-3">

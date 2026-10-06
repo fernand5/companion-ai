@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\RecordExercisePerformanceRequest;
 use App\Http\Requests\StoreWorkoutPlanRequest;
 use App\Http\Requests\UpdateWorkoutPlanExerciseRequest;
 use App\Http\Resources\WorkoutPlanResource;
@@ -53,6 +54,25 @@ class WorkoutPlanController extends Controller
 
         $this->workoutPlanService->updateExerciseStatus($request->user(), $exercise, $request->validated());
 
-        return new WorkoutPlanResource($plan->fresh('exercises.exerciseImage'));
+        return new WorkoutPlanResource($plan->fresh(['exercises.exerciseImage', 'exercises.performance.performedSets']));
+    }
+
+    /**
+     * Record what the user actually did, set by set. The plan itself is not
+     * modified; the performance is stored separately and compared against it.
+     */
+    public function recordPerformance(RecordExercisePerformanceRequest $request, WorkoutPlan $plan, WorkoutPlanExercise $exercise)
+    {
+        abort_unless($plan->user_id === $request->user()->id, 403);
+        abort_unless($exercise->workout_plan_id === $plan->id, 404);
+
+        $updated = $this->workoutPlanService->recordPerformance(
+            $request->user(),
+            $exercise,
+            $request->validated('sets'),
+            $request->validated('notes'),
+        );
+
+        return new WorkoutPlanResource($updated);
     }
 }

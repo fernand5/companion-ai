@@ -5,6 +5,8 @@ export interface LogActivityPayload {
   type: Exclude<ActivityType, 'weight'>
   logged_date?: string
   duration_minutes?: number
+  /** Treadmill and sport only; speed and pace are derived server-side. */
+  distance_km?: number
   intensity?: 'low' | 'moderate' | 'high'
   notes?: string
   metadata?: Record<string, unknown>

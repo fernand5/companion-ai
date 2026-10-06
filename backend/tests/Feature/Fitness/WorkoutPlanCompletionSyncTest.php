@@ -47,11 +47,15 @@ class WorkoutPlanCompletionSyncTest extends TestCase
 
         $service = app(WorkoutPlanService::class);
 
-        // First transition: mark A completed, B still pending -> in_progress, no sync yet.
+        // First transition: A completed, B still pending -> in_progress. What the
+        // user did is recorded straight away (so numbers they enter are never
+        // dropped), but the day does not count as a strength workout yet.
         $service->updateExerciseStatus($user, $a, ['status' => 'completed']);
-        $this->assertSame(0, WorkoutSession::where('user_id', $user->id)->count());
+        $this->assertSame(1, WorkoutSession::where('user_id', $user->id)->count());
+        $this->assertSame(0, ActivityLog::where('user_id', $user->id)->where('type', 'strength')->count());
 
-        // Second transition: mark B completed too -> plan completes, first sync happens.
+        // Second transition: mark B completed too -> the plan completes and the
+        // strength activity appears, on the same session.
         $service->updateExerciseStatus($user, $b, ['status' => 'completed']);
         $this->assertSame(1, WorkoutSession::where('user_id', $user->id)->count());
         $this->assertSame(1, ActivityLog::where('user_id', $user->id)->where('type', 'strength')->count());

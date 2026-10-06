@@ -5,6 +5,7 @@ import { computed, onMounted } from 'vue'
 import ActivityQuickLogForm from '@/components/ActivityQuickLogForm.vue'
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import WeightLogForm from '@/components/WeightLogForm.vue'
+import WorkoutSessionSummary from '@/components/WorkoutSessionSummary.vue'
 import WorkoutLogForm from '@/components/WorkoutLogForm.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useActivityStore } from '@/stores/activity'
@@ -15,6 +16,12 @@ const activityStore = useActivityStore()
 onMounted(() => {
   activityStore.load()
 })
+
+function sessionFor(log: { workout_session_id: number | null }) {
+  return log.workout_session_id === null
+    ? undefined
+    : activityStore.workouts.find((session) => session.id === log.workout_session_id)
+}
 
 const timeline = computed(() =>
   [...activityStore.logs].sort((a, b) => (a.logged_date < b.logged_date ? 1 : -1)),
@@ -55,26 +62,29 @@ const timeline = computed(() =>
         <li
           v-for="log in timeline"
           :key="log.id"
-          class="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
+          class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
         >
-          <div class="flex items-center gap-3">
-            <FontAwesomeIcon :icon="activityIcon(log.type)" :class="[ICON_SIZE.sm, 'text-slate-500']" fixed-width />
-            <div>
-              <p class="font-medium text-slate-800">{{ activityLabel(log.type) }}</p>
-              <p class="text-xs text-slate-500">{{ formatDate(log.logged_date) }}</p>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <FontAwesomeIcon :icon="activityIcon(log.type)" :class="[ICON_SIZE.sm, 'text-slate-500']" fixed-width />
+              <div>
+                <p class="font-medium text-slate-800">{{ activityLabel(log.type) }}</p>
+                <p class="text-xs text-slate-500">{{ formatDate(log.logged_date) }}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-slate-500">{{ activitySummary(log) }}</span>
+              <button
+                type="button"
+                class="text-slate-300 hover:text-red-500"
+                aria-label="Delete activity log"
+                @click="activityStore.remove(log.id)"
+              >
+                <FontAwesomeIcon :icon="icons.action.delete" :class="ICON_SIZE.sm" />
+              </button>
             </div>
           </div>
-          <div class="flex items-center gap-3">
-            <span class="text-slate-500">{{ activitySummary(log) }}</span>
-            <button
-              type="button"
-              class="text-slate-300 hover:text-red-500"
-              aria-label="Delete activity log"
-              @click="activityStore.remove(log.id)"
-            >
-              <FontAwesomeIcon :icon="icons.action.delete" :class="ICON_SIZE.sm" />
-            </button>
-          </div>
+          <WorkoutSessionSummary v-if="sessionFor(log)" :session="sessionFor(log)!" />
         </li>
       </ul>
     </section>
