@@ -93,11 +93,30 @@ class ActivityService
             'type' => $validated['type'],
             'logged_date' => $validated['logged_date'] ?? $user->localToday(),
             'duration_minutes' => $validated['duration_minutes'] ?? null,
-            'distance_km' => $validated['distance_km'] ?? null,
+            'distance_km' => $validated['distance_km'] ?? $this->distanceFromMetadata($validated),
             'intensity' => $validated['intensity'] ?? null,
             'notes' => $validated['notes'] ?? null,
             'metadata' => $validated['metadata'] ?? null,
         ]);
+    }
+
+    /**
+     * Older clients and the coach used to put the distance in metadata. When no
+     * explicit distance_km was given, a plausible numeric metadata distance for a
+     * distance-bearing type is promoted to the column so there is one source of
+     * truth; it is the user's own stated number, never an estimate.
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    private function distanceFromMetadata(array $validated): ?float
+    {
+        if (! in_array($validated['type'], [ActivityLog::TYPE_TREADMILL, ActivityLog::TYPE_SPORT], true)) {
+            return null;
+        }
+
+        $distance = $validated['metadata']['distance_km'] ?? null;
+
+        return is_numeric($distance) && $distance > 0 && $distance <= 1000 ? round((float) $distance, 2) : null;
     }
 
     /**

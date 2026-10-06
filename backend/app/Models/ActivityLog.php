@@ -73,4 +73,33 @@ class ActivityLog extends Model
 
         return (int) round($this->duration_minutes * 60 / (float) $this->distance_km);
     }
+
+    /**
+     * Distance implied by the recorded intervals (sum of minutes x speed), if any.
+     *
+     * NOT authoritative: distance_km is the explicit recorded distance and is
+     * never rewritten from this. Interval entries are usually approximate
+     * (rounded speeds, warm-ups), so the two can legitimately disagree; this is
+     * exposed only so a reader can see that, not to override distance_km.
+     */
+    public function intervalImpliedDistanceKm(): ?float
+    {
+        $intervals = $this->metadata['intervals'] ?? null;
+
+        if (! is_array($intervals) || $intervals === []) {
+            return null;
+        }
+
+        $km = 0.0;
+
+        foreach ($intervals as $interval) {
+            if (! is_array($interval) || ! is_numeric($interval['minutes'] ?? null) || ! is_numeric($interval['speed_kmh'] ?? null)) {
+                return null;
+            }
+
+            $km += (float) $interval['minutes'] * (float) $interval['speed_kmh'] / 60;
+        }
+
+        return round($km, 2);
+    }
 }

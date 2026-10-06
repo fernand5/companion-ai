@@ -5,7 +5,9 @@ namespace App\Services\Fitness;
 use App\Models\ActivityLog;
 use App\Models\User;
 use App\Models\WorkoutExercise;
+use App\Models\WorkoutPlan;
 use App\Models\WorkoutSession;
+use App\Support\PlanMirrorClassification;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -18,7 +20,7 @@ class WorkoutService
     public function recent(User $user, int $days = 14): Collection
     {
         return $user->workoutSessions()
-            ->with('exercises.performedSets')
+            ->with(['exercises.performedSets', 'exercises.planExercise'])
             ->whereDate('logged_date', '>=', $user->localNow()->subDays($days - 1)->toDateString())
             ->orderByDesc('logged_date')
             ->get();
@@ -73,15 +75,20 @@ class WorkoutService
 
     /**
      * The mirrored activity_logs row that puts a session on the unified
-     * activity timeline. Idempotent: updated in place, never duplicated.
+     * activity timeline. Idempotent: updated in place, never duplicated. A
+     * session that came from a plan is classified by that plan's activity type
+     * (a recovery session is not a high-intensity strength session); a freeform
+     * session has no plan and is strength.
      */
-    public function ensureMirrorLog(User $user, WorkoutSession $session, ?int $exerciseCount = null): ActivityLog
+    public function ensureMirrorLog(User $user, WorkoutSession $session, ?int $exerciseCount = null, ?WorkoutPlan $plan = null): ActivityLog
     {
+        $profile = PlanMirrorClassification::for($plan?->activity_type);
+
         $data = [
-            'type' => ActivityLog::TYPE_STRENGTH,
+            'type' => $profile['type'],
             'logged_date' => $session->logged_date->toDateString(),
             'duration_minutes' => $session->duration_minutes,
-            'intensity' => 'high',
+            'intensity' => $profile['intensity'],
             'notes' => $session->notes,
             'metadata' => ['exercise_count' => $exerciseCount ?? $session->exercises()->count()],
             'workout_session_id' => $session->id,

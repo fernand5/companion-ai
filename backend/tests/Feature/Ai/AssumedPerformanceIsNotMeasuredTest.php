@@ -62,9 +62,12 @@ class AssumedPerformanceIsNotMeasuredTest extends TestCase
         $exercise = $this->tool('get_recent_workouts')[0]['exercises'][0];
 
         $this->assertSame('as_planned', $exercise['recorded_as']);
-        $this->assertNull($exercise['sets']);
-        $this->assertNull($exercise['reps']);
-        $this->assertNull($exercise['weight_kg']);
+        $this->assertFalse($exercise['performance_measured']);
+        $this->assertNull($exercise['performed_sets']);
+        $this->assertNull($exercise['performed_summary']);
+        $this->assertArrayNotHasKey('sets', $exercise, 'The old summary columns are no longer exposed.');
+        $this->assertArrayNotHasKey('reps', $exercise);
+        $this->assertArrayNotHasKey('weight_kg', $exercise);
     }
 
     public function test_the_plan_tool_shows_no_actuals_for_a_one_tap_completion(): void
@@ -86,9 +89,9 @@ class AssumedPerformanceIsNotMeasuredTest extends TestCase
 
         $workout = $this->tool('get_recent_workouts')[0]['exercises'][0];
         $this->assertSame('entered', $workout['recorded_as']);
-        $this->assertSame(3, $workout['sets']);
-        $this->assertSame(10, $workout['reps']);
-        $this->assertSame(42.5, $workout['weight_kg']);
+        $this->assertTrue($workout['performance_measured']);
+        $this->assertSame('10,10,8 @ 42.5 kg', $workout['performed_summary']);
+        $this->assertSame([10, 10, 8], array_column($workout['performed_sets'], 'reps'));
 
         $plan = $this->tool('get_todays_plan')['exercises'][0];
         $this->assertSame(10, $plan['actual_reps']);

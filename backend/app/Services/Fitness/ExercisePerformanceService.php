@@ -106,7 +106,7 @@ class ExercisePerformanceService
         }
 
         if (in_array($plan->status, [WorkoutPlan::STATUS_COMPLETED, WorkoutPlan::STATUS_PARTIAL], true)) {
-            $this->workoutService->ensureMirrorLog($user, $session);
+            $this->workoutService->ensureMirrorLog($user, $session, plan: $plan);
 
             return;
         }
