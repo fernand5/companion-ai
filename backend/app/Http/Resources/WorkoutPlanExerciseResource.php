@@ -29,6 +29,19 @@ class WorkoutPlanExerciseResource extends JsonResource
             'actual_duration_seconds' => $this->actual_duration_seconds,
             'completed_at' => $this->completed_at?->toIso8601String(),
             'notes' => $this->notes,
+            // What the user actually did, kept separate from the targets above.
+            'performance' => $this->relationLoaded('performance') && $this->performance ? [
+                'recorded_as' => $this->performance->recorded_as ?? 'migrated',
+                'sets' => $this->performance->relationLoaded('performedSets')
+                    ? $this->performance->performedSets->map(fn ($s) => [
+                        'set_number' => $s->set_number,
+                        'reps' => $s->reps,
+                        'weight_kg' => $s->weight_kg !== null ? (float) $s->weight_kg : null,
+                        'duration_seconds' => $s->duration_seconds,
+                        'completed' => $s->completed,
+                    ])->values()
+                    : [],
+            ] : null,
             'image_url' => $image?->status === ExerciseImage::STATUS_READY ? $image->image_url : null,
             'image_status' => $image?->status,
         ];

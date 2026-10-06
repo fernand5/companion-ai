@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CoachController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\ExerciseHistoryController;
 use App\Http\Controllers\Api\ExerciseImageController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProgressController;
@@ -47,6 +48,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/workout-plans', [WorkoutPlanController::class, 'index']);
     Route::post('/workout-plans', [WorkoutPlanController::class, 'store']);
     Route::patch('/workout-plans/{plan}/exercises/{exercise}', [WorkoutPlanController::class, 'updateExercise']);
+    Route::put('/workout-plans/{plan}/exercises/{exercise}/performance', [WorkoutPlanController::class, 'recordPerformance']);
+    Route::get('/exercises/{exercise}/history', [ExerciseHistoryController::class, 'show']);
     // May start an AI image generation (paid), so it is throttled; polling shares this budget.
     Route::post('/workout-plans/{plan}/exercises/{exercise}/image', [ExerciseImageController::class, 'store'])
         ->middleware('throttle:60,1');

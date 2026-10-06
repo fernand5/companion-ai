@@ -10,6 +10,14 @@ use Illuminate\Support\Str;
  * when their names normalize to the same slug. Plurals and synonyms are
  * deliberately NOT folded together — that would risk merging different
  * exercises; the cost of the alternative is at worst one extra image.
+ *
+ * The same identity drives performance history, and the same policy applies:
+ * matching is EXACT. "Dumbbell Row"/"Dumbbell Rows" and "Lunges"/"Dumbbell
+ * Lunges" are separate exercises with separate histories. No pluralization,
+ * prefix or fuzzy folding, and no alias table (there is no catalog to hang one
+ * on): a false merge would make the coach compare two different movements,
+ * while a missed merge only means less history. Explicit aliases are future
+ * work and would need a catalog.
  */
 class ExerciseSlug
 {

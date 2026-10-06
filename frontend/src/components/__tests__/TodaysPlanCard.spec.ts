@@ -15,6 +15,7 @@ vi.mock('@/services/exerciseImages', () => ({
 vi.mock('@/services/workoutPlans', () => ({
   fetchPlanForDate: vi.fn(),
   updateExerciseStatus: vi.fn(async () => plan),
+  recordExercisePerformance: vi.fn(async () => plan),
 }))
 
 let plan: WorkoutPlan
@@ -49,6 +50,7 @@ beforeEach(() => {
         actual_duration_seconds: null,
         completed_at: null,
         notes: null,
+        performance: null,
         image_url: null,
         image_status: null,
       },
@@ -113,6 +115,85 @@ describe('TodaysPlanCard', () => {
 
     expect(spy).toHaveBeenCalledWith(10, 'completed')
     expect(store.error).toBeNull()
+  })
+
+  it('shows the target weight beside the sets and reps', () => {
+    plan.exercises[0].planned_weight_kg = 40
+    const store = useWorkoutPlanStore()
+    store.today = plan
+
+    expect(mount(TodaysPlanCard).text()).toContain('3 × 10 @ 40 kg')
+  })
+
+  it('shows what was actually done, apart from the target', () => {
+    plan.exercises[0].planned_weight_kg = 40
+    plan.exercises[0].status = 'completed'
+    plan.exercises[0].performance = {
+      recorded_as: 'entered',
+      sets: [
+        { set_number: 1, reps: 10, weight_kg: 45, duration_seconds: null, completed: true },
+        { set_number: 2, reps: 8, weight_kg: 45, duration_seconds: null, completed: true },
+      ],
+    }
+    const store = useWorkoutPlanStore()
+    store.today = plan
+
+    const wrapper = mount(TodaysPlanCard)
+
+    expect(wrapper.text()).toContain('3 × 10 @ 40 kg')
+    expect(wrapper.find('[data-testid="logged-sets"]').text()).toContain('10×45, 8×45 kg')
+    expect(wrapper.find('[data-testid="logged-sets"]').text()).not.toContain('as planned')
+    expect(wrapper.text()).toContain('Edit sets')
+  })
+
+  it('flags a one-tap completion as assumed', () => {
+    plan.exercises[0].status = 'completed'
+    plan.exercises[0].performance = {
+      recorded_as: 'as_planned',
+      sets: [{ set_number: 1, reps: 10, weight_kg: 40, duration_seconds: null, completed: true }],
+    }
+    const store = useWorkoutPlanStore()
+    store.today = plan
+
+    const wrapper = mount(TodaysPlanCard)
+
+    expect(wrapper.find('[data-testid="logged-sets"]').text()).toContain('as planned')
+    expect(wrapper.text()).toContain('Log sets')
+  })
+
+  it('says so when an exercise was marked partial without any amount', () => {
+    plan.exercises[0].status = 'partial'
+    plan.exercises[0].performance = { recorded_as: 'as_planned', sets: [] }
+    const store = useWorkoutPlanStore()
+    store.today = plan
+
+    expect(mount(TodaysPlanCard).find('[data-testid="logged-sets"]').text()).toContain('amount not recorded')
+  })
+
+  it('opens the set editor from "Log sets" and closes it again', async () => {
+    const store = useWorkoutPlanStore()
+    store.today = plan
+    const wrapper = mount(TodaysPlanCard)
+
+    expect(wrapper.find('[data-testid="performance-editor"]').exists()).toBe(false)
+
+    await wrapper.findAll('button').find((b) => b.text().includes('Log sets'))!.trigger('click')
+    expect(wrapper.find('[data-testid="performance-editor"]').exists()).toBe(true)
+
+    await wrapper.findAll('button').find((b) => b.text() === 'Cancel')!.trigger('click')
+    expect(wrapper.find('[data-testid="performance-editor"]').exists()).toBe(false)
+  })
+
+  it('keeps the one-tap toggle first and unchanged even with the editor open', async () => {
+    const store = useWorkoutPlanStore()
+    store.today = plan
+    const spy = vi.spyOn(store, 'updateExerciseStatus')
+    const wrapper = mount(TodaysPlanCard)
+
+    await wrapper.findAll('button').find((b) => b.text().includes('Log sets'))!.trigger('click')
+    await wrapper.find('button').trigger('click')
+
+    expect(spy).toHaveBeenCalledWith(10, 'completed')
   })
 })
 

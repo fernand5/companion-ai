@@ -17,7 +17,9 @@ class GetRecentActivityTool implements AiTool
 
     public function description(): string
     {
-        return 'Get the activity logged over the last N days (default 7): steps, treadmill, strength, sport, recovery.';
+        return 'Get the activity logged over the last N days (default 7): steps, treadmill, strength, sport, recovery. '
+            .'Treadmill/sport entries include distance_km (null = "distance not recorded"), and speed_kmh / pace derived from it. '
+            .'interval_implied_distance_km, when present, is only a rough cross-check of the recorded intervals; distance_km is the authoritative distance.';
     }
 
     public function schema(): array
@@ -40,9 +42,16 @@ class GetRecentActivityTool implements AiTool
             ->all();
     }
 
+    /**
+     * The activity as the coach sees it. Treadmill and sport logs also carry the
+     * structured distance: distance_km is the explicit recorded value (null =
+     * "distance not recorded", never guessed); speed and pace are derived from
+     * it on read. interval_implied_distance_km (only when intervals were
+     * recorded) is a rough cross-check and NOT authoritative.
+     */
     public static function present(ActivityLog $log): array
     {
-        return [
+        $presented = [
             'type' => $log->type,
             'date' => $log->logged_date->toDateString(),
             'duration_minutes' => $log->duration_minutes,
@@ -50,5 +59,26 @@ class GetRecentActivityTool implements AiTool
             'notes' => $log->notes,
             'metadata' => $log->metadata,
         ];
+
+        if (! in_array($log->type, [ActivityLog::TYPE_TREADMILL, ActivityLog::TYPE_SPORT], true)) {
+            return $presented;
+        }
+
+        $pace = $log->paceSecondsPerKm();
+
+        $presented['distance_km'] = $log->distance_km !== null ? (float) $log->distance_km : null;
+        $presented['speed_kmh'] = $log->speedKmh();
+        $presented['pace_seconds_per_km'] = $pace;
+        $presented['pace'] = $pace !== null ? sprintf('%d:%02d /km', intdiv($pace, 60), $pace % 60) : null;
+
+        if ($log->distance_km === null) {
+            $presented['distance_note'] = 'distance not recorded';
+        }
+
+        if (($implied = $log->intervalImpliedDistanceKm()) !== null) {
+            $presented['interval_implied_distance_km'] = $implied;
+        }
+
+        return $presented;
     }
 }

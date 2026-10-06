@@ -30,12 +30,13 @@ class LogActivityTool implements AiTool
                 'type' => ['type' => 'string', 'description' => 'One of: steps, treadmill, sport, recovery.'],
                 'logged_date' => ['type' => 'string', 'description' => 'YYYY-MM-DD of when it actually happened. Defaults to today; must not be in the future.'],
                 'duration_minutes' => ['type' => 'integer'],
+                'distance_km' => ['type' => 'number', 'description' => 'Distance covered in km (treadmill or sport only). Omit if the user did not say; never estimate it.'],
                 'intensity' => ['type' => 'string', 'description' => 'low, moderate, or high.'],
                 'notes' => ['type' => 'string'],
                 'metadata' => [
                     'type' => 'object',
                     'description' => 'Type-specific details, e.g. {"steps": 6200} or {"sport": "Football", "format": "match"} '
-                        .'or {"distance_km": 3.2, "intervals": [{"minutes":12,"speed_kmh":9}]} or {"energy":4,"soreness":2,"sleep_hours":7.5}.',
+                        .'or {"intervals": [{"minutes":12,"speed_kmh":9}]} or {"energy":4,"soreness":2,"sleep_hours":7.5}.',
                 ],
             ],
             'required' => ['type'],

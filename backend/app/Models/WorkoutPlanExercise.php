@@ -6,6 +6,7 @@ use App\Support\ExerciseSlug;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class WorkoutPlanExercise extends Model
 {
@@ -79,5 +80,11 @@ class WorkoutPlanExercise extends Model
     public function exerciseImage(): BelongsTo
     {
         return $this->belongsTo(ExerciseImage::class, 'exercise_slug', 'slug');
+    }
+
+    /** What the user actually did for this planned exercise (the recorded session exercise, if any). */
+    public function performance(): HasOne
+    {
+        return $this->hasOne(WorkoutExercise::class, 'workout_plan_exercise_id');
     }
 }

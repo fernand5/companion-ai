@@ -80,4 +80,18 @@ class WorkoutPlan extends Model
     {
         return $this->hasMany(WorkoutPlanExercise::class)->orderBy('position');
     }
+
+    /**
+     * True once the user has recorded anything for this day (a completed or
+     * partial exercise, or a mirrored session). Such a plan can no longer be
+     * replaced: replacing it deletes its exercises, which would orphan the
+     * performance and double-count the day when it is completed again.
+     */
+    public function hasRecordedPerformance(): bool
+    {
+        return $this->workout_session_id !== null
+            || $this->exercises()
+                ->whereIn('status', [WorkoutPlanExercise::STATUS_COMPLETED, WorkoutPlanExercise::STATUS_PARTIAL])
+                ->exists();
+    }
 }

@@ -3,11 +3,13 @@
 namespace App\Services\Fitness;
 
 use App\Models\User;
+use App\Models\WorkoutExercise;
 use App\Models\WorkoutPlan;
 use App\Models\WorkoutPlanExercise;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 /**
  * The authoritative "what the coach intended" layer. A WorkoutPlan (with its
@@ -18,12 +20,12 @@ use Illuminate\Support\Facades\Validator;
  */
 class WorkoutPlanService
 {
-    public function __construct(private readonly WorkoutService $workoutService) {}
+    public function __construct(private readonly ExercisePerformanceService $performanceService) {}
 
     public function forDate(User $user, string $date): ?WorkoutPlan
     {
         return $user->workoutPlans()
-            ->with('exercises.exerciseImage')
+            ->with(['exercises.exerciseImage', 'exercises.performance.performedSets'])
             ->whereDate('planned_date', $date)
             ->first();
     }
@@ -34,7 +36,7 @@ class WorkoutPlanService
     public function forRange(User $user, string $start, string $end): Collection
     {
         return $user->workoutPlans()
-            ->with('exercises.exerciseImage')
+            ->with(['exercises.exerciseImage', 'exercises.performance.performedSets'])
             ->whereDate('planned_date', '>=', $start)
             ->whereDate('planned_date', '<=', $end)
             ->orderBy('planned_date')
@@ -99,6 +101,15 @@ class WorkoutPlanService
             // bare `where('planned_date', ...)` lookup wouldn't match against.
             $plan = $user->workoutPlans()->whereDate('planned_date', $plannedDate)->first();
 
+            // Replacing a plan deletes its exercises. Once any performance has been
+            // recorded that would orphan it and double-count the day on the next
+            // completion, so a performed day is never replaced.
+            if ($plan?->hasRecordedPerformance()) {
+                throw ValidationException::withMessages([
+                    'planned_date' => 'This day already has recorded workout performance, so its plan can no longer be replaced.',
+                ]);
+            }
+
             if ($plan) {
                 $plan->update($attributes);
             } else {
@@ -119,7 +130,7 @@ class WorkoutPlanService
                 ]);
             }
 
-            return $plan->load('exercises.exerciseImage');
+            return $plan->load(['exercises.exerciseImage', 'exercises.performance.performedSets']);
         });
     }
 
@@ -140,6 +151,19 @@ class WorkoutPlanService
         );
     }
 
+    /**
+     * Change one exercise's status. This is also the one-tap "done" path, so what
+     * gets recorded depends on what the caller actually knows:
+     *
+     *  - numbers supplied (actual_*): recorded as `entered` sets;
+     *  - completed with no numbers: `as_planned` — the plan's targets, assumed,
+     *    which is weak evidence and never exposed as measured performance;
+     *  - partial with no numbers: the exercise is recorded with no sets, since
+     *    how much was done is unknown;
+     *  - pending/skipped: any recorded performance is retracted.
+     *
+     * An existing `entered` record is never replaced by an assumption.
+     */
     public function updateExerciseStatus(User $user, WorkoutPlanExercise $exercise, array $data): WorkoutPlan
     {
         $plan = $this->assertOwnership($user, $exercise);
@@ -153,24 +177,135 @@ class WorkoutPlanService
             'notes' => 'nullable|string|max:1000',
         ])->validate();
 
-        $isTerminal = in_array($validated['status'], [
-            WorkoutPlanExercise::STATUS_COMPLETED,
-            WorkoutPlanExercise::STATUS_PARTIAL,
-        ], true);
+        DB::transaction(function () use ($user, $plan, $exercise, $validated) {
+            $status = $validated['status'];
+            $isTerminal = in_array($status, [WorkoutPlanExercise::STATUS_COMPLETED, WorkoutPlanExercise::STATUS_PARTIAL], true);
 
-        $exercise->update([
-            'status' => $validated['status'],
-            'actual_sets' => $validated['actual_sets'] ?? $exercise->actual_sets,
-            'actual_reps' => $validated['actual_reps'] ?? $exercise->actual_reps,
-            'actual_weight_kg' => $validated['actual_weight_kg'] ?? $exercise->actual_weight_kg,
-            'actual_duration_seconds' => $validated['actual_duration_seconds'] ?? $exercise->actual_duration_seconds,
-            'notes' => $validated['notes'] ?? $exercise->notes,
-            'completed_at' => $isTerminal ? now() : null,
-        ]);
+            $attributes = [
+                'status' => $status,
+                'notes' => $validated['notes'] ?? $exercise->notes,
+                'completed_at' => $isTerminal ? now() : null,
+            ];
 
-        $this->recomputeStatus($user, $plan->fresh());
+            if ($isTerminal) {
+                $attributes += $this->recordFromStatus($user, $plan, $exercise, $validated);
+            } else {
+                $this->performanceService->retract($plan, $exercise);
 
-        return $plan->fresh('exercises');
+                // The derived summary describes performance that no longer exists.
+                $attributes += [
+                    'actual_sets' => null,
+                    'actual_reps' => null,
+                    'actual_weight_kg' => null,
+                    'actual_duration_seconds' => null,
+                ];
+            }
+
+            $exercise->update($attributes);
+
+            $this->recomputeStatus($user, $plan->fresh());
+        });
+
+        return $plan->fresh(['exercises.exerciseImage', 'exercises.performance.performedSets']);
+    }
+
+    /**
+     * Explicit per-set entry: what the user really did, set by set.
+     *
+     * @param  array<int, array<string, mixed>>  $rawSets
+     */
+    public function recordPerformance(User $user, WorkoutPlanExercise $exercise, array $rawSets, ?string $notes = null): WorkoutPlan
+    {
+        $plan = $this->assertOwnership($user, $exercise);
+        $sets = PerformanceSets::normalize($rawSets);
+        $completed = count(array_filter($sets, fn ($set) => $set['completed']));
+
+        if ($completed === 0) {
+            throw ValidationException::withMessages([
+                'sets' => 'Record at least one completed set, or skip the exercise instead.',
+            ]);
+        }
+
+        DB::transaction(function () use ($user, $plan, $exercise, $sets, $completed, $notes) {
+            $this->performanceService->store($user, $plan, $exercise, $sets, WorkoutExercise::RECORDED_ENTERED);
+
+            // Fewer completed sets than planned means the exercise was only partly done.
+            $isComplete = $completed === count($sets)
+                && ($exercise->planned_sets === null || $completed >= $exercise->planned_sets);
+
+            $exercise->update([
+                'status' => $isComplete ? WorkoutPlanExercise::STATUS_COMPLETED : WorkoutPlanExercise::STATUS_PARTIAL,
+                'notes' => $notes ?? $exercise->notes,
+                'completed_at' => now(),
+            ] + $this->actualSummary($sets));
+
+            $this->recomputeStatus($user, $plan->fresh());
+        });
+
+        return $plan->fresh(['exercises.exerciseImage', 'exercises.performance.performedSets']);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed> plan-exercise columns to update alongside the status
+     */
+    private function recordFromStatus(User $user, WorkoutPlan $plan, WorkoutPlanExercise $exercise, array $validated): array
+    {
+        $given = PerformanceSets::expand(
+            $validated['actual_sets'] ?? null,
+            $validated['actual_reps'] ?? null,
+            isset($validated['actual_weight_kg']) ? (float) $validated['actual_weight_kg'] : null,
+            $validated['actual_duration_seconds'] ?? null,
+            assumeOneSet: true,
+        );
+
+        if ($given !== []) {
+            $this->performanceService->store($user, $plan, $exercise, $given, WorkoutExercise::RECORDED_ENTERED);
+
+            return $this->actualSummary($given);
+        }
+
+        $existing = $exercise->performance;
+
+        // Re-tapping "done" must not overwrite numbers the user already entered.
+        if ($existing && $existing->recorded_as === WorkoutExercise::RECORDED_ENTERED) {
+            return [];
+        }
+
+        $assumed = $validated['status'] === WorkoutPlanExercise::STATUS_COMPLETED
+            ? PerformanceSets::expand(
+                $exercise->planned_sets,
+                $exercise->planned_reps,
+                $exercise->planned_weight_kg !== null ? (float) $exercise->planned_weight_kg : null,
+                $exercise->planned_duration_seconds,
+                assumeOneSet: true,
+            )
+            : [];
+
+        $this->performanceService->store($user, $plan, $exercise, $assumed, WorkoutExercise::RECORDED_AS_PLANNED);
+
+        // Assumed numbers are never written as the plan exercise's `actual_*`:
+        // those columns are read back (including by the AI) as real performance.
+        return [];
+    }
+
+    /**
+     * The plan exercise's actual_* columns are only a summary derived from
+     * entered sets — kept for backward compatibility, not a second source of truth.
+     *
+     * @param  array<int, array{reps: ?int, weight_kg: ?float, duration_seconds: ?int, completed: bool}>  $sets
+     * @return array{actual_sets: ?int, actual_reps: ?int, actual_weight_kg: ?float, actual_duration_seconds: ?int}
+     */
+    private function actualSummary(array $sets): array
+    {
+        $summary = PerformanceSets::summarize($sets);
+
+        return [
+            'actual_sets' => $summary['sets'],
+            'actual_reps' => $summary['reps'],
+            'actual_weight_kg' => $summary['weight_kg'],
+            'actual_duration_seconds' => $summary['duration_seconds'],
+        ];
     }
 
     private function assertOwnership(User $user, WorkoutPlanExercise $exercise): WorkoutPlan
@@ -183,11 +318,10 @@ class WorkoutPlanService
     }
 
     /**
-     * Derive the plan's overall status from its exercises' statuses, and — if
-     * that lands on completed/partial — sync the actual outcome into
-     * workout_sessions (see WorkoutService::syncFromPlan). Plans with no
-     * exercises (e.g. a sport-type plan) are left untouched; their status is
-     * set directly by the caller instead.
+     * Derive the plan's overall status from its exercises' statuses and keep the
+     * mirrored activity log in step with it (see ExercisePerformanceService).
+     * Plans with no exercises (e.g. a sport-type plan) are left untouched; their
+     * status is set directly by the caller instead.
      */
     private function recomputeStatus(User $user, WorkoutPlan $plan): void
     {
@@ -210,8 +344,6 @@ class WorkoutPlanService
 
         $plan->update(['status' => $status]);
 
-        if (in_array($status, [WorkoutPlan::STATUS_COMPLETED, WorkoutPlan::STATUS_PARTIAL], true)) {
-            $this->workoutService->syncFromPlan($user, $plan);
-        }
+        $this->performanceService->syncMirror($user, $plan);
     }
 }

@@ -7,6 +7,7 @@ use App\Services\Tools\CreateWorkoutPlanTool;
 use App\Services\Tools\GetActivityForDateTool;
 use App\Services\Tools\GetActivityHistoryTool;
 use App\Services\Tools\GetAdherenceSummaryTool;
+use App\Services\Tools\GetExerciseHistoryTool;
 use App\Services\Tools\GetRecentActivityTool;
 use App\Services\Tools\GetRecentWorkoutsTool;
 use App\Services\Tools\GetTodayActivityTool;
@@ -39,6 +40,7 @@ class ToolServiceProvider extends ServiceProvider
                 $app->make(GetUpcomingScheduleTool::class),
                 $app->make(GetWeightHistoryTool::class),
                 $app->make(GetRecentWorkoutsTool::class),
+                $app->make(GetExerciseHistoryTool::class),
                 $app->make(GetWeeklyTrainingSummaryTool::class),
                 $app->make(GetTodayActivityTool::class),
                 $app->make(LogActivityTool::class),

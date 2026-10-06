@@ -4,8 +4,10 @@ namespace App\Services\Fitness;
 
 use App\Models\ActivityLog;
 use App\Models\User;
+use App\Models\WorkoutExercise;
 use App\Models\WorkoutPlan;
 use App\Models\WorkoutSession;
+use App\Support\PlanMirrorClassification;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -18,12 +20,18 @@ class WorkoutService
     public function recent(User $user, int $days = 14): Collection
     {
         return $user->workoutSessions()
-            ->with('exercises')
+            ->with(['exercises.performedSets', 'exercises.planExercise'])
             ->whereDate('logged_date', '>=', $user->localNow()->subDays($days - 1)->toDateString())
             ->orderByDesc('logged_date')
             ->get();
     }
 
+    /**
+     * Freeform logging ("I did bench 3 x 10 at 40 kg"). Every exercise becomes
+     * real set rows: either the per-set `set_details` the client sent, or the
+     * classic sets/reps/weight tuple expanded into identical sets. These are
+     * numbers the user entered, so they are recorded as such.
+     */
     public function log(User $user, array $data): WorkoutSession
     {
         $validated = Validator::make($data, [
@@ -37,124 +45,105 @@ class WorkoutService
             'exercises.*.weight_kg' => 'nullable|numeric|min:0|max:500',
             'exercises.*.duration_seconds' => 'nullable|integer|min:0|max:7200',
             'exercises.*.notes' => 'nullable|string|max:1000',
+            'exercises.*.set_details' => 'nullable|array|max:50',
+            'exercises.*.set_details.*.reps' => 'nullable|integer|min:0|max:200',
+            'exercises.*.set_details.*.weight_kg' => 'nullable|numeric|min:0|max:500',
+            'exercises.*.set_details.*.duration_seconds' => 'nullable|integer|min:0|max:7200',
+            'exercises.*.set_details.*.completed' => 'nullable|boolean',
         ], [
             'logged_date.before_or_equal' => 'logged_date cannot be in the future: this records something that already happened. Upcoming sessions belong in the schedule or the plan.',
         ])->validate();
 
-        return DB::transaction(
-            fn () => $this->writeSession($user, $validated, $validated['exercises'] ?? [])
-        );
-    }
+        return DB::transaction(function () use ($user, $validated) {
+            $session = $user->workoutSessions()->create([
+                'logged_date' => $validated['logged_date'] ?? $user->localToday(),
+                'duration_minutes' => $validated['duration_minutes'] ?? null,
+                'notes' => $validated['notes'] ?? null,
+            ]);
 
-    /**
-     * Idempotently sync a WorkoutPlan's actual outcome into the "real activity"
-     * infrastructure (workout_sessions/workout_exercises + the mirrored
-     * activity_logs row) — the same tables freeform logging already writes to,
-     * so the rest of the app (AI tools, progress, weekly summaries) never needs
-     * to know whether a session came from a plan or a one-off log. Safe to call
-     * repeatedly as the user edits exercise statuses: updates the same session
-     * in place rather than creating duplicates.
-     */
-    public function syncFromPlan(User $user, WorkoutPlan $plan): WorkoutSession
-    {
-        $exercises = $plan->exercises->map(fn ($exercise) => [
-            'exercise_name' => $exercise->exercise_name,
-            'sets' => $exercise->actual_sets ?? $exercise->planned_sets,
-            'reps' => $exercise->actual_reps ?? $exercise->planned_reps,
-            'weight_kg' => $exercise->actual_weight_kg !== null
-                ? (float) $exercise->actual_weight_kg
-                : ($exercise->planned_weight_kg !== null ? (float) $exercise->planned_weight_kg : null),
-            'duration_seconds' => $exercise->actual_duration_seconds ?? $exercise->planned_duration_seconds,
-        ])->all();
+            $exercises = $validated['exercises'] ?? [];
 
-        return DB::transaction(function () use ($user, $plan, $exercises) {
-            $existing = $plan->workout_session_id
-                ? WorkoutSession::find($plan->workout_session_id)
-                : null;
-
-            // The activity happened when the user actually did it, which is
-            // never later than today: completing a future plan early must not
-            // push the activity onto the plan's date. Once a session exists it
-            // keeps its date, so later edits can't move it around.
-            $loggedDate = $existing
-                ? $existing->logged_date->toDateString()
-                : min($plan->planned_date->toDateString(), $user->localToday());
-
-            $session = $this->writeSession($user, [
-                'logged_date' => $loggedDate,
-                'duration_minutes' => $plan->duration_minutes,
-                'notes' => $plan->title,
-            ], $exercises, $existing);
-
-            if ($plan->workout_session_id !== $session->id) {
-                $plan->update(['workout_session_id' => $session->id]);
+            foreach ($exercises as $position => $exercise) {
+                $this->writeExercise($session, $position, $exercise);
             }
 
-            return $session;
+            $this->ensureMirrorLog($user, $session, count($exercises));
+
+            return $session->load('exercises.performedSets');
         });
     }
 
     /**
-     * Create or update (in place) a WorkoutSession + its exercises, and the
-     * mirrored activity_logs row that puts it on the unified activity timeline.
-     * Passing $existing makes this idempotent — the session/exercises/mirror
-     * row are updated rather than duplicated.
-     *
-     * @param  array{logged_date?: ?string, duration_minutes?: ?int, notes?: ?string}  $sessionData
-     * @param  array<int, array{exercise_name: string, sets?: ?int, reps?: ?int, weight_kg?: ?float, duration_seconds?: ?int, notes?: ?string}>  $exercises
+     * The mirrored activity_logs row that puts a session on the unified
+     * activity timeline. Idempotent: updated in place, never duplicated. A
+     * session that came from a plan is classified by that plan's activity type
+     * (a recovery session is not a high-intensity strength session); a freeform
+     * session has no plan and is strength.
      */
-    private function writeSession(User $user, array $sessionData, array $exercises, ?WorkoutSession $existing = null): WorkoutSession
+    public function ensureMirrorLog(User $user, WorkoutSession $session, ?int $exerciseCount = null, ?WorkoutPlan $plan = null): ActivityLog
     {
-        $loggedDate = $sessionData['logged_date'] ?? $user->localToday();
-        $durationMinutes = $sessionData['duration_minutes'] ?? null;
-        $notes = $sessionData['notes'] ?? null;
+        $profile = PlanMirrorClassification::for($plan?->activity_type);
 
-        if ($existing) {
-            $existing->update([
-                'logged_date' => $loggedDate,
-                'duration_minutes' => $durationMinutes,
-                'notes' => $notes,
-            ]);
-            $session = $existing;
-            $session->exercises()->delete();
-        } else {
-            $session = $user->workoutSessions()->create([
-                'logged_date' => $loggedDate,
-                'duration_minutes' => $durationMinutes,
-                'notes' => $notes,
-            ]);
-        }
-
-        foreach ($exercises as $position => $exercise) {
-            $session->exercises()->create([
-                'exercise_name' => $exercise['exercise_name'],
-                'sets' => $exercise['sets'] ?? null,
-                'reps' => $exercise['reps'] ?? null,
-                'weight_kg' => $exercise['weight_kg'] ?? null,
-                'duration_seconds' => $exercise['duration_seconds'] ?? null,
-                'notes' => $exercise['notes'] ?? null,
-                'position' => $position,
-            ]);
-        }
-
-        $activityData = [
-            'type' => ActivityLog::TYPE_STRENGTH,
-            'logged_date' => $loggedDate,
-            'duration_minutes' => $durationMinutes,
-            'intensity' => 'high',
-            'notes' => $notes,
-            'metadata' => ['exercise_count' => count($exercises)],
+        $data = [
+            'type' => $profile['type'],
+            'logged_date' => $session->logged_date->toDateString(),
+            'duration_minutes' => $session->duration_minutes,
+            'intensity' => $profile['intensity'],
+            'notes' => $session->notes,
+            'metadata' => ['exercise_count' => $exerciseCount ?? $session->exercises()->count()],
             'workout_session_id' => $session->id,
         ];
 
-        $mirroredLog = ActivityLog::where('workout_session_id', $session->id)->first();
+        $log = ActivityLog::where('workout_session_id', $session->id)->first();
 
-        if ($mirroredLog) {
-            $mirroredLog->update($activityData);
-        } else {
-            $user->activityLogs()->create($activityData);
+        if ($log) {
+            $log->update($data);
+
+            return $log;
         }
 
-        return $session->load('exercises');
+        return $user->activityLogs()->create($data);
+    }
+
+    /**
+     * @param  array<string, mixed>  $exercise
+     */
+    private function writeExercise(WorkoutSession $session, int $position, array $exercise): void
+    {
+        $details = $exercise['set_details'] ?? [];
+
+        $sets = $details !== []
+            ? PerformanceSets::normalize($details)
+            : PerformanceSets::expand(
+                $exercise['sets'] ?? null,
+                $exercise['reps'] ?? null,
+                isset($exercise['weight_kg']) ? (float) $exercise['weight_kg'] : null,
+                $exercise['duration_seconds'] ?? null,
+                assumeOneSet: true,
+            );
+
+        // With real sets the summary is derived from them. Without any (e.g. just
+        // a set count), the values the user gave are kept as they were typed.
+        $summary = $sets !== [] ? PerformanceSets::summarize($sets) : [
+            'sets' => $exercise['sets'] ?? null,
+            'reps' => $exercise['reps'] ?? null,
+            'weight_kg' => $exercise['weight_kg'] ?? null,
+            'duration_seconds' => $exercise['duration_seconds'] ?? null,
+        ];
+
+        $workoutExercise = $session->exercises()->create([
+            'exercise_name' => $exercise['exercise_name'],
+            'recorded_as' => WorkoutExercise::RECORDED_ENTERED,
+            'sets' => $summary['sets'],
+            'reps' => $summary['reps'],
+            'weight_kg' => $summary['weight_kg'],
+            'duration_seconds' => $summary['duration_seconds'],
+            'notes' => $exercise['notes'] ?? null,
+            'position' => $position,
+        ]);
+
+        foreach ($sets as $i => $set) {
+            $workoutExercise->performedSets()->create($set + ['set_number' => $i + 1]);
+        }
     }
 }

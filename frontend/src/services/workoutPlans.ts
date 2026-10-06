@@ -21,3 +21,21 @@ export function updateExerciseStatus(planId: number, exerciseId: number, payload
     .patch<WorkoutPlan>(`/workout-plans/${planId}/exercises/${exerciseId}`, payload)
     .then((r) => r.data)
 }
+
+export interface PerformedSetInput {
+  reps?: number | null
+  weight_kg?: number | null
+  duration_seconds?: number | null
+  completed?: boolean
+}
+
+/** Record what the user actually did, set by set. The plan's own targets are not modified. */
+export function recordExercisePerformance(
+  planId: number,
+  exerciseId: number,
+  payload: { sets: PerformedSetInput[]; notes?: string },
+) {
+  return api
+    .put<WorkoutPlan>(`/workout-plans/${planId}/exercises/${exerciseId}/performance`, payload)
+    .then((r) => r.data)
+}

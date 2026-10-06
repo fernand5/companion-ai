@@ -101,7 +101,7 @@ class WeeklyPlanService
                 $date = $change['date'];
                 $existing = $this->workoutPlanService->forDate($user, $date);
 
-                if ($existing && in_array($existing->status, [WorkoutPlan::STATUS_COMPLETED, WorkoutPlan::STATUS_PARTIAL], true)) {
+                if ($existing && (in_array($existing->status, [WorkoutPlan::STATUS_COMPLETED, WorkoutPlan::STATUS_PARTIAL], true) || $existing->hasRecordedPerformance())) {
                     $skipped[] = ['date' => $date, 'reason' => 'already_completed'];
 
                     continue;
