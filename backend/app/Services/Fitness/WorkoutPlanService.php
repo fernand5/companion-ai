@@ -135,6 +135,41 @@ class WorkoutPlanService
     }
 
     /**
+     * Change ONE not-yet-done exercise's target and nothing else: no other exercise, no
+     * title, notes, schedule link or status. This is how a confirmed, exactly-scoped
+     * change is applied, so that confirming "bench to 45 kg" cannot also rewrite the day
+     * the way replacing the whole plan does.
+     *
+     * @param  array{weight_kg?: float|null, sets?: int|null, reps?: int|null}  $changes  only the keys present are written
+     */
+    public function applyExerciseTarget(User $user, WorkoutPlanExercise $exercise, array $changes): WorkoutPlan
+    {
+        $plan = $this->assertOwnership($user, $exercise);
+
+        $validated = Validator::make($changes, [
+            'weight_kg' => 'nullable|numeric|min:0|max:500',
+            'sets' => 'nullable|integer|min:0|max:50',
+            'reps' => 'nullable|integer|min:0|max:200',
+        ])->validate();
+
+        if ($exercise->status !== WorkoutPlanExercise::STATUS_PENDING || $plan->hasRecordedPerformance()) {
+            throw ValidationException::withMessages(['exercise' => 'This exercise is no longer pending, so its target can no longer be changed.']);
+        }
+
+        $columns = array_filter([
+            'planned_weight_kg' => array_key_exists('weight_kg', $changes) ? $validated['weight_kg'] ?? null : null,
+            'planned_sets' => array_key_exists('sets', $changes) ? $validated['sets'] ?? null : null,
+            'planned_reps' => array_key_exists('reps', $changes) ? $validated['reps'] ?? null : null,
+        ], fn ($value) => $value !== null);
+
+        if ($columns !== []) {
+            $exercise->update($columns);
+        }
+
+        return $plan->fresh(['exercises.exerciseImage', 'exercises.performance.performedSets']);
+    }
+
+    /**
      * Case-insensitive lookup, scoped to the user — used by the AI tool so the
      * model can reference an exercise by name as the user typed it in chat.
      */

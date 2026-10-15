@@ -5,9 +5,16 @@ namespace App\Services\Ai;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\Ai\Authorization\GuardedToolExecutor;
+use App\Services\Ai\Authorization\PendingProposalStore;
+use App\Services\Ai\Authorization\PlanChangeIntentClassifier;
+use App\Services\Ai\Authorization\PlanChangeProposal;
+use App\Services\Ai\Authorization\PlanChangeProposalParser;
+use App\Services\Ai\Authorization\ProposalMatcher;
+use App\Services\Ai\Authorization\ToolAuthorization;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Fitness\WeeklyPlanService;
-use App\Services\Tools\ToolRegistry;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -21,7 +28,11 @@ class AiCoachService
 {
     public function __construct(
         private readonly AiProvider $aiProvider,
-        private readonly ToolRegistry $toolRegistry,
+        private readonly GuardedToolExecutor $toolExecutor,
+        private readonly PlanChangeIntentClassifier $intentClassifier,
+        private readonly PendingProposalStore $proposals,
+        private readonly PlanChangeProposalParser $proposalParser,
+        private readonly ProposalMatcher $proposalMatcher,
         private readonly FitnessContextBuilder $contextBuilder,
         private readonly SystemPromptBuilder $promptBuilder,
         private readonly WeeklyPlanService $weeklyPlanService,
@@ -107,13 +118,36 @@ class AiCoachService
             ->reverse()
             ->values();
 
+        // What this turn may change is decided here, from the user's own message, before the
+        // model is called. Nothing the model says or any tool returns can widen it. A bare
+        // "yes" only counts if it redeems a proposal the application itself presented to this
+        // user in this conversation (and then only for exactly that change).
+        $authorization = $this->authorize($user, $conversation, $userMessage, $history);
+        $turn = $this->toolExecutor->begin($authorization);
+        $withheld = array_values(array_intersect(['create_workout_plan', 'propose_weekly_plan_changes', 'update_exercise_status'], $turn->withheldTools()));
+
+        // The base prompt tells the model to call these tools; without a word here it would
+        // write the call out as text instead (as the dashboard note below explains).
+        if ($withheld !== []) {
+            $systemPrompt .= "\n\nNote: ".implode(', ', $withheld).' '.(count($withheld) === 1 ? 'is' : 'are')
+                .' not available for this message because the user has not asked to change their plan. '
+                .'Do not call, describe or write out a call to '.(count($withheld) === 1 ? 'it' : 'them').'; answer in plain text. '
+                .'A suggestion is fine, but say you have not changed anything; the user can ask you to update their plan.';
+        }
+
+        if (($proposal = $authorization->scopedProposal()) !== null) {
+            $systemPrompt .= "\n\nThe user just confirmed exactly one change: ".$proposal->describe().'. Make that change and nothing else: call create_workout_plan once, '
+                .'with exactly these planned_date, activity_type, title, duration_minutes and exercises, plus your own decision_summary and reasoning_factors: '
+                .json_encode($this->proposalMatcher->expectedArguments($user, $proposal)).'. Any other change will be refused.';
+        }
+
         $llmMessages = [['role' => 'system', 'content' => $systemPrompt]];
 
         foreach ($history as $message) {
             $llmMessages[] = ['role' => $message->role, 'content' => $message->content];
         }
 
-        $tools = $this->toolRegistry->declarations();
+        $tools = $turn->declarations();
         $toolTrace = [];
         $finalText = null;
         $providerCalls = 0;
@@ -143,7 +177,7 @@ class AiCoachService
             ];
 
             foreach ($response->toolCalls as $toolCall) {
-                $result = $this->toolRegistry->call($toolCall->name, $toolCall->arguments, $user);
+                $result = $turn->call($toolCall->name, $toolCall->arguments, $user);
 
                 $llmMessages[] = [
                     'role' => 'tool',
@@ -168,10 +202,29 @@ class AiCoachService
             $finalText = $response->text ?? "Here's what I found from your recent activity and schedule — let me know if you'd like more detail.";
         }
 
+        // The application, not the model, speaks for the plan: what was and was not changed, and
+        // any confirmation it asks for, is its own wording. A model's own offer to change the plan
+        // authorizes nothing.
+        $meta = $toolTrace !== [] ? ['tool_calls' => $toolTrace] : [];
+
+        if ($turn->blocked() !== []) {
+            $meta['blocked_tool_calls'] = $turn->blocked();
+        }
+
+        [$notice, $pending] = $this->followUp($user, $conversation, $userMessage, $authorization, $turn->confirmedChangeMade());
+
+        if ($notice !== null) {
+            $finalText = rtrim($finalText)."\n\n".$notice;
+        }
+
+        if ($pending !== null) {
+            $meta += $this->proposals->present($pending);
+        }
+
         $assistantMessage = $conversation->messages()->create([
             'role' => Message::ROLE_ASSISTANT,
             'content' => $finalText,
-            'meta' => $toolTrace !== [] ? ['tool_calls' => $toolTrace] : null,
+            'meta' => $meta !== [] ? $meta : null,
         ]);
 
         // Always-on, production-safe turn summary — structured metadata only,
@@ -193,6 +246,9 @@ class AiCoachService
             'tools_available_count' => count($tools),
             'tool_call_count' => count($toolTrace),
             'tool_names_called' => array_column($toolTrace, 'name'),
+            'plan_authorization' => $authorization->basis,
+            'plan_capabilities' => $authorization->grantedPlanCapabilities(),
+            'blocked_tool_calls' => count($turn->blocked()),
             'response_type' => $toolTrace !== [] ? 'tool_assisted' : 'direct',
             'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
         ]);
@@ -210,6 +266,79 @@ class AiCoachService
         }
 
         return $assistantMessage;
+    }
+
+    /**
+     * Decide what this turn may change. A bare "yes" is redeemed against the proposal the
+     * previous assistant message presented; everything else is read from the user's words.
+     */
+    private function authorize(User $user, Conversation $conversation, string $userMessage, Collection $history): ToolAuthorization
+    {
+        $previous = $history->slice(0, -1)->last();
+
+        if (PlanChangeIntentClassifier::isBareAffirmation($userMessage) && $previous?->role === Message::ROLE_ASSISTANT) {
+            $proposal = $this->proposals->claim($conversation, $user, $previous);
+
+            if ($proposal !== null) {
+                // Spent now, whether or not the change can still be made: nothing reusable is left behind.
+                return is_array($this->proposalMatcher->expectedArguments($user, $proposal))
+                    ? ToolAuthorization::confirmedProposal($proposal)
+                    : ToolAuthorization::readOnly('confirmed_proposal_no_longer_valid', 'proposal_no_longer_valid');
+            }
+        }
+
+        return $this->intentClassifier->classify($userMessage);
+    }
+
+    /**
+     * The application's own closing words, and the proposal (if any) it is now asking the user to confirm.
+     *
+     * @return array{0: ?string, 1: ?PlanChangeProposal}
+     */
+    private function followUp(User $user, Conversation $conversation, string $userMessage, ToolAuthorization $authorization, bool $confirmedChangeMade): array
+    {
+        $explicit = 'To change your plan, send an explicit request that names the exercise, the load in kg and the day, for example "update my bench press to 45 kg on 2026-10-17".';
+
+        if ($authorization->scopedProposal() !== null) {
+            return [$confirmedChangeMade ? null : "I couldn't make the change exactly as you confirmed it, so nothing was changed. If you still want it, ask again.", null];
+        }
+
+        return match ($authorization->followUp) {
+            'proposal_no_longer_valid' => ["Your plan changed since I asked, so I didn't make that change. {$explicit}", null],
+            ToolAuthorization::FOLLOW_UP_NOTHING_PENDING => ["There is nothing waiting for your confirmation (it may have expired). {$explicit}", null],
+            ToolAuthorization::FOLLOW_UP_EXPLICIT_REQUEST => ["I haven't changed your plan. {$explicit}", null],
+            ToolAuthorization::FOLLOW_UP_PROPOSE => $this->propose($user, $conversation, $userMessage, $explicit),
+            default => [null, null],
+        };
+    }
+
+    /** @return array{0: string, 1: ?PlanChangeProposal} */
+    private function propose(User $user, Conversation $conversation, string $userMessage, string $explicit): array
+    {
+        $result = $this->proposalParser->propose($user, $conversation, $userMessage);
+
+        if ($result->proposal !== null) {
+            $minutes = PlanChangeProposal::TTL_MINUTES;
+
+            return [
+                "I haven't changed your plan. Do you want me to {$result->proposal->describe()}? Reply \"yes\" within {$minutes} minutes to confirm exactly that, and nothing else. "
+                .'The limit on how much one change may add only caps its size; it does not mean the load suits you.',
+                $result->proposal,
+            ];
+        }
+
+        if ($result->failure === 'above_maximum_change') {
+            $d = $result->detail;
+            $fmt = fn (float $v) => rtrim(rtrim(number_format($v, 2, '.', ''), '0'), '.');
+
+            return [
+                "I haven't changed your plan, and I can't offer {$fmt($d['requested_kg'])} kg: one change may add at most 10% to your heaviest recorded load ({$fmt($d['recorded_kg'])} kg), which is {$fmt($d['maximum_kg'])} kg. "
+                .'That is a maximum, not a recommendation, and it is not a judgment that any load up to it suits you.',
+                null,
+            ];
+        }
+
+        return ["I haven't changed your plan, and I couldn't turn that into one specific change to confirm. {$explicit}", null];
     }
 
     /**

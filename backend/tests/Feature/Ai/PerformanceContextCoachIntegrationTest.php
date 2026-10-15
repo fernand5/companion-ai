@@ -247,7 +247,8 @@ TXT;
         $prompt = $this->chat();
 
         preg_match('/## Recent activity[^\n]*\n(\[.*\])\n/', $prompt, $m);
-        $run = collect(json_decode($m[1], true))->firstWhere('date', '2026-10-05');
+        // Several entries share this date; which comes first is the database's tie-break, so pick by what it is.
+        $run = collect(json_decode($m[1], true))->first(fn ($entry) => $entry['date'] === '2026-10-05' && $entry['type'] === 'treadmill');
 
         $this->assertEquals([30, 4, 8, 450, '7:30 /km'], [$run['duration_minutes'], $run['distance_km'], $run['speed_kmh'], $run['pace_seconds_per_km'], $run['pace']]);
         // Today's run already appears in "Today's activity so far" and "Recent activity" (existing
@@ -265,7 +266,7 @@ TXT;
         $activity = collect(json_decode($m[1], true));
 
         $mirror = $activity->firstWhere('date', '2026-10-04');
-        $logged = $activity->firstWhere('date', '2026-10-05');
+        $logged = $activity->first(fn ($entry) => $entry['date'] === '2026-10-05' && $entry['type'] === 'treadmill');
 
         $this->assertSame('treadmill', $mirror['type']);
         $this->assertSame('plan_completion', $mirror['source']);
@@ -385,7 +386,14 @@ TXT;
         $this->chat();
         $chatTools = array_column($this->fake->calls[0]['tools'], 'name');
 
-        $this->assertEqualsCanonicalizing(array_map(fn ($t) => $t->name(), app(ToolRegistry::class)->all()), $chatTools, 'Chat gets exactly the registry: nothing added by this phase.');
+        // Phase 5A: what chat is offered now depends on what the user asked. A question about
+        // performance gets every tool except the three that change a plan; nothing else is added.
+        $registry = array_map(fn ($t) => $t->name(), app(ToolRegistry::class)->all());
+        $planTools = ['create_workout_plan', 'propose_weekly_plan_changes', 'update_exercise_status'];
+        $this->assertEqualsCanonicalizing(array_values(array_diff($registry, $planTools)), $chatTools, 'A performance question is offered the registry minus the plan-changing tools.');
+
+        $this->chat(message: 'Please update my plan for tomorrow.');
+        $this->assertEqualsCanonicalizing($registry, array_column($this->fake->calls[0]['tools'], 'name'), 'An explicit plan request is offered the whole registry.');
         foreach ($chatTools as $name) {
             $this->assertDoesNotMatchRegularExpression('/progress|overload|increase|adjust_load/i', $name);
         }

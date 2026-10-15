@@ -3,9 +3,11 @@
 namespace App\Services\Ai;
 
 use App\Models\User;
+use App\Services\Ai\Authorization\GuardedToolExecutor;
+use App\Services\Ai\Authorization\ToolAuthorization;
+use App\Services\Ai\Authorization\ToolCapability;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Fitness\WeeklyPlanService;
-use App\Services\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -45,7 +47,7 @@ class WeeklyPlanCoachService
 
     public function __construct(
         private readonly AiProvider $aiProvider,
-        private readonly ToolRegistry $toolRegistry,
+        private readonly GuardedToolExecutor $toolExecutor,
         private readonly FitnessContextBuilder $contextBuilder,
         private readonly SystemPromptBuilder $promptBuilder,
         private readonly WeeklyPlanService $weeklyPlanService,
@@ -110,10 +112,11 @@ class WeeklyPlanCoachService
             .$this->promptBuilder->weeklyAdaptationAddendum();
 
         $allowedNames = [...self::ALLOWED_READ_TOOLS, self::DECISION_TOOL];
-        $tools = array_values(array_filter(
-            $this->toolRegistry->declarations(),
-            fn (array $tool) => in_array($tool['name'], $allowedNames, true),
-        ));
+        // The user pressed the Weekly Plan button: that request is the authorization, and the
+        // flow's own allow-list (above) still decides which tools exist in it. The executor
+        // adds the same load ceiling every AI plan write gets.
+        $turn = $this->toolExecutor->begin(ToolAuthorization::userInvokedEndpoint('weekly_plan', ToolCapability::PlanAdapt));
+        $tools = $turn->declarations($allowedNames);
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
@@ -143,7 +146,7 @@ class WeeklyPlanCoachService
                 if (! in_array($toolCall->name, $allowedNames, true)) {
                     $result = ['error' => "Tool {$toolCall->name} is not available in this flow."];
                 } else {
-                    $result = $this->toolRegistry->call($toolCall->name, $toolCall->arguments, $user);
+                    $result = $turn->call($toolCall->name, $toolCall->arguments, $user);
                 }
 
                 if ($toolCall->name === self::DECISION_TOOL) {

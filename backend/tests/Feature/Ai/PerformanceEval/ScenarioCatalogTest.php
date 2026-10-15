@@ -129,7 +129,11 @@ class ScenarioCatalogTest extends PerformanceEvalCase
         $this->assertStringNotContainsString('Reading "Recent performance"', $result['questions'][0]['prompt']);
     }
 
-    public function test_the_runner_notices_when_a_model_writes_to_a_plan(): void
+    /**
+     * Phase 4C observed Gemini writing a plan in answer to a read-only question. The runner still
+     * reports the attempt, but since Phase 5A the application refuses it: the database is untouched.
+     */
+    public function test_a_plan_write_attempted_on_a_read_only_question_is_reported_and_refused(): void
     {
         $scenario = collect(Scenarios::all())->firstWhere('id', 'focus_next_read_only');
         $fake = new FakeAiProvider;
@@ -144,10 +148,10 @@ class ScenarioCatalogTest extends PerformanceEvalCase
             );
         });
 
-        $this->assertFalse($result['readonly_ok'], 'A changed plan is detected from the database itself.');
-        $this->assertContains('create_workout_plan', $result['questions'][0]['tools']);
+        $this->assertTrue($result['readonly_ok'], 'The attempted write changed nothing: the application refused it.');
+        $this->assertContains('create_workout_plan', $result['questions'][0]['tools'], 'The attempt is still visible to the evaluation.');
         $tools = array_filter($result['questions'][0]['checks'], fn ($c) => $c['dimension'] === Check::TOOLS);
-        $this->assertNotEmpty(array_filter($tools, fn ($c) => ! $c['pass']), 'The tool check fails.');
+        $this->assertNotEmpty(array_filter($tools, fn ($c) => ! $c['pass']), 'The tool check still fails on the attempt.');
     }
 
     public function test_the_labeled_format_experiment_changes_only_labels_never_numbers(): void
