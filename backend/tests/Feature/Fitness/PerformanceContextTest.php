@@ -312,7 +312,7 @@ class PerformanceContextTest extends TestCase
     {
         app(WorkoutService::class)->log($this->user, ['logged_date' => $this->daysAgo(1), 'exercises' => [['exercise_name' => 'Squat', 'sets' => 3, 'reps' => 5, 'weight_kg' => 60]]]);
 
-        $this->assertStringContainsString('- '.$this->daysAgo(1).': 5,5,5 @ 60 kg | entered', $this->exerciseBlocks($this->context())['Squat']);
+        $this->assertStringContainsString('- '.$this->daysAgo(1).': performed 5,5,5 @ 60 kg | entered', $this->exerciseBlocks($this->context())['Squat']);
     }
 
     public function test_a_legacy_session_with_no_plan_cannot_be_classified_and_is_kept(): void
@@ -366,15 +366,19 @@ class PerformanceContextTest extends TestCase
         $this->assertContains('- 2026-10-05: 4.0 km | 30 min | 8.0 km/h | 7:30/km', $this->treadmillLines($context));
     }
 
-    public function test_a_cardio_row_inside_a_strength_typed_plan_stays_because_it_cannot_be_classified_reliably(): void
+    public function test_a_cardio_row_inside_a_strength_typed_plan_stays_but_is_marked_timed_not_resistance(): void
     {
         // DOCUMENTED LIMITATION (see StrengthSessions): classification is per plan, not per exercise,
-        // and names are deliberately not guessed from. This pins the behaviour so a change is a decision.
+        // and names are deliberately not guessed from. What can be said structurally is that this row
+        // is only a duration (no reps, no load), so it is headed "(timed)". Pinned so a change is a decision.
         $plan = $this->plan($this->daysAgo(1), [['exercise_name' => 'Lunges'], ['exercise_name' => 'Treadmill Warm-up', 'planned_sets' => null, 'planned_reps' => null, 'planned_weight_kg' => null, 'planned_duration_seconds' => 600]], 'strength');
         $this->enter($plan, 0);
         $this->tap($plan, 1, 'completed');
 
-        $this->assertArrayHasKey('Treadmill Warm-up', $this->exerciseBlocks($this->context()));
+        $blocks = $this->exerciseBlocks($this->context());
+
+        $this->assertArrayHasKey('Treadmill Warm-up (timed)', $blocks, 'Kept (it cannot be classified as cardio from the plan), but headed as a duration.');
+        $this->assertArrayHasKey('Lunges', $blocks, 'The resistance exercise next to it is not marked timed.');
     }
 
     // ---- behaviour that must not change ----------------------------------------------
@@ -388,9 +392,9 @@ class PerformanceContextTest extends TestCase
         $blocks = $this->exerciseBlocks($this->context());
 
         $this->assertSame(
-            "Bench Press\n- {$this->daysAgo(7)}: 10,9,8 @ 40 kg | target 3×10 @ 40 kg | entered\n- {$this->daysAgo(1)}: 10,10,9 @ 42.5 kg | target 3×10 @ 42.5 kg | entered",
+            "Bench Press\n- {$this->daysAgo(7)}: performed 10,9,8 @ 40 kg | target 3×10 @ 40 kg — NOT reached (1 of 3 sets did) | entered\n- {$this->daysAgo(1)}: performed 10,10,9 @ 42.5 kg | target 3×10 @ 42.5 kg — NOT reached (2 of 3 sets did) | entered\nChange {$this->daysAgo(7)} → {$this->daysAgo(1)}: sets 3→3 | total reps 27→29 (+2) | top load 40→42.5 kg (+2.5) | volume (reps × kg) 1080→1232.5 kg (+152.5) | trend: 2 measured sessions: a comparison, not a trend",
             $blocks['Bench Press'],
         );
-        $this->assertSame("Dumbbell Row\n- {$this->daysAgo(2)}: completed as planned | performance not measured | target 3×10 @ 22.5 kg", $blocks['Dumbbell Row']);
+        $this->assertSame("Dumbbell Row\n- {$this->daysAgo(2)}: completed as planned | performance not measured | plan only: 3×10 @ 22.5 kg (not what was lifted)", $blocks['Dumbbell Row']);
     }
 }

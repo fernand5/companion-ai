@@ -353,15 +353,16 @@ class PerformancePipelineEndToEndTest extends TestCase
     {
         $expected = <<<'TXT'
 Bench Press
-- 2026-10-01: 10,9,8 @ 40 kg | target 3×10 @ 40 kg | entered
-- 2026-10-05: 10,10,9 @ 42.5 kg | target 3×10 @ 42.5 kg | entered
+- 2026-10-01: performed 10,9,8 @ 40 kg | target 3×10 @ 40 kg — NOT reached (1 of 3 sets did) | entered
+- 2026-10-05: performed 10,10,9 @ 42.5 kg | target 3×10 @ 42.5 kg — NOT reached (2 of 3 sets did) | entered
+Change 2026-10-01 → 2026-10-05: sets 3→3 | total reps 27→29 (+2) | top load 40→42.5 kg (+2.5) | volume (reps × kg) 1080→1232.5 kg (+152.5) | trend: 2 measured sessions: a comparison, not a trend
 Next planned (2026-10-08): 3×10 @ 45 kg
 
 Dumbbell Row
-- 2026-10-03: completed as planned | performance not measured | target 3×12 @ 22.5 kg
+- 2026-10-03: completed as planned | performance not measured | plan only: 3×12 @ 22.5 kg (not what was lifted)
 
 Goblet Squat
-- 2026-10-03: partial | performance not measured | target 3×12 @ 20 kg
+- 2026-10-03: partial | performance not measured | plan only: 3×12 @ 20 kg (not what was lifted)
 
 Treadmill
 - 2026-10-03: distance not recorded | 15 min
@@ -371,7 +372,7 @@ TXT;
         $context = $this->context();
 
         $this->assertSame($expected, $context);
-        $this->assertLessThan(800, strlen($context), 'Compact: ~470 characters (about 120-160 tokens) for 3 exercises + 2 treadmill sessions.');
+        $this->assertLessThan(1000, strlen($context), 'Compact: about 820 characters (roughly 205-275 tokens) for 3 exercises, a computed change and 2 treadmill sessions.');
     }
 
     public function test_the_context_is_far_smaller_than_the_raw_tool_json_it_comes_from(): void
@@ -419,7 +420,7 @@ TXT;
         $this->assertSame('8,8,7 @ 45 kg', $latest[0]['performed_summary']);
 
         $this->assertStringContainsString(
-            "- 2026-10-08: 8,8,7 @ 45 kg | target 3×10 @ 45 kg | entered\n",
+            "- 2026-10-08: performed 8,8,7 @ 45 kg | target 3×10 @ 45 kg — NOT reached (0 of 3 sets did) | entered\n",
             $this->context()."\n",
         );
         $this->assertStringNotContainsString('Next planned', explode("\n\n", $this->context())[0], 'Nothing is left to plan once the last one is done.');

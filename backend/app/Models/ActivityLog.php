@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ActivityLog extends Model
 {
@@ -52,6 +53,23 @@ class ActivityLog extends Model
     public function workoutSession(): BelongsTo
     {
         return $this->belongsTo(WorkoutSession::class);
+    }
+
+    /** The plan whose completion this log mirrors, if it is a plan-completion mirror. */
+    public function completedPlan(): HasOne
+    {
+        return $this->hasOne(WorkoutPlan::class, 'workout_session_id', 'workout_session_id');
+    }
+
+    /**
+     * True when this row only acknowledges that a PLANNED session was completed
+     * (it was written by the plan-completion mirror), as opposed to an activity
+     * the user logged themselves. Such a row has no measured duration, distance
+     * or effort; any type/intensity on it is a default for the plan's type.
+     */
+    public function isPlanCompletion(): bool
+    {
+        return $this->workout_session_id !== null && $this->completedPlan !== null;
     }
 
     /** Average speed, derived from distance and duration (never stored). */

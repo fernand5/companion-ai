@@ -24,6 +24,18 @@ use Illuminate\Support\Facades\DB;
  * stays in its own Treadmill section), nothing is deleted, and the limits of
  * that classification are documented on StrengthSessions.
  *
+ * Within strength work, an exercise described only by a duration (no reps, no
+ * load; e.g. a treadmill warm-up, mobility flow or plank hold) is headed
+ * "(timed)": a duration, not resistance performance. This comes from the shape
+ * of the data, never from the exercise's name. Where it is not reliable it is
+ * not applied (see StrengthSessions for the per-plan limit).
+ *
+ * Comparisons are computed here, from the exact recorded sets, by
+ * PerformanceComparison: a "Change" line per exercise with two comparable measured
+ * sessions (what changed, and when it is not like-for-like), a note when there is
+ * only one measured session, and optionally one treadmill comparison. They state
+ * facts; they never say "better" or recommend anything.
+ *
  * "Next planned" is only a genuinely upcoming target: an exercise that is still
  * pending. One that is already started (partial) is not upcoming, and it is
  * already visible in its own history line, so it is not repeated.
@@ -60,6 +72,8 @@ class PerformanceContext
         int $days = self::DEFAULT_DAYS,
         int $maxExercises = self::DEFAULT_MAX_EXERCISES,
         int $treadmillSessions = self::DEFAULT_TREADMILL_SESSIONS,
+        bool $includeTreadmill = true,
+        bool $includeTreadmillComparison = false,
     ): string {
         $sessionsPerExercise = max(1, min($sessionsPerExercise, self::MAX_SESSIONS_PER_EXERCISE));
         $days = max(1, min($days, self::MAX_DAYS));
@@ -68,7 +82,8 @@ class PerformanceContext
 
         $blocks = array_filter([
             ...$this->exerciseBlocks($user, $sessionsPerExercise, $days, $maxExercises),
-            $this->treadmillBlock($user, $treadmillSessions, $days),
+            $includeTreadmill ? $this->treadmillBlock($user, $treadmillSessions, $days) : null,
+            $includeTreadmillComparison ? $this->treadmillComparisonBlock($user, $days) : null,
         ]);
 
         return implode("\n\n", $blocks);
@@ -101,12 +116,17 @@ class PerformanceContext
                 continue;
             }
 
-            $lines = $entries->reverse()->map(fn (WorkoutExercise $exercise) => '- '.ExercisePerformanceRecord::from(
+            $records = $entries->reverse()->map(fn (WorkoutExercise $exercise) => ExercisePerformanceRecord::from(
                 $exercise,
                 $exercise->workoutSession->logged_date->toDateString(),
-            )->toCompactLine());
+            ));
 
-            $block = $entries->first()->exercise_name."\n".$lines->implode("\n");
+            $timed = $records->every(fn (ExercisePerformanceRecord $record) => $record->isTimedOnly());
+
+            $block = $entries->first()->exercise_name.($timed ? ' (timed)' : '')."\n"
+                .$records->map(fn (ExercisePerformanceRecord $record) => '- '.$record->toCompactLine())->implode("\n");
+
+            $block .= $this->comparisonLine(PerformanceComparison::series($records->reverse()->values()->all()));
 
             if ($next = $this->nextTarget($user, $slug)) {
                 $block .= "\n".$next;
@@ -116,6 +136,22 @@ class PerformanceContext
         }
 
         return $blocks;
+    }
+
+    /** What changed between the latest two measured sessions, or why nothing can be said. */
+    private function comparisonLine(array $series): string
+    {
+        if ($series['measured_sessions'] === 1) {
+            return "\nOnly 1 measured session: no comparison or trend.";
+        }
+
+        if ($series['comparison'] === null) {
+            return '';
+        }
+
+        $c = $series['comparison'];
+
+        return "\nChange {$c['previous']['date']} → {$c['latest']['date']}: ".$series['summary'].' | trend: '.$series['trend'];
     }
 
     /** The next genuinely upcoming (still pending) plan for this exact exercise, if any. */
@@ -157,8 +193,40 @@ class PerformanceContext
         return "Treadmill\n".$logs->map(fn (ActivityLog $log) => '- '.$log->logged_date->toDateString().': '.$this->treadmillLine($log))->implode("\n");
     }
 
+    /**
+     * How the latest two logged runs compare. Only runs the user logged with a
+     * distance and a duration are comparable; with fewer than two, it says so
+     * rather than guessing. Nothing is shown for a user with no treadmill logs.
+     */
+    private function treadmillComparisonBlock(User $user, int $days): ?string
+    {
+        $today = $user->localNow();
+
+        $logs = $this->activity
+            ->history($user, $today->copy()->subDays($days - 1)->toDateString(), $today->toDateString(), ActivityLog::TYPE_TREADMILL);
+
+        if ($logs->isEmpty()) {
+            return null;
+        }
+
+        $runs = $logs->filter(fn (ActivityLog $log) => ! $log->isPlanCompletion() && $log->distance_km !== null && $log->duration_minutes)->values();
+
+        if ($runs->count() < 2) {
+            return "Treadmill (comparison)\n- Fewer than two logged runs with a distance and a duration: no comparison possible.";
+        }
+
+        $comparison = PerformanceComparison::treadmill($runs[1], $runs[0]);
+
+        return "Treadmill (comparison)\n- {$comparison['previous']['date']} → {$comparison['latest']['date']}: ".PerformanceComparison::describeTreadmill($comparison);
+    }
+
     private function treadmillLine(ActivityLog $log): string
     {
+        // A plan-completion mirror acknowledges the plan, it is not a measured run.
+        if ($log->isPlanCompletion()) {
+            return 'completed as planned | duration and distance not measured';
+        }
+
         $parts = [];
 
         if ($log->distance_km !== null) {

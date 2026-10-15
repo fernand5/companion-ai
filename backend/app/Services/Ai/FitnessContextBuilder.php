@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\WorkoutPlan;
 use App\Services\Fitness\ActivityService;
 use App\Services\Fitness\AdherenceService;
+use App\Services\Fitness\PerformanceContext;
 use App\Services\Fitness\RecoveryService;
 use App\Services\Fitness\ScheduleService;
 use App\Services\Fitness\WorkoutPlanService;
@@ -29,6 +30,7 @@ class FitnessContextBuilder
         private readonly WorkoutPlanService $workoutPlanService,
         private readonly AdherenceService $adherenceService,
         private readonly RecoveryService $recoveryService,
+        private readonly PerformanceContext $performanceContext,
     ) {}
 
     /**
@@ -43,6 +45,7 @@ class FitnessContextBuilder
      *   adherence_signal: array,
      *   latest_recovery: array|null,
      *   week_plan: array|null,
+     *   performance: string|null,
      * }
      *
      * $includeWeekPlan/$weekRange are opt-in per caller (not a default part of
@@ -50,6 +53,16 @@ class FitnessContextBuilder
      * than "today" (the weekly-plan adaptation flow, and ordinary chat so it
      * can consider whether a logged activity affects upcoming days) pass
      * these, keeping every other call site's prompt size unchanged.
+     *
+     * $includePerformance is opt-in in the same way and only ordinary chat passes
+     * it: the bounded recent strength history (exact sets, the target at the time,
+     * how far each entry can be trusted, and the computed change between sessions).
+     * It leaves out the raw treadmill lines, because `recent_activity` above already
+     * carries recent treadmill sessions with distance, speed and pace and sending
+     * them twice would only cost tokens; only the computed treadmill comparison,
+     * which `recent_activity` does not have, is added.
+     * `performance` is null when not requested, and an empty string when the user
+     * has no relevant history (so nothing is rendered for them).
      */
     public function build(
         User $user,
@@ -57,6 +70,7 @@ class FitnessContextBuilder
         ?Conversation $conversation = null,
         bool $includeWeekPlan = false,
         ?array $weekRange = null,
+        bool $includePerformance = false,
     ): array {
         $profile = $user->fitnessProfile;
 
@@ -146,6 +160,7 @@ class FitnessContextBuilder
                 'pain_notes' => $latestRecovery->pain_notes,
             ] : null,
             'week_plan' => $weekPlan,
+            'performance' => $includePerformance ? $this->performanceContext->render($user, includeTreadmill: false, includeTreadmillComparison: true) : null,
         ];
     }
 
@@ -198,6 +213,12 @@ class FitnessContextBuilder
         $lines[] = '';
         $lines[] = '## Recent activity (last ~10 days)';
         $lines[] = $context['recent_activity'] ? json_encode($context['recent_activity']) : 'No recent activity logged.';
+
+        if (($context['performance'] ?? '') !== '') {
+            $lines[] = '';
+            $lines[] = '## Recent performance (strength history, oldest to newest)';
+            $lines[] = $context['performance'];
+        }
 
         $lines[] = '';
         $lines[] = '## Upcoming schedule (next 5 days)';

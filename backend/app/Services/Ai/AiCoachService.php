@@ -74,8 +74,13 @@ class AiCoachService
         // reason about whether a historical activity the user just reported
         // should affect an upcoming day, not only today's plan.
         $weekRange = $this->weeklyPlanService->weekRange($user);
-        $context = $this->contextBuilder->build($user, $userMessage, $conversation, includeWeekPlan: true, weekRange: $weekRange);
+        $context = $this->contextBuilder->build($user, $userMessage, $conversation, includeWeekPlan: true, weekRange: $weekRange, includePerformance: true);
         $systemPrompt = $this->promptBuilder->build($this->contextBuilder->toPromptText($context));
+
+        // The reading rules are only worth their tokens when there is history to read.
+        if (($context['performance'] ?? '') !== '') {
+            $systemPrompt .= $this->promptBuilder->performanceInterpretationAddendum();
+        }
 
         // Conversation::messages() carries a baked-in ->orderBy('created_at')
         // (ascending — correct for the frontend's own GET .../messages, which

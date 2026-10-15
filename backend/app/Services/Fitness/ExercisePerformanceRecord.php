@@ -121,6 +121,88 @@ final class ExercisePerformanceRecord
     }
 
     /**
+     * Did the recorded sets reach the target that was set at the time? Computed from
+     * the stored snapshot and the exact sets, never from the plan as it is now.
+     *
+     * A set reaches the target when it meets every part of the target that was set
+     * (at least the planned reps, at least the planned load, at least the planned
+     * duration). The denominator is the planned number of sets (or, with none
+     * planned, the sets actually done), so a missing set counts as not reached.
+     *
+     * Null when it cannot be said: nothing measured, no target, or a completed set
+     * that lacks a field the target needs (unknown stays unknown, it is not "not met").
+     *
+     * @return array{met: bool, sets_reaching: int, of: int}|null
+     */
+    public function targetAttainment(): ?array
+    {
+        if (! $this->performanceMeasured) {
+            return null;
+        }
+
+        $target = $this->planned;
+
+        if ($target['reps'] === null && $target['weight_kg'] === null && $target['duration_seconds'] === null && $target['sets'] === null) {
+            return null;
+        }
+
+        $done = array_values(array_filter($this->sets, fn (array $set) => $set['completed']));
+        $reaching = 0;
+
+        foreach ($done as $set) {
+            $checks = [];
+
+            if ($target['reps'] !== null) {
+                $checks[] = [$set['reps'], $target['reps']];
+            }
+
+            if ($target['weight_kg'] !== null) {
+                $checks[] = [$set['weight_kg'], $target['weight_kg']];
+            }
+
+            if ($target['duration_seconds'] !== null && $target['reps'] === null) {
+                $checks[] = [$set['duration_seconds'], $target['duration_seconds']];
+            }
+
+            foreach ($checks as [$actual]) {
+                if ($actual === null) {
+                    return null;
+                }
+            }
+
+            if (array_reduce($checks, fn (bool $ok, array $check) => $ok && $check[0] >= $check[1], true)) {
+                $reaching++;
+            }
+        }
+
+        $of = $target['sets'] ?? count($done);
+
+        return ['met' => $of > 0 && $reaching >= $of, 'sets_reaching' => min($reaching, $of), 'of' => $of];
+    }
+
+    /**
+     * True when the exercise is described only by a duration: no reps and no load,
+     * either planned or (for real evidence) performed. A warm-up on a treadmill, a
+     * mobility flow or a plank hold look like this; so does anything else timed.
+     *
+     * This is a structural fact about the data, not a judgement from the exercise's
+     * name: it says "this is a duration, not resistance work", and no more. Where
+     * nothing about the exercise is known it is NOT timed (unknown stays unknown).
+     */
+    public function isTimedOnly(): bool
+    {
+        $resistance = $this->planned['reps'] !== null || $this->planned['weight_kg'] !== null;
+        $timed = $this->planned['duration_seconds'] !== null;
+
+        foreach ($this->sets as $set) {
+            $resistance = $resistance || $set['reps'] !== null || $set['weight_kg'] !== null;
+            $timed = $timed || $set['duration_seconds'] !== null;
+        }
+
+        return $timed && ! $resistance;
+    }
+
+    /**
      * Structured form for tools. Planned and actual are separate keys; null
      * members are dropped inside a set so the payload stays small ("absent"
      * means "not recorded").
@@ -146,6 +228,7 @@ final class ExercisePerformanceRecord
             'planned_reps' => $this->planned['reps'],
             'planned_weight_kg' => $this->planned['weight_kg'],
             'planned_duration_seconds' => $this->planned['duration_seconds'],
+            'target_attainment' => $this->targetAttainment(),
             'performed_summary' => $this->performanceMeasured ? self::describeSets($this->sets) : null,
             'performed_sets' => $this->performanceMeasured
                 ? array_map(fn (array $set) => array_filter($set, fn ($value) => $value !== null), $this->sets)
@@ -155,27 +238,47 @@ final class ExercisePerformanceRecord
 
     /**
      * The one-line form for a compact history (the exercise name is the caller's
-     * heading). What was done, the target at the time, and how far to trust it:
-     *   2026-10-05: 10,10,9 @ 42.5 kg | target 3×10 @ 42.5 kg | entered
-     *   2026-09-16: completed as planned | performance not measured | target 3×12 @ 22.5 kg
+     * heading). What was performed, the target at the time and whether it was
+     * reached, and how far to trust it:
+     *   2026-10-05: performed 10,10,9 @ 42.5 kg | target 3×10 @ 42.5 kg — NOT reached (2 of 3 sets did) | entered
+     *   2026-09-16: completed as planned | performance not measured | plan only: 3×12 @ 22.5 kg (not what was lifted)
      */
     public function toCompactLine(): string
     {
         $planned = self::describePlanned($this->planned);
-        $target = $planned !== null ? "target {$planned}" : null;
+        $target = $planned !== null ? "target {$planned}".$this->attainmentNote() : null;
+        // A one-tap completion has no performance, so its numbers are only the plan: label them so,
+        // because "target" beside a number is easily read as something achieved.
+        $planOnly = $planned !== null ? "plan only: {$planned} (not what was lifted)" : null;
 
         $parts = match ($this->outcome) {
-            self::OUTCOME_COMPLETED => [self::describeSets($this->sets), $target, $this->recordedAs],
+            self::OUTCOME_COMPLETED => ['performed '.self::describeSets($this->sets), $target, $this->recordedAs],
             self::OUTCOME_PARTIAL => $this->performanceMeasured
-                ? [self::describeSets($this->sets), $target, $this->recordedAs, 'partial']
-                : ['partial', 'performance not measured', $target],
-            self::OUTCOME_COMPLETED_AS_PLANNED => ['completed as planned', 'performance not measured', $target],
+                ? ['performed '.self::describeSets($this->sets), $target, $this->recordedAs, 'partial']
+                : ['partial', 'performance not measured', $planOnly],
+            self::OUTCOME_COMPLETED_AS_PLANNED => ['completed as planned', 'performance not measured', $planOnly],
             self::OUTCOME_SKIPPED => ['skipped', $target],
             self::OUTCOME_PENDING => ['not done', $target],
             default => ['no measurable performance recorded', $target],
         };
 
         return ($this->date !== null ? $this->date.': ' : '').implode(' | ', array_filter($parts, fn ($part) => $part !== null && $part !== ''));
+    }
+
+    /**
+     * " — reached" or " — NOT reached (1 of 3 sets did)", only when it can be said.
+     * Worded flatly on purpose: a quick reader must not take the target for the
+     * performance, nor "1 of 3" for a pass.
+     */
+    private function attainmentNote(): string
+    {
+        $attainment = $this->targetAttainment();
+
+        if ($attainment === null) {
+            return '';
+        }
+
+        return $attainment['met'] ? ' — reached' : " — NOT reached ({$attainment['sets_reaching']} of {$attainment['of']} sets did)";
     }
 
     /**

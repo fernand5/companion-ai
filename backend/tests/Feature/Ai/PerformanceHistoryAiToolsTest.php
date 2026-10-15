@@ -208,7 +208,7 @@ class PerformanceHistoryAiToolsTest extends TestCase
         $this->assertSame([], $record->sets, 'Any consumer of the record, not just the tools, is kept away from assumed numbers.');
         $this->assertFalse($record->performanceMeasured);
         $this->assertStringNotContainsString('entered', $record->toCompactLine());
-        $this->assertSame('2026-09-02: completed as planned | performance not measured | target 3×10 @ 40 kg', $record->toCompactLine());
+        $this->assertSame('2026-09-02: completed as planned | performance not measured | plan only: 3×10 @ 40 kg (not what was lifted)', $record->toCompactLine());
     }
 
     // ---- skipped vs completed vs partial vs unmeasured -------------------------
