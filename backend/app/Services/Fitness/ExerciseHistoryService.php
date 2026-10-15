@@ -4,6 +4,7 @@ namespace App\Services\Fitness;
 
 use App\Models\User;
 use App\Models\WorkoutExercise;
+use App\Support\StrengthSessions;
 use Illuminate\Support\Collection;
 
 /**
@@ -14,19 +15,22 @@ use Illuminate\Support\Collection;
  * By default only exercises that have recorded sets count as performance: a row
  * with no sets (e.g. a partial with unknown amount) is not history. Callers that
  * need to know an exercise was skipped or left unmeasured can opt in to those rows.
+ * Callers that want strength work only (not recovery/treadmill/sport plans) can opt
+ * in to that too; see StrengthSessions for how, and for its limits.
  */
 class ExerciseHistoryService
 {
     /**
      * @return Collection<int, WorkoutExercise>
      */
-    public function recent(User $user, string $slug, int $limit = 5, bool $includeUnmeasured = false): Collection
+    public function recent(User $user, string $slug, int $limit = 5, bool $includeUnmeasured = false, bool $strengthSessionsOnly = false): Collection
     {
         return WorkoutExercise::query()
             ->select('workout_exercises.*')
             ->join('workout_sessions', 'workout_sessions.id', '=', 'workout_exercises.workout_session_id')
             ->where('workout_sessions.user_id', $user->id)
             ->where('workout_exercises.exercise_slug', $slug)
+            ->when($strengthSessionsOnly, fn ($query) => StrengthSessions::only($query))
             ->when(! $includeUnmeasured, fn ($query) => $query->whereHas('performedSets'))
             ->with(['performedSets', 'workoutSession', 'planExercise'])
             ->orderByDesc('workout_sessions.logged_date')

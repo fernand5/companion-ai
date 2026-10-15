@@ -154,26 +154,28 @@ final class ExercisePerformanceRecord
     }
 
     /**
-     * The one-line form for a compact history, e.g.
-     *   2026-10-05 Bench Press: 8,8,7 @ 45 kg — entered (planned 3×10 @ 40 kg)
-     *   2026-09-16 Dumbbell Rows: completed as planned, amounts not measured (planned 3×12 @ 6 kg)
+     * The one-line form for a compact history (the exercise name is the caller's
+     * heading). What was done, the target at the time, and how far to trust it:
+     *   2026-10-05: 10,10,9 @ 42.5 kg | target 3×10 @ 42.5 kg | entered
+     *   2026-09-16: completed as planned | performance not measured | target 3×12 @ 22.5 kg
      */
     public function toCompactLine(): string
     {
-        $body = match ($this->outcome) {
-            self::OUTCOME_COMPLETED => self::describeSets($this->sets).' — '.$this->recordedAs,
+        $planned = self::describePlanned($this->planned);
+        $target = $planned !== null ? "target {$planned}" : null;
+
+        $parts = match ($this->outcome) {
+            self::OUTCOME_COMPLETED => [self::describeSets($this->sets), $target, $this->recordedAs],
             self::OUTCOME_PARTIAL => $this->performanceMeasured
-                ? self::describeSets($this->sets).' — '.$this->recordedAs.', partial'
-                : 'partial, amounts not measured',
-            self::OUTCOME_COMPLETED_AS_PLANNED => 'completed as planned, amounts not measured',
-            self::OUTCOME_SKIPPED => 'skipped',
-            self::OUTCOME_PENDING => 'not done',
-            default => 'no measurable performance recorded',
+                ? [self::describeSets($this->sets), $target, $this->recordedAs, 'partial']
+                : ['partial', 'performance not measured', $target],
+            self::OUTCOME_COMPLETED_AS_PLANNED => ['completed as planned', 'performance not measured', $target],
+            self::OUTCOME_SKIPPED => ['skipped', $target],
+            self::OUTCOME_PENDING => ['not done', $target],
+            default => ['no measurable performance recorded', $target],
         };
 
-        $planned = self::describePlanned($this->planned);
-
-        return trim(($this->date ?? '').' '.$this->exerciseName.': '.$body.($planned !== null ? " (planned {$planned})" : ''));
+        return ($this->date !== null ? $this->date.': ' : '').implode(' | ', array_filter($parts, fn ($part) => $part !== null && $part !== ''));
     }
 
     /**
