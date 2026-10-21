@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\WeeklyPlanController;
 use App\Http\Controllers\Api\WeightController;
 use App\Http\Controllers\Api\WorkoutController;
 use App\Http\Controllers\Api\WorkoutPlanController;
+use App\Http\Middleware\EnsureApplicationKeyIsUsable;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
@@ -53,10 +54,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/exercises/{exercise}/history', [ExerciseHistoryController::class, 'show']);
 
     // Calculated progression recommendations, and the user's explicit approval of one. Nothing here
-    // calls the AI; approval takes only the sealed proposal the server issued.
-    Route::get('/progression/recommendations', [ProgressionController::class, 'index'])->middleware('throttle:30,1');
-    Route::post('/progression/approvals', [ProgressionController::class, 'approve'])->middleware('throttle:20,1');
-    Route::post('/progression/rejections', [ProgressionController::class, 'reject'])->middleware('throttle:20,1');
+    // calls the AI; approval takes only the sealed proposal the server issued. They have their own
+    // named rate limits (see AppServiceProvider), so reviewing suggestions never touches the chat
+    // budget, and they answer 503 rather than fail if APP_KEY cannot seal a proposal.
+    Route::middleware(EnsureApplicationKeyIsUsable::class)->group(function () {
+        Route::get('/progression/recommendations', [ProgressionController::class, 'index'])->middleware('throttle:progression-read');
+        Route::post('/progression/approvals', [ProgressionController::class, 'approve'])->middleware('throttle:progression-decision');
+        Route::post('/progression/rejections', [ProgressionController::class, 'reject'])->middleware('throttle:progression-decision');
+    });
     // May start an AI image generation (paid), so it is throttled; polling shares this budget.
     Route::post('/workout-plans/{plan}/exercises/{exercise}/image', [ExerciseImageController::class, 'store'])
         ->middleware('throttle:60,1');

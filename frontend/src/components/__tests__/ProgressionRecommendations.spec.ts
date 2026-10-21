@@ -58,6 +58,16 @@ describe('ProgressionRecommendations', () => {
     expect(wrapper.text()).toContain('Bench Press')
   })
 
+  it('shows the safe unavailable message, with a retry, when the server says progression is unavailable', async () => {
+    vi.mocked(progressionService.fetchRecommendations).mockRejectedValueOnce({ response: { status: 503, data: { message: 'Progression suggestions are temporarily unavailable. Please try again later.' } } })
+    const wrapper = mount(ProgressionRecommendations)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="error"]').text()).toContain('temporarily unavailable')
+    expect(wrapper.find('[data-testid="accept"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="error"] button').text()).toBe('Try again')
+  })
+
   it('shows an empty state when there is nothing yet', async () => {
     const wrapper = await mountWith()
 

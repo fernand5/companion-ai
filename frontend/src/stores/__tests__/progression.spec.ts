@@ -151,4 +151,24 @@ describe('progression store', () => {
     expect(store.stateFor('Bench Press').status).toBe('failed')
     expect(await store.keep(item)).toBe(true)
   })
+
+  it('shows the server\'s safe "temporarily unavailable" message when progression is switched off by a configuration problem', async () => {
+    const unavailable = { response: { status: 503, data: { code: 'progression_unavailable', message: 'Progression suggestions are temporarily unavailable. Please try again later.' } } }
+    vi.mocked(progressionService.fetchRecommendations).mockRejectedValue(unavailable)
+    const store = useProgressionStore()
+
+    await store.load()
+
+    expect(store.error).toBe('Progression suggestions are temporarily unavailable. Please try again later.')
+    expect(store.items).toEqual([])
+  })
+
+  it('treats a 503 on approve as a retryable failure, not a stale proposal', async () => {
+    vi.mocked(progressionService.approveProposal).mockRejectedValue({ response: { status: 503, data: { message: 'Progression suggestions are temporarily unavailable. Please try again later.' } } })
+    const store = useProgressionStore()
+
+    await store.accept(makeItem())
+
+    expect(store.stateFor('Bench Press')).toEqual({ status: 'failed', message: 'Progression suggestions are temporarily unavailable. Please try again later.' })
+  })
 })

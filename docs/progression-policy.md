@@ -223,6 +223,25 @@ universally reliable.
 - It has not been evaluated against real users' phrasing or the real model. The `ai_coach.tool_blocked`
   log shows how often it refuses.
 
+## What the approval flow depends on (operations)
+
+- **`APP_KEY`.** Approval proposals are sealed with it and chat proposals are signed with it. Nothing else
+  in the app needed it before, so a missing or malformed key can go unnoticed until someone opens the Weekly
+  Plan screen. The key must be a valid key for the configured cipher (`php artisan key:generate --show`
+  writes one) and must **not be rotated** casually: outstanding proposals stop working (harmless; they last
+  30 minutes or less), and so would anything else sealed with it.
+  If it is unusable the progression endpoints answer **503** with a plain message and nothing is sealed
+  or signed; chat offers no confirmation it could not honour; the server log gets one `app_key.unusable`
+  error (at most one a minute, shared across workers through the cache) saying what to fix; the rest of the app is unaffected. This is
+  a safety net. Verify the key in each environment.
+- **A cache that supports atomic "add"** (`CACHE_STORE=database` does). It is one of two layers that keep
+  an approval single-use; the other, the conditional database write, holds on its own.
+- **Rate limits.** The progression endpoints use their own named limiters (`progression-read`, 30 a minute,
+  and `progression-decision`, 20 a minute shared by accept and keep), keyed by user. Laravel's plain
+  `throttle:N,M` shares one counter per user across every route that uses it, which is why these are named:
+  reviewing suggestions cannot use up the chat budget (`throttle:10,1`, unchanged), and chat cannot use up theirs.
+  Chat, weekly adaptation and image polling still share the plain counter with each other, as before.
+
 ## What is not here
 
 Applying a recommendation, an approval UI, per-exercise equipment or body-region knowledge, effort

@@ -6,6 +6,7 @@ use App\Models\Conversation;
 use App\Models\User;
 use App\Models\WorkoutPlan;
 use App\Models\WorkoutPlanExercise;
+use App\Support\ApplicationKey;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
@@ -29,6 +30,13 @@ class PlanChangeProposalParser
 
     public function propose(User $user, Conversation $conversation, string $message): ProposalResult
     {
+        // No confirmation is offered that could not be signed and redeemed.
+        if (! ApplicationKey::usable()) {
+            ApplicationKey::reportUnusable('chat proposal');
+
+            return ProposalResult::failed('signing_unavailable');
+        }
+
         $text = mb_strtolower(str_replace(['’', '‘'], "'", $message));
 
         if (preg_match('/\b(?:lbs?|pounds?)\b/u', $text)) {

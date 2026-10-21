@@ -2,6 +2,7 @@
 
 namespace App\Services\Fitness\Progression;
 
+use App\Support\ApplicationKey;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
@@ -68,6 +69,11 @@ final class ProgressionApprovalToken
     /** The opaque string handed to the client. */
     public function seal(): string
     {
+        // Never seal with a key that is not one: an unusable key means no proposals, not weak ones.
+        if (! ApplicationKey::usable()) {
+            throw new ProgressionUnavailableException('The application key is unusable, so approval proposals cannot be sealed.');
+        }
+
         return Crypt::encryptString((string) json_encode([
             'purpose' => self::PURPOSE,
             'v' => self::VERSION,
@@ -91,6 +97,10 @@ final class ProgressionApprovalToken
     /** The token behind a submitted string, or null if it is anything other than one this application sealed. */
     public static function open(string $sealed): ?self
     {
+        if (! ApplicationKey::usable()) {
+            throw new ProgressionUnavailableException('The application key is unusable, so approval proposals cannot be opened.');
+        }
+
         try {
             $data = json_decode(Crypt::decryptString($sealed), true);
         } catch (DecryptException) {

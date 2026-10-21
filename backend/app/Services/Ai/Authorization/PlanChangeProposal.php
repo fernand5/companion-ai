@@ -2,6 +2,7 @@
 
 namespace App\Services\Ai\Authorization;
 
+use App\Support\ApplicationKey;
 use Carbon\CarbonImmutable;
 
 /**
@@ -53,6 +54,11 @@ final class PlanChangeProposal
         ?int $plannedReps,
         ?CarbonImmutable $now = null,
     ): self {
+        // A proposal signed with a missing or malformed key would be a weak one: never create it.
+        if (! ApplicationKey::usable()) {
+            throw new \LogicException('Refusing to create a proposal: the application key is unusable.');
+        }
+
         $now ??= CarbonImmutable::now();
 
         $fields = [
@@ -131,9 +137,7 @@ final class PlanChangeProposal
     /** True only if every signed field is exactly as the application wrote it. */
     public function isAuthentic(): bool
     {
-        $key = (string) config('app.key');
-
-        return $key !== '' && hash_equals(self::sign($this->fields()), $this->signature);
+        return ApplicationKey::usable() && hash_equals(self::sign($this->fields()), $this->signature);
     }
 
     public function isExpired(?CarbonImmutable $now = null): bool
