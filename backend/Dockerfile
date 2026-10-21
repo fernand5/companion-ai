@@ -7,7 +7,18 @@
 # the separate Vue SPA under frontend/, built and deployed independently as
 # a Render Static Site). No `npm install`/`npm run build` runs in this image.
 
-FROM php:8.3-fpm-alpine
+# PHP is pinned to an exact patch release, not the floating `8.3` tag. A floating tag resolves to
+# whatever image the builder last pulled or has cached, so a rebuild can silently produce an old,
+# vulnerable PHP. 8.3.36 is the first release that fixes CVE-2026-109618 and CVE-2026-109619
+# (GHSA-w8hw-w9fx-j79w, GHSA-6wmf-4rv5-p3rp; CVSS 9.2, remote, PHP-FPM affected). Everything below
+# 8.3.36 is affected. To update PHP later, change this tag and PHP_MIN_PATCHED together.
+FROM php:8.3.36-fpm-alpine
+
+# Refuse to build on a PHP older than the patched release, whatever the FROM line above says.
+# This is the guard against a stale or wrongly cached base image.
+ARG PHP_MIN_PATCHED=8.3.36
+RUN php -r 'exit(version_compare(PHP_VERSION, $argv[1], ">=") ? 0 : 1);' "$PHP_MIN_PATCHED" \
+    || { echo "Refusing to build: PHP $(php -r 'echo PHP_VERSION;') is older than the patched $PHP_MIN_PATCHED (CVE-2026-109618 / CVE-2026-109619). The base image is stale." >&2; exit 1; }
 
 RUN apk add --no-cache \
         nginx \
