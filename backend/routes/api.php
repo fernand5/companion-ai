@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\ExerciseHistoryController;
 use App\Http\Controllers\Api\ExerciseImageController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ProgressController;
+use App\Http\Controllers\Api\ProgressionController;
 use App\Http\Controllers\Api\RecoveryCheckinController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\WeeklyPlanController;
@@ -50,6 +51,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/workout-plans/{plan}/exercises/{exercise}', [WorkoutPlanController::class, 'updateExercise']);
     Route::put('/workout-plans/{plan}/exercises/{exercise}/performance', [WorkoutPlanController::class, 'recordPerformance']);
     Route::get('/exercises/{exercise}/history', [ExerciseHistoryController::class, 'show']);
+
+    // Calculated progression recommendations, and the user's explicit approval of one. Nothing here
+    // calls the AI; approval takes only the sealed proposal the server issued.
+    Route::get('/progression/recommendations', [ProgressionController::class, 'index'])->middleware('throttle:30,1');
+    Route::post('/progression/approvals', [ProgressionController::class, 'approve'])->middleware('throttle:20,1');
+    Route::post('/progression/rejections', [ProgressionController::class, 'reject'])->middleware('throttle:20,1');
     // May start an AI image generation (paid), so it is throttled; polling shares this budget.
     Route::post('/workout-plans/{plan}/exercises/{exercise}/image', [ExerciseImageController::class, 'store'])
         ->middleware('throttle:60,1');

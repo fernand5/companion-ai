@@ -30,10 +30,21 @@ class ProgressionService
     /** The recommendation for one exact exercise (matched by its slug, never fuzzily). */
     public function recommendFor(User $user, string $exerciseName): ProgressionRecommendation
     {
+        return $this->overviewFor($user, $exerciseName)['recommendation'];
+    }
+
+    /**
+     * A recommendation together with the upcoming plan row its "current target" comes from
+     * (null when there is none). An approval needs that row; nothing else should.
+     *
+     * @return array{recommendation: ProgressionRecommendation, row: ?WorkoutPlanExercise}
+     */
+    public function overviewFor(User $user, string $exerciseName): array
+    {
         $slug = ExerciseSlug::from($exerciseName);
 
         if ($slug === null) {
-            return $this->engine->evaluate($exerciseName, null, [], null, $this->safety->for($user), $user->localToday());
+            return ['recommendation' => $this->engine->evaluate($exerciseName, null, [], null, $this->safety->for($user), $user->localToday()), 'row' => null];
         }
 
         return $this->recommendations($user, [$slug => $exerciseName])[0];
@@ -45,6 +56,16 @@ class ProgressionService
      * @return array<int, ProgressionRecommendation>
      */
     public function recommendAll(User $user, int $maxExercises = 8): array
+    {
+        return array_map(fn (array $entry) => $entry['recommendation'], $this->overview($user, $maxExercises));
+    }
+
+    /**
+     * Like recommendAll(), each with the upcoming plan row its target comes from.
+     *
+     * @return array<int, array{recommendation: ProgressionRecommendation, row: ?WorkoutPlanExercise}>
+     */
+    public function overview(User $user, int $maxExercises = 8): array
     {
         $maxExercises = max(1, min($maxExercises, self::MAX_EXERCISES));
         $since = $user->localNow()->subDays(ProgressionPolicy::HISTORY_DAYS - 1)->toDateString();
@@ -66,7 +87,7 @@ class ProgressionService
 
     /**
      * @param  array<string, ?string>  $names  slug => the name to show when there is no history to take it from
-     * @return array<int, ProgressionRecommendation>
+     * @return array<int, array{recommendation: ProgressionRecommendation, row: ?WorkoutPlanExercise}>
      */
     private function recommendations(User $user, array $names): array
     {
@@ -74,7 +95,7 @@ class ProgressionService
         $since = $user->localNow()->subDays(ProgressionPolicy::HISTORY_DAYS - 1)->toDateString();
 
         $rows = $this->history->recentForSlugs($user, $slugs, ProgressionPolicy::HISTORY_SESSIONS, $since, includeUnmeasured: true, strengthSessionsOnly: true);
-        $next = $this->nextTargets($user, $slugs);
+        $nextRows = $this->nextRows($user, $slugs);
         $safety = $this->safety->for($user);
         $today = $user->localToday();
 
@@ -87,26 +108,31 @@ class ProgressionService
                 $exercise->workoutSession->logged_date->toDateString(),
             ))->all();
 
-            $out[] = $this->engine->evaluate(
-                $entries->first()?->exercise_name ?? $names[$slug] ?? $slug,
-                $slug,
-                $records,
-                $next[$slug] ?? null,
-                $safety,
-                $today,
-            );
+            $row = $nextRows[$slug] ?? null;
+
+            $out[] = [
+                'recommendation' => $this->engine->evaluate(
+                    $entries->first()?->exercise_name ?? $names[$slug] ?? $slug,
+                    $slug,
+                    $records,
+                    $row !== null ? $this->targetOf($row) : null,
+                    $safety,
+                    $today,
+                ),
+                'row' => $row,
+            ];
         }
 
         return $out;
     }
 
     /**
-     * The next genuinely upcoming (still pending) planned target for each exact exercise.
+     * The next genuinely upcoming (still pending) planned row for each exact exercise.
      *
      * @param  array<int, string>  $slugs
-     * @return array<string, array{sets: ?int, reps: ?int, weight_kg: ?float, duration_seconds: ?int, source: string}>
+     * @return array<string, WorkoutPlanExercise> keyed by slug; each carries its plan's date as `plan_date`
      */
-    private function nextTargets(User $user, array $slugs): array
+    private function nextRows(User $user, array $slugs): array
     {
         $rows = WorkoutPlanExercise::query()
             ->select('workout_plan_exercises.*', 'workout_plans.planned_date as plan_date')
@@ -116,20 +142,27 @@ class ProgressionService
             ->whereIn('workout_plan_exercises.exercise_slug', $slugs)
             ->where('workout_plan_exercises.status', WorkoutPlanExercise::STATUS_PENDING)
             ->orderBy('workout_plans.planned_date')
+            ->orderBy('workout_plan_exercises.id')
             ->get();
 
-        $targets = [];
+        $next = [];
 
         foreach ($rows as $row) {
-            $targets[$row->exercise_slug] ??= [
-                'sets' => $row->planned_sets,
-                'reps' => $row->planned_reps,
-                'weight_kg' => $row->planned_weight_kg !== null ? (float) $row->planned_weight_kg : null,
-                'duration_seconds' => $row->planned_duration_seconds,
-                'source' => 'next_planned',
-            ];
+            $next[$row->exercise_slug] ??= $row;
         }
 
-        return $targets;
+        return $next;
+    }
+
+    /** @return array{sets: ?int, reps: ?int, weight_kg: ?float, duration_seconds: ?int, source: string} */
+    private function targetOf(WorkoutPlanExercise $row): array
+    {
+        return [
+            'sets' => $row->planned_sets,
+            'reps' => $row->planned_reps,
+            'weight_kg' => $row->planned_weight_kg !== null ? (float) $row->planned_weight_kg : null,
+            'duration_seconds' => $row->planned_duration_seconds,
+            'source' => 'next_planned',
+        ];
     }
 }

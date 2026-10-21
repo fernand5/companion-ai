@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import ErrorNotice from '@/components/ErrorNotice.vue'
+import ProgressionRecommendations from '@/components/ProgressionRecommendations.vue'
 import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useAuthStore } from '@/stores/auth'
+import { useProgressionStore } from '@/stores/progression'
 import { useWeeklyPlanStore } from '@/stores/weeklyPlan'
 import type { ActivityType } from '@/types'
 import { activityIcon, formatDate } from '@/utils/format'
@@ -16,9 +18,19 @@ const input = ref('')
 const auth = useAuthStore()
 const today = computed(() => todayIn(auth.user?.timezone))
 
+const progression = useProgressionStore()
+
 onMounted(() => {
   store.loadWeek()
 })
+
+// Filling in the week can add the upcoming sessions a recommendation would apply to.
+watch(
+  () => store.generating,
+  (now, before) => {
+    if (before && !now) progression.load()
+  },
+)
 
 const showEmptyState = computed(() => store.error !== null && store.days.length === 0)
 
@@ -34,6 +46,9 @@ function submit() {
 <template>
   <div class="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
     <h1 class="text-lg font-semibold text-slate-900">Weekly Plan</h1>
+
+    <!-- Outside the week's loading states so it mounts (and fetches) once, not each time the week reloads. -->
+    <ProgressionRecommendations />
 
     <p
       v-if="store.loading"

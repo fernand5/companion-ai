@@ -251,3 +251,61 @@ export interface WeeklySummary {
   next_week_focus: string
   generated_at: string
 }
+
+export type ProgressionDecision = 'INCREASE' | 'MAINTAIN' | 'DECREASE' | 'INSUFFICIENT_DATA' | 'MANUAL_REVIEW'
+
+export type ProgressionEvidenceQuality = 'strong' | 'limited' | 'insufficient' | 'none'
+
+export interface ProgressionTarget {
+  sets: number | null
+  reps: number | null
+  weight_kg: number | null
+  duration_seconds: number | null
+}
+
+export interface ProgressionSession {
+  date: string | null
+  recorded_as: string
+  performed: string
+  target: string | null
+  /** null when it cannot be said (no target, or a value was not recorded). */
+  target_reached: boolean | null
+  sets_reaching_target: number | null
+  planned_sets: number | null
+  top_load_kg: number | null
+}
+
+/** One calculated recommendation. The server owns every number in it; the client only shows it. */
+export interface ProgressionItem {
+  exercise: { name: string; slug: string | null }
+  decision: ProgressionDecision
+  current_target: (ProgressionTarget & { source: string }) | null
+  proposed_target: (ProgressionTarget & { change_percent: number; step_kg: number; from: number; to: number }) | null
+  supporting_sessions: ProgressionSession[]
+  evidence_quality: ProgressionEvidenceQuality
+  reason_codes: string[]
+  reasons: string[]
+  safety_caveats: string[]
+  policy_version: string
+  as_of: string
+  applies_to: { date: string } | null
+  actionable: boolean
+  not_actionable_reason: string | null
+  /** Set when the user chose to keep the current target for exactly this recommendation. */
+  dismissed: { at: string } | null
+  /** Opaque, server-issued. Present only when the change can be approved. */
+  proposal: { id: string; expires_at: string } | null
+}
+
+export interface ProgressionList {
+  data: ProgressionItem[]
+  meta: { policy_version: string; max_exercises: number; generated_at: string }
+}
+
+export interface ProgressionApplied {
+  applied: true
+  exercise: { name: string; slug: string }
+  date: string
+  from_kg: number
+  to_kg: number
+}
