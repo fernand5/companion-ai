@@ -150,7 +150,7 @@ class WeeklyPlanCoachService
                 }
 
                 if ($toolCall->name === self::DECISION_TOOL) {
-                    return $this->presentDecision($result);
+                    return $this->presentDecision($result, $turn->loadsLeftUnsetNotice());
                 }
 
                 $messages[] = [
@@ -165,7 +165,7 @@ class WeeklyPlanCoachService
         return ['applied' => false, 'explanation' => 'Could not determine a plan change from that — try rephrasing.'];
     }
 
-    private function presentDecision(mixed $result): array
+    private function presentDecision(mixed $result, ?string $unsetLoadsNotice = null): array
     {
         if (is_array($result) && array_key_exists('error', $result)) {
             return ['applied' => false, 'explanation' => null, 'error' => $result['error']];
@@ -183,6 +183,8 @@ class WeeklyPlanCoachService
             'changes' => $changedDates,
             'skipped' => $result['skipped'] ?? [],
             'cleared' => $result['cleared'] ?? [],
+            // The application's own words about anything it would not take from the model (e.g. a starting weight with nothing to base it on).
+            'notices' => $unsetLoadsNotice !== null ? [$unsetLoadsNotice] : [],
         ];
     }
 }

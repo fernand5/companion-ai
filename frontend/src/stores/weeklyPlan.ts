@@ -18,13 +18,18 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
   const days = ref<WeeklyPlanDay[]>([])
   const loading = ref(false)
   const generating = ref(false)
+  /** True once filling the week actually added plans (so things derived from the plans can refresh). */
+  const filled = ref(false)
   const sending = ref(false)
   const error = ref<string | null>(null)
   const lastResult = ref<WeeklyAdaptationResult | null>(null)
+  /** Notes from the application (not the coach) about the latest plan change, e.g. a weight left for the user to choose. */
+  const notices = ref<string[]>([])
 
   async function loadWeek() {
     loading.value = true
     error.value = null
+    filled.value = false
 
     const { start, end, dates } = getCurrentWeekRange(useAuthStore().user?.timezone)
 
@@ -50,8 +55,11 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
       // rather than guessing from an "every day is null" heuristic here.
       const result = await weeklyPlanService.generateWeek()
 
+      if (result.notices?.length) notices.value = result.notices
+
       if (result.applied) {
         days.value = zip(dates, await weeklyPlanService.fetchWeek(start, end))
+        filled.value = true
       }
     } catch (e: unknown) {
       error.value = extractErrorMessage(e, "Couldn't fill in the rest of your week.")
@@ -64,11 +72,13 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
     if (sending.value) return
 
     error.value = null
+    notices.value = []
     sending.value = true
 
     try {
       const result = await weeklyPlanService.submitAdaptation(input)
       lastResult.value = result
+      notices.value = result.notices ?? []
 
       if (result.applied) {
         await loadWeek()
@@ -80,5 +90,5 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
     }
   }
 
-  return { days, loading, generating, sending, error, lastResult, loadWeek, submitAdaptation }
+  return { days, loading, generating, filled, sending, error, lastResult, notices, loadWeek, submitAdaptation }
 })

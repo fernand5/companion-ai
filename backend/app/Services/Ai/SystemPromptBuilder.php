@@ -199,6 +199,10 @@ PROMPT;
           change just to justify calling the tool.
         - Every change's `reason`, and every top-level reasoning factor, must be grounded in the
           actual input or the context above — never invent a factor the data doesn't support.
+        - Never raise an exercise's planned load. Keep each exercise at the load shown in "This week's
+          plan" (or lower). Loads only go up when the user approves a calculated suggestion on the
+          Weekly Plan screen, and a change that raises one is refused. Never choose a starting weight for
+          an exercise that has no recorded or planned weight: leave it out and the user picks their own.
         - You may call a read-only tool first (e.g. get_upcoming_schedule) if you genuinely need
           more information before deciding, but keep this focused — one bounded decision, not
           open-ended chat.

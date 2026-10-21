@@ -6,6 +6,8 @@ import ErrorNotice from '@/components/ErrorNotice.vue'
 import ProgressionCard from '@/components/ProgressionCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useProgressionStore } from '@/stores/progression'
+import type { ProgressionItem } from '@/types'
+import { formatDate } from '@/utils/format'
 
 const store = useProgressionStore()
 
@@ -13,10 +15,27 @@ onMounted(() => {
   store.load()
 })
 
-/** Recommendations you can act on first; kept and informational ones follow. */
-const ordered = computed(() =>
-  [...store.items].sort((a, b) => Number(b.actionable) - Number(a.actionable)),
-)
+/**
+ * The cards, grouped by the upcoming session each applies to (soonest first); within a session the
+ * ones you can act on come first. Exercises with no upcoming session follow, as information.
+ */
+const groups = computed(() => {
+  const bySession = new Map<string, { key: string; date: string | null; title: string | null; items: ProgressionItem[] }>()
+
+  for (const item of store.items) {
+    const date = item.applies_to?.date ?? null
+    const key = date ?? 'unscheduled'
+    const group = bySession.get(key) ?? { key, date, title: item.applies_to?.title ?? null, items: [] }
+    group.items.push(item)
+    bySession.set(key, group)
+  }
+
+  return [...bySession.values()]
+    .map((group) => ({ ...group, items: [...group.items].sort((a, b) => Number(b.actionable) - Number(a.actionable)) }))
+    .sort((a, b) => (a.date === null ? 1 : b.date === null ? -1 : a.date.localeCompare(b.date)))
+})
+
+const suggested = computed(() => store.summary?.suggested ?? store.items.filter((i) => i.actionable).length)
 </script>
 
 <template>
@@ -63,15 +82,31 @@ const ordered = computed(() =>
         {{ store.error }}
       </p>
 
-      <ProgressionCard
-        v-for="item in ordered"
-        :key="item.exercise.name"
-        :item="item"
-        :state="store.stateFor(item.exercise.name)"
-        @accept="store.accept(item)"
-        @keep="store.keep(item)"
-        @refresh="store.load()"
-      />
+      <p class="text-sm text-slate-600" data-testid="summary">
+        <template v-if="suggested > 0">
+          {{ suggested }} suggested {{ suggested === 1 ? 'adjustment' : 'adjustments' }}. Review each one; accepting one never accepts another.
+        </template>
+        <template v-else>No adjustments suggested right now. Your plan stays as it is.</template>
+      </p>
+
+      <div v-for="group in groups" :key="group.key" class="space-y-2" :data-session="group.key">
+        <h3 v-if="group.date" class="text-xs font-medium tracking-wide text-slate-400 uppercase" data-testid="session-heading">
+          {{ formatDate(group.date) }}<template v-if="group.title"> · {{ group.title }}</template>
+        </h3>
+        <h3 v-else class="text-xs font-medium tracking-wide text-slate-400 uppercase" data-testid="session-heading">
+          Not in an upcoming session
+        </h3>
+
+        <ProgressionCard
+          v-for="item in group.items"
+          :key="item.exercise.name"
+          :item="item"
+          :state="store.stateFor(item.exercise.name)"
+          @accept="store.accept(item)"
+          @keep="store.keep(item)"
+          @refresh="store.load()"
+        />
+      </div>
     </template>
   </section>
 </template>

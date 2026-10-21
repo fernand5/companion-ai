@@ -27,6 +27,9 @@ final class ToolTurn
     /** A confirmed change can be made once; this turn has made it. */
     private bool $confirmedChangeMade = false;
 
+    /** @var array<int, array{exercise: string, date: string, requested_kg: float}> loads written without a baseline and left unset */
+    private array $loadsLeftUnset = [];
+
     public function __construct(
         private readonly ToolRegistry $registry,
         private readonly PlanLoadGuard $loadGuard,
@@ -76,15 +79,34 @@ final class ToolTurn
             return $this->callConfirmed($name, $capability, $arguments, $user);
         }
 
+        $unset = [];
+
         if ($capability === ToolCapability::PlanCreate || $capability === ToolCapability::PlanAdapt) {
-            $violations = $this->loadGuard->violations($user, $name, $arguments);
+            // A load with nothing real behind it is left unset, not trusted (see PlanLoadGuard).
+            ['arguments' => $arguments, 'unset' => $unset] = $this->loadGuard->withoutUnbaselinedLoads(
+                $user, $name, $arguments, $this->authorization->mayRaiseLoads, $this->authorization->statedLoadsKg,
+            );
+
+            $violations = $this->loadGuard->violations($user, $name, $arguments, $this->authorization->mayRaiseLoads);
 
             if ($violations !== []) {
                 return $this->refuse($name, $capability, 'load_above_limit', 'Not done, nothing was changed: '.implode(' ', $violations));
             }
         }
 
-        return $this->registry->call($name, $arguments, $user);
+        $result = $this->registry->call($name, $arguments, $user);
+
+        if ($unset !== [] && is_array($result) && ! array_key_exists('error', $result)) {
+            $this->loadsLeftUnset = [...$this->loadsLeftUnset, ...$unset];
+            $names = implode(', ', array_values(array_unique(array_column($unset, 'exercise'))));
+
+            $result['load_not_set'] = [
+                'exercises' => array_values(array_unique(array_column($unset, 'exercise'))),
+                'instruction' => "The starting load for {$names} was left unset: there is no recorded or planned load to base one on. Tell the user to choose a weight they can lift comfortably for the target reps and record it. Do not state or suggest a specific weight.",
+            ];
+        }
+
+        return $result;
     }
 
     /**
@@ -113,7 +135,7 @@ final class ToolTurn
                 .(is_array($expected) ? ' To make the confirmed change, call create_workout_plan with exactly these planned_date, activity_type, title, duration_minutes and exercises: '.json_encode($expected).' (add your own decision_summary and reasoning_factors).' : ''));
         }
 
-        $violations = $this->loadGuard->violations($user, $name, $arguments);
+        $violations = $this->loadGuard->violations($user, $name, $arguments, mayRaiseLoads: true);
 
         if ($violations !== []) {
             return $this->refuse($name, $capability, 'load_above_limit', 'Not done, nothing was changed: '.implode(' ', $violations));
@@ -128,6 +150,22 @@ final class ToolTurn
         $this->confirmedChangeMade = true;
 
         return $result;
+    }
+
+    /**
+     * What the application tells the user about loads it left unset this turn, in its own words (no number,
+     * no suggested weight), or null when there were none.
+     */
+    public function loadsLeftUnsetNotice(): ?string
+    {
+        if ($this->loadsLeftUnset === []) {
+            return null;
+        }
+
+        $names = array_values(array_unique(array_column($this->loadsLeftUnset, 'exercise')));
+
+        return 'I left the starting weight for '.implode(', ', $names).' unset: there is no recorded or planned weight to base one on. '
+            .'Choose a weight you can lift comfortably for the target reps, and record it when you log your sets.';
     }
 
     /** True once the confirmed change has been made in this turn. */

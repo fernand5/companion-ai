@@ -73,8 +73,8 @@ and missed targets count as misses, never as successes.
 
 ## The maximum permitted change (a cap, not a recommendation)
 
-An AI-written plan (`create_workout_plan`, `propose_weekly_plan_changes`) may not carry a load more than
-10% above the heaviest load the user has recorded (`entered` or `migrated`, last 180 days) for that exact
+When the user explicitly asked for the change, an AI-written plan (`create_workout_plan`,
+`propose_weekly_plan_changes`) may not carry a load more than 10% above the heaviest load the user has recorded (`entered` or `migrated`, last 180 days) for that exact
 exercise, even when the user asked for the change. Exercises with no recorded load are not checked.
 
 Read this limit for what it is:
@@ -89,6 +89,81 @@ Read this limit for what it is:
   date, so passing the cap check says nothing about them.
 
 User-facing and model-facing wording says "maximum", never "safe".
+
+## Who may raise a load (Phase 5C)
+
+A planned load goes up in exactly two ways, both by the user:
+
+1. the user **approves a calculated suggestion** on the Weekly Plan screen (each exercise on its own), or
+2. the user **explicitly asks for the change** in chat, within the maximum permitted change.
+
+Everything the model writes without that (weekly generation and adaptation, a session for today, a
+reaction to a logged activity) is held to a **baseline**: for each exercise and day it may carry at
+most what the user last performed for that exact exercise, or what that day already carries if that
+is higher. So it can keep or lower a load, carry an approved increase forward on its own day, and
+start a new exercise, but it cannot raise a load, and it cannot copy an approved increase onto another
+day. A write that does is refused and nothing is changed. This is enforced where the tool runs, not in
+the prompt (the weekly prompt only repeats it).
+
+## Starting loads: no baseline, no load
+
+A model-written load is only ever as good as what it can be compared with. An exercise has a
+**baseline** when the user has a recorded load for that exact exercise (an entered or migrated set with
+a weight; a one-tap completion is not one) or already has a load planned for that exact day. With no
+baseline there is nothing to personalize a starting weight from, and there is no universal "safe
+starting weight" or percentage to substitute, so:
+
+- the model's load is **left unset**: the exercise stays in the plan with its sets and reps, and
+  `planned_weight_kg` stays empty (the schema, the plan screens and set entry all support that);
+- the model is told so, and told not to state or suggest a weight;
+- the application tells the user, in its own words and with no number: "I left the starting weight for X
+  unset ... Choose a weight you can lift comfortably for the target reps, and record it when you log
+  your sets." The same note is returned by the weekly endpoints as `notices` and shown on the Weekly
+  Plan screen;
+- the same rule applies in chat and in weekly generation and adaptation, because both run tools through
+  the same guard.
+
+Not affected: bodyweight and duration-based exercises (they carry no load), loads that are not above a
+real baseline, and a weight **the user wrote themselves** in an instruction that asked for the change
+("add goblet squats at 16 kg"): that number, and only that number, may start an exercise. Quoted or
+pasted numbers, numbers in a request for a session or a report, and any other number are not the user's
+choice and are not taken. A planned load on a different day is not a baseline for a new day.
+
+## Progression in future planning (Phase 5C)
+
+`AdaptivePlanningService` prepares the read-only view of what could change in upcoming workouts. It
+decides nothing: every decision, number, reason and proposal is the engine's, through the same items
+the approval flow issues and re-checks, so the Weekly Plan screen, the coach's tool and plan generation
+cannot disagree.
+
+- One item per exact exercise, with one plain state: `suggested`, `kept` (declined; remembered),
+  `needs_review`, `insufficient_data`, `no_change` or `unavailable` (a change was calculated but cannot
+  be applied, for example the session is already started).
+- A suggestion is only for the exercise's **next** upcoming session. Later sessions with the same
+  exercise are listed as untouched and are reviewed after that one: nothing is changed with them.
+- Each suggestion is approved on its own through the approval endpoint, which recomputes eligibility,
+  checks the plan row's revision and the evidence, respects dismissals, and applies one load atomically.
+  There is no batch approval, and approving one exercise never approves another.
+- Started and completed sessions are never adjusted. With nothing eligible the plan is left alone.
+- No model is involved in calculating or proposing, and nothing runs in the background.
+
+## Automatic progression: a possible future extension (NOT implemented)
+
+Nothing here applies a progression unattended: there are no scheduled tasks or queued jobs that touch
+plans, and the model has no way to apply a recommendation. If an automatic mode is ever wanted, the
+shape that would keep these guarantees is:
+
+- a disabled feature flag (default off) and an explicit per-user opt-in, revocable at any time;
+- it may only apply what an approval would apply: the engine's own `INCREASE` or `DECREASE`, through
+  the same revalidation, the same plan-row revision check, the same atomic write and the same
+  maximum permitted change, never a number from the model;
+- it must honour dismissals, pain, soreness and restrictions exactly as approval does, apply at most
+  one exercise per session, never touch started or completed sessions, and tell the user afterwards
+  what changed and how to undo it;
+- it needs its own evaluation (with a real model for the explanations) and an audit trail before it is
+  switched on for anyone.
+
+None of that exists in code; it is recorded here so the design constraints are not lost.
 
 ## Write authorization
 

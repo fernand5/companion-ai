@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
 import * as progressionService from '@/services/progression'
-import type { ProgressionItem } from '@/types'
+import type { ProgressionItem, ProgressionList } from '@/types'
 import { extractErrorMessage } from '@/utils/errors'
 
 /** What happened (or is happening) to one exercise's recommendation on this screen. */
@@ -17,6 +17,7 @@ const IDLE: ProgressionActionState = { status: 'idle', message: null }
 
 export const useProgressionStore = defineStore('progression', () => {
   const items = ref<ProgressionItem[]>([])
+  const summary = ref<ProgressionList['summary'] | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
   /** Keyed by exercise name: the server's slug can be null for an unusable name. */
@@ -42,6 +43,7 @@ export const useProgressionStore = defineStore('progression', () => {
     try {
       const list = await progressionService.fetchRecommendations()
       items.value = list.data
+      summary.value = list.summary ?? null
       actions.value = Object.fromEntries(Object.entries(actions.value).filter(([, state]) => state.status === 'applied'))
     } catch (e: unknown) {
       error.value = extractErrorMessage(e, "Couldn't load your progression recommendations.")
@@ -101,5 +103,5 @@ export const useProgressionStore = defineStore('progression', () => {
     }
   }
 
-  return { items, loading, error, actions, stateFor, load, accept, keep }
+  return { items, summary, loading, error, actions, stateFor, load, accept, keep }
 })

@@ -197,14 +197,16 @@ class PlanWriteAuthorizationTest extends PerformanceEvalCase
         $this->assertSame(0, WorkoutPlan::where('title', 'Over ceiling')->count());
     }
 
-    public function test_the_ceiling_only_applies_to_exercises_with_recorded_history(): void
+    public function test_an_exercise_with_no_recorded_history_gets_no_model_chosen_load_even_on_an_explicit_request(): void
     {
+        // The user asked for a plan change, but never said a weight: the model does not get to pick one.
         $this->say('Please update my plan for tomorrow.', $this->toolCall('create_workout_plan', [
             'activity_type' => 'strength', 'title' => 'New lift', 'decision_summary' => 'x', 'reasoning_factors' => ['x'], 'planned_date' => $this->d(-2),
             'exercises' => [['exercise_name' => 'Zercher Squat', 'planned_sets' => 3, 'planned_reps' => 5, 'planned_weight_kg' => 100]],
         ]), new AiResponse(text: 'ok'));
 
-        $this->assertSame(1, WorkoutPlan::where('title', 'New lift')->count());
+        $row = WorkoutPlanExercise::where('exercise_name', 'Zercher Squat')->firstOrFail();
+        $this->assertSame([3, 5, null], [$row->planned_sets, $row->planned_reps, $row->planned_weight_kg], 'The exercise stays, with its sets and reps; its load is left for the user to choose.');
     }
 
     public function test_a_one_tap_completion_is_not_a_demonstrated_load(): void
@@ -216,7 +218,8 @@ class PlanWriteAuthorizationTest extends PerformanceEvalCase
             'exercises' => [['exercise_name' => 'Overhead Press', 'planned_sets' => 3, 'planned_reps' => 10, 'planned_weight_kg' => 120]],
         ]), new AiResponse(text: 'ok'));
 
-        $this->assertSame(1, WorkoutPlan::where('title', 'OHP')->count(), 'An assumed 80 kg is not a ceiling: there is no recorded load to compare with.');
+        $this->assertSame(1, WorkoutPlan::where('title', 'OHP')->count());
+        $this->assertNull(WorkoutPlan::where('title', 'OHP')->first()->exercises()->first()->planned_weight_kg, 'An assumed 80 kg is not a baseline, so no load is taken from the model.');
     }
 
     // ---- ambiguity and confirmation ----------------------------------------------------------------------
@@ -327,7 +330,7 @@ class PlanWriteAuthorizationTest extends PerformanceEvalCase
         $this->assertSame(1, WorkoutPlan::where('title', 'Lighter')->count());
     }
 
-    public function test_the_weekly_plan_page_is_its_own_authorization_and_gets_the_same_load_ceiling(): void
+    public function test_the_weekly_plan_page_is_its_own_authorization_but_cannot_raise_a_load(): void
     {
         // A future day of this week: a day that already has recorded performance is never rewritten.
         $sunday = now()->startOfWeek(Carbon::MONDAY)->addDays(6)->toDateString();
@@ -337,13 +340,17 @@ class PlanWriteAuthorizationTest extends PerformanceEvalCase
                 'exercises' => [['exercise_name' => 'Bench Press', 'planned_sets' => 3, 'planned_reps' => 10, 'planned_weight_kg' => $kg]]]],
         ]);
 
-        $this->fake->queue($change(60));
-        $this->actingAs($this->user, 'sanctum')->postJson('/api/weekly-plan/adapt', ['input' => 'Make Sunday heavier.'])->assertOk()->assertJsonPath('applied', false);
-        $this->assertSame(0, WorkoutPlan::where('title', 'Sunday bench')->count());
+        // The user last did 42.5 kg. Adapting the week may keep it or lower it, never raise it: a higher
+        // load is a change the user approves as a calculated suggestion (or asks for in so many words).
+        foreach ([60.0, 45.0] as $kg) {
+            $this->fake->queue($change($kg));
+            $this->actingAs($this->user, 'sanctum')->postJson('/api/weekly-plan/adapt', ['input' => 'Make Sunday heavier.'])->assertOk()->assertJsonPath('applied', false);
+            $this->assertSame(0, WorkoutPlan::where('title', 'Sunday bench')->count(), "{$kg} kg would raise the load.");
+        }
 
-        $this->fake->queue($change(45));
-        $this->actingAs($this->user, 'sanctum')->postJson('/api/weekly-plan/adapt', ['input' => 'Make Sunday a bit heavier.'])->assertOk()->assertJsonPath('applied', true);
-        $this->assertSame(1, WorkoutPlan::where('title', 'Sunday bench')->count());
+        $this->fake->queue($change(42.5));
+        $this->actingAs($this->user, 'sanctum')->postJson('/api/weekly-plan/adapt', ['input' => 'Add bench on Sunday.'])->assertOk()->assertJsonPath('applied', true);
+        $this->assertSame(1, WorkoutPlan::where('title', 'Sunday bench')->count(), 'Carrying the load forward is fine.');
     }
 
     // ---- what the model is told -----------------------------------------------------------------------------------

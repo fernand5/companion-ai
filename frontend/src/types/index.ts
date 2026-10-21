@@ -241,6 +241,8 @@ export interface WeeklyAdaptationResult {
   changes?: string[]
   skipped?: Array<{ date: string; reason: string }>
   cleared?: string[]
+  /** The application's own notes about anything it would not take from the model (e.g. a starting weight with nothing to base it on). */
+  notices?: string[]
   error?: string
 }
 
@@ -276,6 +278,8 @@ export interface ProgressionSession {
 }
 
 /** One calculated recommendation. The server owns every number in it; the client only shows it. */
+export type ProgressionState = 'suggested' | 'kept' | 'needs_review' | 'insufficient_data' | 'no_change' | 'unavailable'
+
 export interface ProgressionItem {
   exercise: { name: string; slug: string | null }
   decision: ProgressionDecision
@@ -288,7 +292,12 @@ export interface ProgressionItem {
   safety_caveats: string[]
   policy_version: string
   as_of: string
-  applies_to: { date: string } | null
+  /** The upcoming session this applies to (the exercise's NEXT one only). */
+  applies_to: { date: string; title: string | null; plan_status: string | null } | null
+  /** Later sessions with this exercise: listed so it is clear they are NOT being changed. */
+  later_sessions: Array<{ date: string; title: string }>
+  /** One plain state per exercise, decided by the server so every screen says the same thing. */
+  state: ProgressionState
   actionable: boolean
   not_actionable_reason: string | null
   /** Set when the user chose to keep the current target for exactly this recommendation. */
@@ -297,8 +306,18 @@ export interface ProgressionItem {
   proposal: { id: string; expires_at: string } | null
 }
 
+export interface ProgressionSessionSummary {
+  date: string
+  title: string | null
+  plan_status: string | null
+  exercises: number
+  suggested: number
+}
+
 export interface ProgressionList {
   data: ProgressionItem[]
+  sessions: ProgressionSessionSummary[]
+  summary: Record<ProgressionState, number>
   meta: { policy_version: string; max_exercises: number; generated_at: string }
 }
 

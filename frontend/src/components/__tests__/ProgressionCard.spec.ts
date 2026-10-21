@@ -124,6 +124,14 @@ describe('ProgressionCard', () => {
     }
   })
 
+  it('says which later sessions with the exercise are NOT being changed', () => {
+    const wrapper = card(makeItem({ later_sessions: [{ date: '2026-10-22', title: 'Lower body' }] }))
+
+    expect(wrapper.get('[data-testid="later-sessions"]').text()).toContain('stay as they are')
+    expect(wrapper.get('[data-testid="later-sessions"]').text()).toContain('reviewed after this one')
+    expect(card(makeItem()).find('[data-testid="later-sessions"]').exists()).toBe(false)
+  })
+
   it('handles a stale proposal: says so, hides the old action and offers a fresh recommendation', async () => {
     const wrapper = card(makeItem(), { status: 'stale', message: 'Your plan or recent history changed since this recommendation was made.' })
 
@@ -150,6 +158,6 @@ describe('ProgressionCard', () => {
     for (const id of ['accept', 'keep']) {
       expect(wrapper.get(`[data-testid="${id}"]`).classes()).toEqual(expect.arrayContaining(['w-full', 'sm:w-auto', 'min-h-11']))
     }
-    expect(wrapper.get('h3').classes()).toContain('break-words')
+    expect(wrapper.get('h4').classes()).toContain('break-words')
   })
 })

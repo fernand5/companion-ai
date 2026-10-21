@@ -143,6 +143,7 @@ class ProgressionService
             ->where('workout_plan_exercises.status', WorkoutPlanExercise::STATUS_PENDING)
             ->orderBy('workout_plans.planned_date')
             ->orderBy('workout_plan_exercises.id')
+            ->with('workoutPlan')
             ->get();
 
         $next = [];

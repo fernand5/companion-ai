@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { makeItem } from '@/components/__tests__/progressionFixtures'
+import { makeItem, makeList } from '@/components/__tests__/progressionFixtures'
 import * as progressionService from '@/services/progression'
 import { useProgressionStore } from '@/stores/progression'
 
@@ -11,7 +11,7 @@ vi.mock('@/services/progression', () => ({
   keepCurrentTarget: vi.fn(),
 }))
 
-const list = (...data: ReturnType<typeof makeItem>[]) => ({ data, meta: { policy_version: 'p', max_exercises: 8, generated_at: 'now' } })
+const list = makeList
 
 describe('progression store', () => {
   beforeEach(() => {
@@ -19,13 +19,14 @@ describe('progression store', () => {
     vi.clearAllMocks()
   })
 
-  it('loads recommendations', async () => {
+  it('loads recommendations and the summary the server derived from them', async () => {
     vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(list(makeItem()))
     const store = useProgressionStore()
 
     await store.load()
 
     expect(store.items).toHaveLength(1)
+    expect(store.summary?.suggested).toBe(1)
     expect(store.loading).toBe(false)
     expect(store.error).toBeNull()
   })

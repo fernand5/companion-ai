@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProgressionRecommendations from '@/components/ProgressionRecommendations.vue'
 import * as progressionService from '@/services/progression'
 
-import { dismissedItem, insufficient, makeItem, manualReview } from './progressionFixtures'
+import { dismissedItem, insufficient, makeItem, makeList, manualReview } from './progressionFixtures'
 
 vi.mock('@/services/progression', () => ({
   fetchRecommendations: vi.fn(),
@@ -13,7 +13,7 @@ vi.mock('@/services/progression', () => ({
   keepCurrentTarget: vi.fn(),
 }))
 
-const list = (...data: ReturnType<typeof makeItem>[]) => ({ data, meta: { policy_version: 'progression-policy-1', max_exercises: 8, generated_at: '2026-10-17T12:00:00+00:00' } })
+const list = makeList
 
 async function mountWith(...items: ReturnType<typeof makeItem>[]) {
   vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(list(...items))
@@ -67,8 +67,8 @@ describe('ProgressionRecommendations', () => {
   it('puts the recommendations you can act on first and gives the others no actions', async () => {
     const wrapper = await mountWith(insufficient(), manualReview(), makeItem())
 
-    const names = wrapper.findAll('h3').map((h) => h.text())
-    expect(names).toEqual(['Bench Press', 'Pull-up', 'Overhead Press'])
+    const names = wrapper.findAll('h4').map((h) => h.text())
+    expect(names).toEqual(['Bench Press', 'Overhead Press', 'Pull-up'])
     expect(wrapper.findAll('[data-testid="accept"]')).toHaveLength(1)
   })
 
@@ -145,7 +145,46 @@ describe('ProgressionRecommendations', () => {
   it('lists kept recommendations after the ones you can act on', async () => {
     const wrapper = await mountWith(dismissedItem(), makeItem({ exercise: { name: 'Squat', slug: 'squat' } }))
 
-    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Squat', 'Bench Press'])
+    expect(wrapper.findAll('h4').map((h) => h.text())).toEqual(['Squat', 'Bench Press'])
+  })
+
+  it('groups the cards by the upcoming session they apply to, soonest first, with the unscheduled last', async () => {
+    const thursday = makeItem({ exercise: { name: 'Squat', slug: 'squat' }, applies_to: { date: '2026-10-22', title: 'Lower body', plan_status: 'planned' } })
+    const wrapper = await mountWith(insufficient(), thursday, makeItem())
+
+    const headings = wrapper.findAll('[data-testid="session-heading"]').map((h) => h.text())
+    expect(headings).toHaveLength(3)
+    expect(headings[0]).toContain('Upper body')
+    expect(headings[1]).toContain('Lower body')
+    expect(headings[2]).toBe('Not in an upcoming session')
+    expect(wrapper.find('[data-session="2026-10-19"]').text()).toContain('Bench Press')
+    expect(wrapper.find('[data-session="2026-10-22"]').text()).toContain('Squat')
+    expect(wrapper.find('[data-session="unscheduled"]').text()).toContain('Pull-up')
+  })
+
+  it('summarises how many adjustments are suggested and says accepting one never accepts another', async () => {
+    const wrapper = await mountWith(makeItem(), makeItem({ exercise: { name: 'Deadlift', slug: 'deadlift' } }))
+
+    expect(wrapper.get('[data-testid="summary"]').text()).toContain('2 suggested adjustments')
+    expect(wrapper.get('[data-testid="summary"]').text()).toContain('accepting one never accepts another')
+  })
+
+  it('says the plan stays as it is when nothing is suggested', async () => {
+    const wrapper = await mountWith(insufficient(), manualReview())
+
+    expect(wrapper.get('[data-testid="summary"]').text()).toContain('No adjustments suggested right now. Your plan stays as it is.')
+    expect(wrapper.find('[data-testid="accept"]').exists()).toBe(false)
+  })
+
+  it('accepting one exercise sends only that exercise\'s proposal', async () => {
+    vi.mocked(progressionService.approveProposal).mockResolvedValue({ applied: true, exercise: { name: 'Bench Press', slug: 'bench-press' }, date: '2026-10-19', from_kg: 40, to_kg: 42.5 })
+    const wrapper = await mountWith(makeItem(), makeItem({ exercise: { name: 'Deadlift', slug: 'deadlift' }, proposal: { id: 'sealed-proposal-deadlift', expires_at: 'x' } }))
+
+    await wrapper.findAll('[data-testid="accept"]')[0].trigger('click')
+    await flushPromises()
+
+    expect(progressionService.approveProposal).toHaveBeenCalledTimes(1)
+    expect(progressionService.approveProposal).toHaveBeenCalledWith('sealed-proposal-1')
   })
 
   it('refreshing reloads the list', async () => {

@@ -135,7 +135,7 @@ class ProgressionApprovalTest extends PerformanceEvalCase
         $this->assertCount(3, $item['supporting_sessions']);
         $this->assertSame('10,10,10 @ 40 kg', $item['supporting_sessions'][0]['performed']);
         $this->assertNotEmpty($item['safety_caveats']);
-        $this->assertSame(['date' => $this->day], $item['applies_to']);
+        $this->assertSame(['date' => $this->day, 'title' => "Strength {$this->day}", 'plan_status' => 'planned'], $item['applies_to']);
         $this->assertTrue($item['actionable']);
         $this->assertNull($item['not_actionable_reason']);
         $this->assertIsString($item['proposal']['id']);
@@ -225,7 +225,11 @@ class ProgressionApprovalTest extends PerformanceEvalCase
         $this->assertNotContains('Deadlift', $mine);
         $this->assertContains('Deadlift', $theirs);
         $this->assertNotContains('Bench Press', $theirs);
-        $this->assertStringNotContainsString('100', json_encode($this->recommendations()), 'No trace of the other user.');
+        // (The sealed proposals are random text, so look at the meaningful fields, not at raw substrings.)
+        $mine = array_map(fn ($i) => ['name' => $i['exercise']['name'], 'current' => $i['current_target'], 'sessions' => $i['supporting_sessions']], $this->recommendations());
+        $this->assertStringNotContainsString('Deadlift', json_encode($mine), 'No trace of the other user.');
+        $this->assertStringNotContainsString('"top_load_kg":100', json_encode($mine));
+        $this->assertStringNotContainsString('"weight_kg":100', json_encode($mine));
     }
 
     // ---- exact binding ---------------------------------------------------------------------------

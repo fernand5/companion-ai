@@ -18,12 +18,18 @@ final class ToolAuthorization
      * @param  string  $basis  why, as a short code for logs and tests
      * @param  string|null  $followUp  what the application itself should say after the reply (one of the FOLLOW_UP_* codes)
      * @param  PlanChangeProposal|null  $scope  when set, the plan write is limited to exactly this confirmed change
+     * @param  bool  $mayRaiseLoads  true only when the user explicitly asked for (or confirmed) the change; every other
+     *                               write is held to the baseline in PlanLoadGuard, so loads only go up through approval
+     * @param  array<int, float>  $statedLoadsKg  loads (kg) the user wrote in the instruction that authorized the write; the only
+     *                                            numbers that may start an exercise that has no baseline
      */
     public function __construct(
         array $granted,
         public readonly string $basis,
         public readonly ?string $followUp = null,
         private readonly ?PlanChangeProposal $scope = null,
+        public readonly bool $mayRaiseLoads = false,
+        public readonly array $statedLoadsKg = [],
     ) {
         $this->granted = array_values(array_unique([ToolCapability::Read, ToolCapability::Record, ...$granted], SORT_REGULAR));
     }
@@ -49,7 +55,7 @@ final class ToolAuthorization
      */
     public static function confirmedProposal(PlanChangeProposal $proposal): self
     {
-        return new self([ToolCapability::PlanCreate], 'confirmed_proposal', null, $proposal);
+        return new self([ToolCapability::PlanCreate], 'confirmed_proposal', null, $proposal, mayRaiseLoads: true);
     }
 
     /** The change this authorization is limited to, or null when it is not a scoped one. */

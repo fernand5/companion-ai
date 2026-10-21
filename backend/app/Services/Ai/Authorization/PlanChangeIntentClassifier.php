@@ -117,7 +117,8 @@ final class PlanChangeIntentClassifier
         }
 
         if ($granted !== []) {
-            return new ToolAuthorization($granted, implode('+', $basis));
+            // Only a direct instruction may ask for a heavier load; a report or a request for a session may not.
+            return new ToolAuthorization($granted, implode('+', $basis), mayRaiseLoads: $explicit && ! $negated, statedLoadsKg: $explicit && ! $negated ? $this->statedLoads($text) : []);
         }
 
         if ($negated) {
@@ -139,6 +140,19 @@ final class PlanChangeIntentClassifier
         }
 
         return ToolAuthorization::readOnly($this->isQuestion($text) ? 'question' : 'no_plan_request');
+    }
+
+    /**
+     * The loads, in kilograms, the user wrote in their own words (quoted and pasted text has already been
+     * removed). They are the only numbers that may start an exercise the application has no baseline for.
+     *
+     * @return array<int, float>
+     */
+    private function statedLoads(string $text): array
+    {
+        preg_match_all('/(\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos?|kilograms?)\b/u', $text, $m);
+
+        return array_values(array_map(fn (string $n) => (float) str_replace(',', '.', $n), $m[1]));
     }
 
     /** "yes", "ok do it", "go ahead", "sure": no content of its own. */

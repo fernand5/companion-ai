@@ -217,6 +217,11 @@ class AiCoachService
             $finalText = rtrim($finalText)."\n\n".$notice;
         }
 
+        // Loads the application would not accept from the model (nothing to base them on) are said so in its own words.
+        if (($unset = $turn->loadsLeftUnsetNotice()) !== null) {
+            $finalText = rtrim($finalText)."\n\n".$unset;
+        }
+
         if ($pending !== null) {
             $meta += $this->proposals->present($pending);
         }

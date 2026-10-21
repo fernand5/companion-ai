@@ -71,7 +71,7 @@ const keptMessage = computed(() =>
   <!-- Declined: shown as such, with no approval to click again. -->
   <article v-if="kept" class="space-y-2 rounded-xl border border-slate-200 bg-white p-4" :data-decision="item.decision" data-testid="kept-card">
     <header class="flex flex-wrap items-start justify-between gap-2">
-      <h3 class="min-w-0 break-words font-semibold text-slate-900">{{ item.exercise.name }}</h3>
+      <h4 class="min-w-0 break-words font-semibold text-slate-900">{{ item.exercise.name }}</h4>
       <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600" data-testid="decision">
         Kept current target
       </span>
@@ -85,7 +85,7 @@ const keptMessage = computed(() =>
 
   <article v-else class="space-y-3 rounded-xl border border-slate-200 bg-white p-4" :data-decision="item.decision">
     <header class="flex flex-wrap items-start justify-between gap-2">
-      <h3 class="min-w-0 break-words font-semibold text-slate-900">{{ item.exercise.name }}</h3>
+      <h4 class="min-w-0 break-words font-semibold text-slate-900">{{ item.exercise.name }}</h4>
       <span class="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium" :class="decision.classes" data-testid="decision">
         {{ decision.label }}
       </span>
@@ -109,6 +109,11 @@ const keptMessage = computed(() =>
 
     <p v-if="item.applies_to && proposesChange" class="text-xs text-slate-500" data-testid="applies-to">
       Applies to your next session on {{ formatDate(item.applies_to.date) }} only.
+      <template v-if="item.later_sessions.length > 0">
+        <span data-testid="later-sessions">
+          Later sessions ({{ item.later_sessions.map((s) => formatDate(s.date)).join(', ') }}) stay as they are and are reviewed after this one.
+        </span>
+      </template>
     </p>
 
     <ul class="list-disc space-y-1 pl-5 text-sm text-slate-600" data-testid="reasons">

@@ -20,15 +20,28 @@ const today = computed(() => todayIn(auth.user?.timezone))
 
 const progression = useProgressionStore()
 
+/** How many calculated adjustments are waiting for approval on each day (from the Progression section below). */
+const suggestionsByDay = computed(() => {
+  const counts: Record<string, number> = {}
+
+  for (const item of progression.items) {
+    if (item.state === 'suggested' && item.applies_to) {
+      counts[item.applies_to.date] = (counts[item.applies_to.date] ?? 0) + 1
+    }
+  }
+
+  return counts
+})
+
 onMounted(() => {
   store.loadWeek()
 })
 
 // Filling in the week can add the upcoming sessions a recommendation would apply to.
 watch(
-  () => store.generating,
-  (now, before) => {
-    if (before && !now) progression.load()
+  () => store.filled,
+  (filled) => {
+    if (filled) progression.load()
   },
 )
 
@@ -85,6 +98,13 @@ function submit() {
                 {{ day.plan.title }}
               </p>
               <p v-else class="text-sm text-slate-400">Nothing planned</p>
+              <p
+                v-if="suggestionsByDay[day.date]"
+                class="mt-0.5 text-xs font-medium text-brand-700"
+                data-testid="day-suggestions"
+              >
+                {{ suggestionsByDay[day.date] }} suggested {{ suggestionsByDay[day.date] === 1 ? 'adjustment' : 'adjustments' }} to review below
+              </p>
             </div>
 
             <span
@@ -107,6 +127,15 @@ function submit() {
           />
         </div>
       </div>
+
+      <ul
+        v-if="store.notices.length > 0"
+        class="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+        role="status"
+        data-testid="plan-notices"
+      >
+        <li v-for="notice in store.notices" :key="notice">{{ notice }}</li>
+      </ul>
 
       <div v-if="store.lastResult">
         <WhyThisChangedCard

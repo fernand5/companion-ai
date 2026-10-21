@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ProgressionProposalRequest;
+use App\Services\Fitness\Progression\AdaptivePlanningService;
 use App\Services\Fitness\Progression\ProgressionApprovalException;
 use App\Services\Fitness\Progression\ProgressionApprovalService;
 use Illuminate\Http\JsonResponse;
@@ -11,12 +12,18 @@ use Illuminate\Http\Request;
 
 class ProgressionController extends Controller
 {
-    public function __construct(private readonly ProgressionApprovalService $approvals) {}
+    public function __construct(
+        private readonly ProgressionApprovalService $approvals,
+        private readonly AdaptivePlanningService $planning,
+    ) {}
 
-    /** The authenticated user's own recommendations. Calculated by the application; changes nothing. */
+    /**
+     * The authenticated user's own recommendations, in the context of the upcoming sessions they would apply
+     * to. Calculated by the application; changes nothing.
+     */
     public function index(Request $request): JsonResponse
     {
-        return response()->json($this->approvals->overview($request->user()));
+        return response()->json($this->planning->prepare($request->user()));
     }
 
     /** Approve one sealed proposal the server issued. The only effect is the one load it describes. */
