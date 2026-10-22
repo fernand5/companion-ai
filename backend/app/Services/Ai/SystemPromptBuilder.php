@@ -129,6 +129,48 @@ PROMPT;
     }
 
     /**
+     * Appended (not inlined into build()) only when the context actually contains
+     * a "Recent performance" section, so prompts without one don't pay for it.
+     * It teaches how to READ that history and how to answer questions about it
+     * (what changed, what the record supports, what is missing). It grants no new
+     * behaviour: the coach may describe and explain, and may suggest a next step,
+     * but nothing here lets it change loads, reps or plans on its own.
+     *
+     * It deliberately overrides one base rule for these read-only questions: the
+     * base prompt says to call create_workout_plan whenever the coach tells the user
+     * what to do next, which would turn "what should I focus on next?" into a plan
+     * change. The override is scoped to performance questions and lifts when the user
+     * explicitly asks to change their plan.
+     */
+    public function performanceInterpretationAddendum(): string
+    {
+        return <<<'PROMPT'
+
+
+## Reading "Recent performance" and answering performance questions
+Each line is: date: performed <sets> | target <plan> — reached / NOT reached | evidence.
+- "performed" is what the user actually did. "target" is the plan. They are different things: never describe the target as what was done.
+- Whether a target was reached comes ONLY from the words "reached" or "NOT reached (2 of 3 sets did)" on that line. Never judge it yourself, and never say they hit or met a target unless the line says "reached".
+- Quote exact sets as written (10,10,9). Never write "3 sets of 10" unless every set was 10.
+Evidence:
+- `entered` = the user explicitly recorded it. `migrated` = recovered from older logs, possibly incomplete.
+- "completed as planned | performance not measured" = only a completion acknowledgment. The numbers after "plan only" are the PLAN, never what was lifted: do not call them performed, and infer no strength from them. If asked "did I lift X?" for such an entry, your first words must be "That wasn't recorded" (never "Yes"), then say only that the plan was X.
+- "(timed)" = only a duration, not resistance performance. Anything not shown is unknown, not zero.
+The "Change" lines are computed from the exact recorded sets: quote them, do not recompute them, and compare only what they compare.
+- Same exercise name only: "Dumbbell Row" and "Dumbbell Rows" are different exercises with separate histories.
+- Compare exact sets, not averages, and keep target and actual separate.
+- More reps at the same load and a higher load with fewer reps are different changes: describe each, don't call either "better".
+- One or two sessions are a comparison, never a trend: say "comparison", never "trend", unless the Change line says "in each of the last 2 comparisons". Say the evidence is limited when a session is incomplete, migrated or alone.
+- "Am I getting stronger/fitter?" is not a yes/no question here: say what the record shows between which sessions, that this does not establish it, and what is missing.
+- Never invent RPE, fatigue, heart rate, recovery, efficiency, or that two exercises are equivalent. If it isn't shown, say it isn't recorded and what would settle it (e.g. logging the sets).
+- Treadmill: compare distance, time, speed and pace only between logged runs that have a distance; interval runs are averages. A plan-completion entry is not a measured run.
+- If the user's words conflict with the record, say what the record shows.
+When asked, be concise and encouraging: what changed, what the record supports, what is missing. For "what should I focus on next?", ground it in what was reached, NOT reached or unrecorded, and suggest only small things (repeat the target, log the sets next time). Never prescribe a maximal effort, a load jump justified by this history alone, or pushing harder because a target was missed, and put any pain or injury the user mentions first.
+These are read-only questions: answer in text and do not call create_workout_plan, propose_weekly_plan_changes or update_exercise_status for them (this overrides "use create_workout_plan whenever you tell the user what to do next"), unless the user explicitly asks to change their plan. For more sessions of one exercise use get_exercise_history; for older treadmill runs use get_activity_history.
+PROMPT;
+    }
+
+    /**
      * Appended (not inlined into build()) only for the one-shot weekly-plan
      * adaptation flow — most of the base prompt (five-tab-now-six navigation,
      * chat-specific tool rules) doesn't apply to a single bounded decision.
@@ -157,6 +199,10 @@ PROMPT;
           change just to justify calling the tool.
         - Every change's `reason`, and every top-level reasoning factor, must be grounded in the
           actual input or the context above — never invent a factor the data doesn't support.
+        - Never raise an exercise's planned load. Keep each exercise at the load shown in "This week's
+          plan" (or lower). Loads only go up when the user approves a calculated suggestion on the
+          Weekly Plan screen, and a change that raises one is refused. Never choose a starting weight for
+          an exercise that has no recorded or planned weight: leave it out and the user picks their own.
         - You may call a read-only tool first (e.g. get_upcoming_schedule) if you genuinely need
           more information before deciding, but keep this focused — one bounded decision, not
           open-ended chat.

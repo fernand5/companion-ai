@@ -52,4 +52,9 @@ return [
     // tunable.
     'max_weekly_adaptation_iterations' => env('AI_MAX_WEEKLY_ADAPTATION_ITERATIONS', 3),
 
+    // Lets the chat coach read the progression engine's calculated recommendation in order to
+    // explain it (read-only; it applies nothing). Off by default: the tool has not been
+    // evaluated against the real model, and the engine itself needs no flag.
+    'progression_tool_enabled' => (bool) env('AI_PROGRESSION_TOOL_ENABLED', false),
+
 ];

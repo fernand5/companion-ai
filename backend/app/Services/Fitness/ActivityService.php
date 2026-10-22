@@ -36,6 +36,7 @@ class ActivityService
     public function forDate(User $user, string $date): Collection
     {
         return $user->activityLogs()
+            ->with('completedPlan')
             ->whereDate('logged_date', $date)
             ->orderByDesc('created_at')
             ->get();
@@ -46,7 +47,7 @@ class ActivityService
      */
     public function history(User $user, ?string $startDate = null, ?string $endDate = null, ?string $type = null): Collection
     {
-        $query = $user->activityLogs()->orderByDesc('logged_date')->orderByDesc('created_at');
+        $query = $user->activityLogs()->with('completedPlan')->orderByDesc('logged_date')->orderByDesc('created_at');
 
         if ($startDate) {
             $query->whereDate('logged_date', '>=', $startDate);

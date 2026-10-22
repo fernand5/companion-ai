@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import ErrorNotice from '@/components/ErrorNotice.vue'
+import ProgressionRecommendations from '@/components/ProgressionRecommendations.vue'
 import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useAuthStore } from '@/stores/auth'
+import { useProgressionStore } from '@/stores/progression'
 import { useWeeklyPlanStore } from '@/stores/weeklyPlan'
 import type { ActivityType } from '@/types'
 import { activityIcon, formatDate } from '@/utils/format'
@@ -16,9 +18,32 @@ const input = ref('')
 const auth = useAuthStore()
 const today = computed(() => todayIn(auth.user?.timezone))
 
+const progression = useProgressionStore()
+
+/** How many calculated adjustments are waiting for approval on each day (from the Progression section below). */
+const suggestionsByDay = computed(() => {
+  const counts: Record<string, number> = {}
+
+  for (const item of progression.items) {
+    if (item.state === 'suggested' && item.applies_to) {
+      counts[item.applies_to.date] = (counts[item.applies_to.date] ?? 0) + 1
+    }
+  }
+
+  return counts
+})
+
 onMounted(() => {
   store.loadWeek()
 })
+
+// Filling in the week can add the upcoming sessions a recommendation would apply to.
+watch(
+  () => store.filled,
+  (filled) => {
+    if (filled) progression.load()
+  },
+)
 
 const showEmptyState = computed(() => store.error !== null && store.days.length === 0)
 
@@ -34,6 +59,9 @@ function submit() {
 <template>
   <div class="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
     <h1 class="text-lg font-semibold text-slate-900">Weekly Plan</h1>
+
+    <!-- Outside the week's loading states so it mounts (and fetches) once, not each time the week reloads. -->
+    <ProgressionRecommendations />
 
     <p
       v-if="store.loading"
@@ -70,6 +98,13 @@ function submit() {
                 {{ day.plan.title }}
               </p>
               <p v-else class="text-sm text-slate-400">Nothing planned</p>
+              <p
+                v-if="suggestionsByDay[day.date]"
+                class="mt-0.5 text-xs font-medium text-brand-700"
+                data-testid="day-suggestions"
+              >
+                {{ suggestionsByDay[day.date] }} suggested {{ suggestionsByDay[day.date] === 1 ? 'adjustment' : 'adjustments' }} to review below
+              </p>
             </div>
 
             <span
@@ -92,6 +127,15 @@ function submit() {
           />
         </div>
       </div>
+
+      <ul
+        v-if="store.notices.length > 0"
+        class="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
+        role="status"
+        data-testid="plan-notices"
+      >
+        <li v-for="notice in store.notices" :key="notice">{{ notice }}</li>
+      </ul>
 
       <div v-if="store.lastResult">
         <WhyThisChangedCard

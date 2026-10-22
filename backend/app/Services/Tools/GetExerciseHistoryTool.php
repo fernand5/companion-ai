@@ -5,6 +5,7 @@ namespace App\Services\Tools;
 use App\Models\User;
 use App\Services\Fitness\ExerciseHistoryService;
 use App\Services\Fitness\ExercisePerformanceRecord;
+use App\Services\Fitness\PerformanceComparison;
 use App\Support\ExerciseSlug;
 
 /**
@@ -57,12 +58,20 @@ class GetExerciseHistoryTool implements AiTool
 
         $limit = min(max((int) ($arguments['limit'] ?? self::DEFAULT_LIMIT), 1), self::MAX_LIMIT);
 
-        $sessions = $this->history->recent($user, $slug, $limit, includeUnmeasured: true)
-            ->map(fn ($exercise) => ExercisePerformanceRecord::from($exercise, $exercise->workoutSession->logged_date->toDateString())->toArray())
+        $records = $this->history->recent($user, $slug, $limit, includeUnmeasured: true)
+            ->map(fn ($exercise) => ExercisePerformanceRecord::from($exercise, $exercise->workoutSession->logged_date->toDateString()))
             ->values()
             ->all();
 
+        $sessions = array_map(fn (ExercisePerformanceRecord $record) => $record->toArray(), $records);
+
         $result = ['exercise_slug' => $slug, 'sessions' => $sessions];
+
+        // What changed between the latest two measured sessions, computed from the exact sets
+        // (see PerformanceComparison); only for the sessions returned here.
+        if ($records !== []) {
+            $result['comparison'] = PerformanceComparison::series($records);
+        }
 
         if ($sessions === []) {
             $result['note'] = 'No recorded sessions under this exact exercise name. Similar names are separate exercises and are not merged.';

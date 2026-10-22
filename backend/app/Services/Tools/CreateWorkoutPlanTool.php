@@ -46,7 +46,7 @@ class CreateWorkoutPlanTool implements AiTool
                             'exercise_name' => ['type' => 'string'],
                             'planned_sets' => ['type' => 'integer'],
                             'planned_reps' => ['type' => 'integer'],
-                            'planned_weight_kg' => ['type' => 'number'],
+                            'planned_weight_kg' => ['type' => 'number', 'description' => 'Only when the user has a recorded or planned weight for this exact exercise, or gave one themselves. Otherwise omit it: never choose a starting weight.'],
                             'planned_duration_seconds' => ['type' => 'integer'],
                         ],
                         'required' => ['exercise_name'],

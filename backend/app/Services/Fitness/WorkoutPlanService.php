@@ -135,6 +135,91 @@ class WorkoutPlanService
     }
 
     /**
+     * Change ONE not-yet-done exercise's target and nothing else: no other exercise, no
+     * title, notes, schedule link or status. This is how a confirmed, exactly-scoped
+     * change is applied, so that confirming "bench to 45 kg" cannot also rewrite the day
+     * the way replacing the whole plan does.
+     *
+     * @param  array{weight_kg?: float|null, sets?: int|null, reps?: int|null}  $changes  only the keys present are written
+     */
+    public function applyExerciseTarget(User $user, WorkoutPlanExercise $exercise, array $changes): WorkoutPlan
+    {
+        $plan = $this->assertOwnership($user, $exercise);
+
+        $validated = Validator::make($changes, [
+            'weight_kg' => 'nullable|numeric|min:0|max:500',
+            'sets' => 'nullable|integer|min:0|max:50',
+            'reps' => 'nullable|integer|min:0|max:200',
+        ])->validate();
+
+        if ($exercise->status !== WorkoutPlanExercise::STATUS_PENDING || $plan->hasRecordedPerformance()) {
+            throw ValidationException::withMessages(['exercise' => 'This exercise is no longer pending, so its target can no longer be changed.']);
+        }
+
+        $columns = array_filter([
+            'planned_weight_kg' => array_key_exists('weight_kg', $changes) ? $validated['weight_kg'] ?? null : null,
+            'planned_sets' => array_key_exists('sets', $changes) ? $validated['sets'] ?? null : null,
+            'planned_reps' => array_key_exists('reps', $changes) ? $validated['reps'] ?? null : null,
+        ], fn ($value) => $value !== null);
+
+        if ($columns !== []) {
+            $exercise->update($columns);
+        }
+
+        return $plan->fresh(['exercises.exerciseImage', 'exercises.performance.performedSets']);
+    }
+
+    /**
+     * Apply an APPROVED load change to one future exercise, atomically and only if nothing about
+     * that row moved since the recommendation was issued.
+     *
+     * It is a single conditional UPDATE: it changes the load of exactly this row if, and only if,
+     * the row is still this user's, still pending, still carrying the load the recommendation
+     * started from and unmodified since (same revision), in a future plan that is not started or
+     * completed. Of any number of concurrent attempts at most one changes a row; nothing else is
+     * written: not the other exercises, not the plan's title, notes, schedule link or status, and
+     * not any recorded performance or historical snapshot.
+     */
+    public function applyApprovedLoad(User $user, int $planId, int $exerciseId, string $slug, float $from, float $to, string $revision): bool
+    {
+        return DB::transaction(function () use ($user, $planId, $exerciseId, $slug, $from, $to, $revision) {
+            // The plan's own state is read under a row lock, so a concurrent change to the same plan
+            // (an exercise marked done, another approval) is either seen here or waits behind this.
+            // (It is a separate read, not a subquery of the UPDATE below: MySQL does not allow an
+            // UPDATE to select from the table it is updating.)
+            $plan = WorkoutPlan::query()
+                ->whereKey($planId)
+                ->where('user_id', $user->id)
+                ->whereIn('status', [WorkoutPlan::STATUS_PLANNED, WorkoutPlan::STATUS_IN_PROGRESS])
+                ->whereDate('planned_date', '>=', $user->localToday())
+                ->lockForUpdate()
+                ->first();
+
+            if ($plan === null || $plan->hasRecordedPerformance()) {
+                return false;
+            }
+
+            $changed = WorkoutPlanExercise::query()
+                ->whereKey($exerciseId)
+                ->where('workout_plan_id', $planId)
+                ->where('exercise_slug', $slug)
+                ->where('status', WorkoutPlanExercise::STATUS_PENDING)
+                ->where('planned_weight_kg', $from)
+                ->where('updated_at', $revision)
+                ->update(['planned_weight_kg' => $to]);
+
+            if ($changed !== 1) {
+                return false;
+            }
+
+            // Anything cached from the plan (the dashboard recommendation) must see the change.
+            $plan->touch();
+
+            return true;
+        });
+    }
+
+    /**
      * Case-insensitive lookup, scoped to the user — used by the AI tool so the
      * model can reference an exercise by name as the user typed it in chat.
      */

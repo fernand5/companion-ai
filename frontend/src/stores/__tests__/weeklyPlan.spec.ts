@@ -195,4 +195,29 @@ describe('weeklyPlan store', () => {
     expect(store.error).not.toBeNull()
     expect(store.days.find((d) => d.date === plan.planned_date)?.plan).toEqual(plan)
   })
+
+  it('keeps the application\'s notices from an adaptation, and clears them on the next one', async () => {
+    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([])
+    vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
+    vi.mocked(weeklyPlanService.submitAdaptation)
+      .mockResolvedValueOnce({ applied: true, explanation: null, notices: ['I left the starting weight for Goblet Squat unset.'] })
+      .mockResolvedValueOnce({ applied: false, explanation: 'No change.', notices: [] })
+    const store = useWeeklyPlanStore()
+
+    await store.submitAdaptation('Add goblet squats')
+    expect(store.notices).toEqual(['I left the starting weight for Goblet Squat unset.'])
+
+    await store.submitAdaptation('Anything else?')
+    expect(store.notices).toEqual([])
+  })
+
+  it('keeps the notices from filling in the week', async () => {
+    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([])
+    vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null, notices: ['I left the starting weight for Cable Row unset.'] })
+    const store = useWeeklyPlanStore()
+
+    await store.loadWeek()
+
+    expect(store.notices).toEqual(['I left the starting weight for Cable Row unset.'])
+  })
 })

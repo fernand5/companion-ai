@@ -8,6 +8,7 @@ use App\Services\Tools\GetActivityForDateTool;
 use App\Services\Tools\GetActivityHistoryTool;
 use App\Services\Tools\GetAdherenceSummaryTool;
 use App\Services\Tools\GetExerciseHistoryTool;
+use App\Services\Tools\GetProgressionRecommendationTool;
 use App\Services\Tools\GetRecentActivityTool;
 use App\Services\Tools\GetRecentWorkoutsTool;
 use App\Services\Tools\GetTodayActivityTool;
@@ -33,6 +34,7 @@ class ToolServiceProvider extends ServiceProvider
     {
         $this->app->singleton(ToolRegistry::class, function ($app) {
             return new ToolRegistry([
+                ...(config('ai.progression_tool_enabled') ? [$app->make(GetProgressionRecommendationTool::class)] : []),
                 $app->make(GetUserProfileTool::class),
                 $app->make(GetRecentActivityTool::class),
                 $app->make(GetActivityForDateTool::class),

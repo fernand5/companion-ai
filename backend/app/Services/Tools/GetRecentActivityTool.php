@@ -60,6 +60,13 @@ class GetRecentActivityTool implements AiTool
             'metadata' => $log->metadata,
         ];
 
+        // A row that only mirrors a completed PLAN is an acknowledgment, not a measured
+        // activity: say so, so a bare "treadmill" or default intensity is not read as data.
+        if ($log->isPlanCompletion()) {
+            $presented['source'] = 'plan_completion';
+            $presented['note'] = 'Marks a planned session as completed. Its duration, distance and intensity were not measured.';
+        }
+
         if (! in_array($log->type, [ActivityLog::TYPE_TREADMILL, ActivityLog::TYPE_SPORT], true)) {
             return $presented;
         }
@@ -71,7 +78,7 @@ class GetRecentActivityTool implements AiTool
         $presented['pace_seconds_per_km'] = $pace;
         $presented['pace'] = $pace !== null ? sprintf('%d:%02d /km', intdiv($pace, 60), $pace % 60) : null;
 
-        if ($log->distance_km === null) {
+        if ($log->distance_km === null && ! $log->isPlanCompletion()) {
             $presented['distance_note'] = 'distance not recorded';
         }
 

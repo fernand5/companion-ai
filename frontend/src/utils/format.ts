@@ -115,3 +115,25 @@ export function activitySummary(log: {
       return ''
   }
 }
+
+/** "3×10 @ 40 kg", "45s", "3×10"; "Not set" when the plan has no target for it. */
+export function formatTarget(target: { sets: number | null; reps: number | null; weight_kg: number | null; duration_seconds: number | null } | null): string {
+  if (!target) return 'Not set'
+
+  const volume =
+    target.sets !== null && target.reps !== null
+      ? `${target.sets}×${target.reps}`
+      : target.sets !== null && target.duration_seconds !== null
+        ? `${target.sets}×${target.duration_seconds}s`
+        : target.reps !== null
+          ? `${target.reps} reps`
+          : target.duration_seconds !== null
+            ? `${target.duration_seconds}s`
+            : target.sets !== null
+              ? `${target.sets} sets`
+              : null
+  const load = target.weight_kg !== null ? `${Number(target.weight_kg)} kg` : null
+  const parts = [volume, load].filter((p): p is string => p !== null)
+
+  return parts.length === 0 ? 'Not set' : parts.join(' @ ')
+}
