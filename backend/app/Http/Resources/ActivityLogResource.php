@@ -21,6 +21,7 @@ class ActivityLogResource extends JsonResource
             'notes' => $this->notes,
             'metadata' => $this->metadata,
             'workout_session_id' => $this->workout_session_id,
+            'session' => $this->whenLoaded('workoutSession', fn () => $this->workoutSession ? new WorkoutSessionResource($this->workoutSession) : null),
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

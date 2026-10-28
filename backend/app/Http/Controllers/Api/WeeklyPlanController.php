@@ -4,9 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AdaptWeeklyPlanRequest;
+use App\Http\Resources\ActivityLogResource;
+use App\Http\Resources\WorkoutPlanResource;
 use App\Services\Ai\AiProviderException;
 use App\Services\Ai\WeeklyPlanCoachService;
 use App\Services\Fitness\WeeklyPlanService;
+use App\Services\Fitness\WeekOverviewService;
 use Illuminate\Http\Request;
 
 class WeeklyPlanController extends Controller
@@ -14,7 +17,30 @@ class WeeklyPlanController extends Controller
     public function __construct(
         private readonly WeeklyPlanCoachService $weeklyPlanCoachService,
         private readonly WeeklyPlanService $weeklyPlanService,
+        private readonly WeekOverviewService $weekOverview,
     ) {}
+
+    /**
+     * The current week, day by day: the plan, what was recorded against it, and workouts the user logged
+     * that were never planned. Read-only; the week and "today" are the user's own (their stored timezone).
+     */
+    public function overview(Request $request)
+    {
+        $overview = $this->weekOverview->forCurrentWeek($request->user());
+
+        return response()->json([
+            'week' => $overview['week'],
+            'days' => array_map(fn (array $day) => [
+                'date' => $day['date'],
+                'weekday' => $day['weekday'],
+                'is_today' => $day['is_today'],
+                'is_past' => $day['is_past'],
+                'state' => $day['state'],
+                'plan' => $day['plan'] ? (new WorkoutPlanResource($day['plan']))->resolve($request) : null,
+                'activities' => ActivityLogResource::collection($day['activities'])->resolve($request),
+            ], $overview['days']),
+        ]);
+    }
 
     /**
      * Fill in the current week where it's missing something — either a fully

@@ -10,10 +10,19 @@ use App\Services\Ai\Authorization\PendingProposalStore;
 use App\Services\Ai\Authorization\PlanChangeIntentClassifier;
 use App\Services\Ai\Authorization\PlanChangeProposal;
 use App\Services\Ai\Authorization\PlanChangeProposalParser;
+use App\Services\Ai\Authorization\PlanReplacementProposal;
+use App\Services\Ai\Authorization\PlanReplacer;
 use App\Services\Ai\Authorization\ProposalMatcher;
+use App\Services\Ai\Authorization\SavedWorkoutReference;
+use App\Services\Ai\Authorization\SaveWorkoutDay;
+use App\Services\Ai\Authorization\SaveWorkoutScope;
 use App\Services\Ai\Authorization\ToolAuthorization;
+use App\Services\Ai\Authorization\ToolCapability;
+use App\Services\Ai\Authorization\ToolTurn;
+use App\Services\Ai\Authorization\WorkoutReference;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Fitness\WeeklyPlanService;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -36,6 +45,8 @@ class AiCoachService
         private readonly FitnessContextBuilder $contextBuilder,
         private readonly SystemPromptBuilder $promptBuilder,
         private readonly WeeklyPlanService $weeklyPlanService,
+        private readonly SavedWorkoutReference $workoutReference,
+        private readonly PlanReplacer $planReplacer,
     ) {}
 
     public function respond(User $user, Conversation $conversation, string $userMessage): Message
@@ -81,6 +92,12 @@ class AiCoachService
     {
         $startedAt = microtime(true);
 
+        // A "yes" to a whole-day replacement the application asked about is answered by the application: it makes
+        // exactly that replacement (or says why it could not) and the model is not asked to do or to describe it.
+        if (($confirmed = $this->confirmReplacement($user, $conversation, $userMessage, $startedAt)) !== null) {
+            return $confirmed;
+        }
+
         // Ordinary chat needs to see the whole week (not just today) so it can
         // reason about whether a historical activity the user just reported
         // should affect an upcoming day, not only today's plan.
@@ -123,6 +140,13 @@ class AiCoachService
         // "yes" only counts if it redeems a proposal the application itself presented to this
         // user in this conversation (and then only for exactly that change).
         $authorization = $this->authorize($user, $conversation, $userMessage, $history);
+
+        // A save that cannot be pinned down (which workout? which day?) is asked about, not guessed at, and the
+        // model is not asked to improvise around it.
+        if (($question = $this->saveQuestion($authorization->followUp)) !== null) {
+            return $this->answerWithoutModel($user, $conversation, $authorization, $question, ['save_clarification' => true], $startedAt);
+        }
+
         $turn = $this->toolExecutor->begin($authorization);
         $withheld = array_values(array_intersect(['create_workout_plan', 'propose_weekly_plan_changes', 'update_exercise_status'], $turn->withheldTools()));
 
@@ -133,6 +157,13 @@ class AiCoachService
                 .' not available for this message because the user has not asked to change their plan. '
                 .'Do not call, describe or write out a call to '.(count($withheld) === 1 ? 'it' : 'them').'; answer in plain text. '
                 .'A suggestion is fine, but say you have not changed anything; the user can ask you to update their plan.';
+        }
+
+        // "Add this workout to my dashboard": the write is allowed (and only that write), so say exactly what to write.
+        if (($scope = $authorization->saveScope) !== null) {
+            $systemPrompt .= "\n\nThe user asked you to put one workout on their plan. Call create_workout_plan once, with planned_date ".$scope->date.' and exactly these exercises, each as written (same name, sets, reps and duration): '
+                .$scope->describeItems().'. Do not add, drop, rename or reorder exercises and do not use another date. Do not choose or raise a weight: give a weight only if the user has a recorded or planned weight for that exact exercise. '
+                .'If the tool says nothing has changed until the user confirms, tell them that; the application is asking them. If it returns any other error, tell the user what it says instead of claiming it was saved.';
         }
 
         if (($proposal = $authorization->scopedProposal()) !== null) {
@@ -211,7 +242,13 @@ class AiCoachService
             $meta['blocked_tool_calls'] = $turn->blocked();
         }
 
-        [$notice, $pending] = $this->followUp($user, $conversation, $userMessage, $authorization, $turn->confirmedChangeMade());
+        [$notice, $pending] = $this->followUp($user, $conversation, $userMessage, $authorization, $turn->confirmedChangeMade(), $history);
+
+        // What happened to a requested save is the application's to say, not the model's.
+        if ($authorization->saveScope !== null) {
+            [$finalText, $savedMeta] = $this->saveOutcome($finalText, $turn, $authorization->saveScope);
+            $meta += $savedMeta;
+        }
 
         if ($notice !== null) {
             $finalText = rtrim($finalText)."\n\n".$notice;
@@ -292,15 +329,189 @@ class AiCoachService
             }
         }
 
-        return $this->intentClassifier->classify($userMessage);
+        return $this->scopeSave($this->intentClassifier->classify($userMessage), $user, $conversation, $userMessage, $history);
+    }
+
+    /**
+     * "Add this workout to my dashboard" authorizes one thing: this workout on this day. When the request is only that
+     * (not also a broader change the user asked for), the workout and the day are pinned down here, before the model
+     * is called, from the user's words and the conversation: if either cannot be established the plan is left alone
+     * and the user is asked. Only ever narrows what the classifier granted.
+     *
+     * @param  Collection<int, Message>  $history
+     */
+    private function scopeSave(ToolAuthorization $authorization, User $user, Conversation $conversation, string $userMessage, Collection $history): ToolAuthorization
+    {
+        $sources = explode('+', $authorization->basis);
+
+        $saving = in_array(PlanChangeIntentClassifier::BASIS_SAVE_WORKOUT, $sources, true) || in_array('add_workout', $sources, true);
+
+        if (! $saving || in_array('explicit_change', $sources, true) || in_array('session_request', $sources, true)) {
+            return $authorization;
+        }
+
+        // "add a 30 minute run to my plan" names its own workout; "add this workout" points at one.
+        $reference = $this->workoutReference->resolve($userMessage, $history, inMessageOnly: ! in_array(PlanChangeIntentClassifier::BASIS_SAVE_WORKOUT, $sources, true));
+
+        if (! $reference->isFound()) {
+            return ToolAuthorization::readOnly('save_workout_'.$reference->status, match ($reference->status) {
+                WorkoutReference::AMBIGUOUS => ToolAuthorization::FOLLOW_UP_WHICH_WORKOUT,
+                WorkoutReference::INCOMPLETE => ToolAuthorization::FOLLOW_UP_INCOMPLETE_WORKOUT,
+                WorkoutReference::QUOTED => ToolAuthorization::FOLLOW_UP_QUOTED_WORKOUT,
+                default => ToolAuthorization::FOLLOW_UP_NO_WORKOUT_TO_SAVE,
+            });
+        }
+
+        $day = SaveWorkoutDay::resolve($userMessage, $reference->origin === WorkoutReference::FROM_PREVIOUS_REPLY ? $reference->source : '', CarbonImmutable::parse($user->localToday()));
+
+        if ($day['date'] === null) {
+            return ToolAuthorization::readOnly('save_workout_'.$day['problem'], ToolAuthorization::FOLLOW_UP_WHICH_DAY);
+        }
+
+        $scope = new SaveWorkoutScope($conversation->id, $day['date'], $reference->source, $reference->items, PlanChangeIntentClassifier::statesReplacement($userMessage));
+
+        return new ToolAuthorization(
+            array_map(ToolCapability::from(...), $authorization->grantedPlanCapabilities()),
+            $authorization->basis,
+            saveScope: $scope,
+        );
+    }
+
+    /** The follow-up codes that are the application asking which workout or day the user means. */
+    private function saveQuestion(?string $followUp): ?string
+    {
+        return match ($followUp) {
+            ToolAuthorization::FOLLOW_UP_NO_WORKOUT_TO_SAVE => 'I haven\'t changed your plan: I don\'t see a workout in my last reply or in your message to add. Ask me for one (for example "give me a 30-minute workout"), or tell me what to add, like "add this workout to my dashboard: squats 3x10, push-ups 3x12".',
+            ToolAuthorization::FOLLOW_UP_WHICH_WORKOUT => 'I haven\'t changed your plan: more than one workout could be meant and I don\'t want to guess which. Say which one (for example "add option 2 to my dashboard"), or send the exercises in one message, like "add this workout to my dashboard: squats 3x10, push-ups 3x12".',
+            ToolAuthorization::FOLLOW_UP_INCOMPLETE_WORKOUT => 'I haven\'t changed your plan: that workout looks unfinished (it is cut off, trails off, or lists fewer exercises than it announces). Send me the full list, like "add this workout to my dashboard: squats 3x10, push-ups 3x12", or ask me to write it out in full first.',
+            ToolAuthorization::FOLLOW_UP_QUOTED_WORKOUT => 'I haven\'t changed your plan: that workout is quoted from someone else\'s words, and I want to be sure it is the one you want. Write the exercises in your own message, like "add this workout to my dashboard: squats 3x10, push-ups 3x12".',
+            ToolAuthorization::FOLLOW_UP_WHICH_DAY => 'I haven\'t changed your plan: I\'m not sure which day you mean. I can add a workout to today or to a day in the next two months. Say it like "add this workout to my dashboard for Friday".',
+            default => null,
+        };
+    }
+
+    /**
+     * Reply without calling the model: the application's own words, stored like any assistant message.
+     *
+     * @param  array<string, mixed>  $meta
+     */
+    private function answerWithoutModel(User $user, Conversation $conversation, ToolAuthorization $authorization, string $text, array $meta, float $startedAt): Message
+    {
+        $message = $conversation->messages()->create(['role' => Message::ROLE_ASSISTANT, 'content' => $text, 'meta' => $meta !== [] ? $meta : null]);
+
+        Log::info('ai_coach.turn', [
+            'user_id' => $user->id,
+            'conversation_id' => $conversation->id,
+            'assistant_message_id' => $message->id,
+            'provider_calls' => 0,
+            'plan_authorization' => $authorization->basis,
+            'plan_capabilities' => $authorization->grantedPlanCapabilities(),
+            'response_type' => 'application',
+            'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ]);
+
+        return $message;
+    }
+
+    /**
+     * A "yes" to a whole-day replacement: make exactly the replacement that was shown, if the day is still as it was
+     * shown, and say what happened in the application's own words. Returns null when the message is not that.
+     */
+    private function confirmReplacement(User $user, Conversation $conversation, string $userMessage, float $startedAt): ?Message
+    {
+        if (! PlanChangeIntentClassifier::isBareAffirmation($userMessage)) {
+            return null;
+        }
+
+        // Newest first: this "yes" (just stored), then the message it answers.
+        $previous = $conversation->messages()->reorder('created_at', 'desc')->orderByDesc('id')->limit(2)->get()->get(1);
+
+        if (! $this->proposals->presentsReplacement($previous)) {
+            return null;
+        }
+
+        $proposal = $this->proposals->claimReplacement($conversation, $user, $previous);
+
+        if ($proposal === null) {
+            $text = 'I haven\'t changed your plan: that confirmation is no longer valid (it expired, was already used, or is not for this conversation). If you still want the workout on your plan, ask me again.';
+            $status = 'invalid';
+        } else {
+            $result = $this->planReplacer->apply($user, $proposal);
+
+            if (is_string($result)) {
+                $text = "I haven't replaced it: {$result} Nothing was changed. If you still want the workout on your plan, ask me again.";
+                $status = 'refused';
+            } else {
+                $text = 'Done. I replaced '.$proposal->existingSummary.' on '.$proposal->date.' with '.PlanReplacementProposal::summarise($proposal->replacement).'.';
+                $status = 'applied';
+            }
+        }
+
+        $message = $conversation->messages()->create([
+            'role' => Message::ROLE_ASSISTANT,
+            'content' => $text,
+            'meta' => ['plan_replacement' => $status],
+        ]);
+
+        Log::info('ai_coach.turn', [
+            'user_id' => $user->id,
+            'conversation_id' => $conversation->id,
+            'assistant_message_id' => $message->id,
+            'provider_calls' => 0,
+            'plan_authorization' => 'confirmed_replacement',
+            'plan_replacement' => $status,
+            'response_type' => 'application',
+            'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ]);
+
+        return $message;
+    }
+
+    /**
+     * What the user is told about a requested save, whatever the model wrote: a replacement waiting for their
+     * confirmation (the model's text is replaced by the question), a replacement they asked for (stated), or a save
+     * that did not happen (stated, so a model that claims it did is corrected).
+     *
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    private function saveOutcome(string $text, ToolTurn $turn, SaveWorkoutScope $scope): array
+    {
+        if (($pending = $turn->pendingReplacement()) !== null) {
+            $minutes = PlanReplacementProposal::TTL_MINUTES;
+
+            return [
+                "I haven't changed your plan. {$pending->date} already has {$pending->existingSummary}. Do you want me to replace it with ".PlanReplacementProposal::summarise($pending->replacement).'? '
+                ."Reply \"yes\" within {$minutes} minutes to replace it with exactly that; anything else leaves it as it is.",
+                $this->proposals->presentReplacement($pending) + ['save_clarification' => true],
+            ];
+        }
+
+        if (($replaced = $turn->replaced()) !== null) {
+            return [rtrim($text)."\n\nAs you asked, I replaced {$replaced['was']} on {$replaced['date']} with this workout.", []];
+        }
+
+        if ($turn->workoutSaved()) {
+            return [$text, []];
+        }
+
+        $performed = array_filter($turn->blocked(), fn (array $b) => $b['reason'] === 'day_already_performed') !== [];
+
+        return [
+            rtrim($text)."\n\n".($performed
+                ? "I haven't changed your plan: {$scope->date} already has recorded workout performance, so its plan can't be replaced. Pick another day, like \"add this workout to my dashboard for tomorrow\"."
+                : 'I haven\'t changed your plan: the workout was not saved. Ask me again with "add this workout to my dashboard", or send the exercises in one message.'),
+            // The retry still points at the workout above this notice, not at the notice.
+            ['save_clarification' => true],
+        ];
     }
 
     /**
      * The application's own closing words, and the proposal (if any) it is now asking the user to confirm.
      *
+     * @param  Collection<int, Message>  $history
      * @return array{0: ?string, 1: ?PlanChangeProposal}
      */
-    private function followUp(User $user, Conversation $conversation, string $userMessage, ToolAuthorization $authorization, bool $confirmedChangeMade): array
+    private function followUp(User $user, Conversation $conversation, string $userMessage, ToolAuthorization $authorization, bool $confirmedChangeMade, Collection $history): array
     {
         $explicit = 'To change your plan, send an explicit request that names the exercise, the load in kg and the day, for example "update my bench press to 45 kg on 2026-10-17".';
 
@@ -310,7 +521,13 @@ class AiCoachService
 
         return match ($authorization->followUp) {
             'proposal_no_longer_valid' => ["Your plan changed since I asked, so I didn't make that change. {$explicit}", null],
-            ToolAuthorization::FOLLOW_UP_NOTHING_PENDING => ["There is nothing waiting for your confirmation (it may have expired). {$explicit}", null],
+            ToolAuthorization::FOLLOW_UP_NOTHING_PENDING => [
+                'There is nothing waiting for your confirmation (it may have expired). '
+                // A "yes" to a workout the coach described and offered to add confirms nothing: say what does.
+                .($this->workoutReference->resolve($userMessage, $history)->origin === WorkoutReference::FROM_PREVIOUS_REPLY ? 'To put the workout we just discussed on your plan, say "add this workout to my dashboard". ' : '')
+                .$explicit,
+                null,
+            ],
             ToolAuthorization::FOLLOW_UP_EXPLICIT_REQUEST => ["I haven't changed your plan. {$explicit}", null],
             ToolAuthorization::FOLLOW_UP_PROPOSE => $this->propose($user, $conversation, $userMessage, $explicit),
             default => [null, null],

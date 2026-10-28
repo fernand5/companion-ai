@@ -16,13 +16,13 @@ onMounted(() => {
 })
 
 /**
- * The cards, grouped by the upcoming session each applies to (soonest first); within a session the
- * ones you can act on come first. Exercises with no upcoming session follow, as information.
+ * Groups cards by the upcoming session each applies to (soonest first); exercises with no upcoming session
+ * follow, as information.
  */
-const groups = computed(() => {
+function groupBySession(items: ProgressionItem[]) {
   const bySession = new Map<string, { key: string; date: string | null; title: string | null; items: ProgressionItem[] }>()
 
-  for (const item of store.items) {
+  for (const item of items) {
     const date = item.applies_to?.date ?? null
     const key = date ?? 'unscheduled'
     const group = bySession.get(key) ?? { key, date, title: item.applies_to?.title ?? null, items: [] }
@@ -30,10 +30,18 @@ const groups = computed(() => {
     bySession.set(key, group)
   }
 
-  return [...bySession.values()]
-    .map((group) => ({ ...group, items: [...group.items].sort((a, b) => Number(b.actionable) - Number(a.actionable)) }))
-    .sort((a, b) => (a.date === null ? 1 : b.date === null ? -1 : a.date.localeCompare(b.date)))
-})
+  return [...bySession.values()].sort((a, b) => (a.date === null ? 1 : b.date === null ? -1 : a.date.localeCompare(b.date)))
+}
+
+/** Something the user can act on: the server issued an approval for it. Everything else is information. */
+const canAct = (item: ProgressionItem) => item.actionable && item.proposal !== null
+
+/** A card that is mid-action (working, applied, stale, failed) stays open and in view even if it no longer has an approval. */
+const inFlight = (item: ProgressionItem) => store.stateFor(item.exercise.name).status !== 'idle'
+
+const actionable = computed(() => groupBySession(store.items.filter((i) => canAct(i) || inFlight(i))))
+const informational = computed(() => groupBySession(store.items.filter((i) => !canAct(i) && !inFlight(i))))
+const informationalCount = computed(() => informational.value.reduce((n, g) => n + g.items.length, 0))
 
 const suggested = computed(() => store.summary?.suggested ?? store.items.filter((i) => i.actionable).length)
 </script>
@@ -89,7 +97,8 @@ const suggested = computed(() => store.summary?.suggested ?? store.items.filter(
         <template v-else>No adjustments suggested right now. Your plan stays as it is.</template>
       </p>
 
-      <div v-for="group in groups" :key="group.key" class="space-y-2" :data-session="group.key">
+      <!-- What you can act on: always open. -->
+      <div v-for="group in actionable" :key="group.key" class="space-y-2" :data-session="group.key">
         <h3 v-if="group.date" class="text-xs font-medium tracking-wide text-slate-400 uppercase" data-testid="session-heading">
           {{ formatDate(group.date) }}<template v-if="group.title"> · {{ group.title }}</template>
         </h3>
@@ -107,6 +116,36 @@ const suggested = computed(() => store.summary?.suggested ?? store.items.filter(
           @refresh="store.load()"
         />
       </div>
+
+      <!-- Nothing to approve (not enough evidence, keep as is, kept by you, needs review): collapsed, open to inspect. -->
+      <details v-if="informationalCount > 0" class="group rounded-xl border border-slate-200 bg-white" data-testid="no-action">
+        <summary class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-4 py-2 text-sm font-medium text-slate-600 select-none [&::-webkit-details-marker]:hidden">
+          <span>{{ informationalCount }} {{ informationalCount === 1 ? 'exercise needs' : 'exercises need' }} no action</span>
+          <FontAwesomeIcon :icon="icons.chevronDown" :class="[ICON_SIZE.xs, 'text-slate-400 transition-transform group-open:rotate-180']" />
+        </summary>
+
+        <div class="space-y-3 px-3 pb-3">
+          <div v-for="group in informational" :key="group.key" class="space-y-2" :data-session="group.key">
+            <h3 v-if="group.date" class="text-xs font-medium tracking-wide text-slate-400 uppercase" data-testid="session-heading">
+              {{ formatDate(group.date) }}<template v-if="group.title"> · {{ group.title }}</template>
+            </h3>
+            <h3 v-else class="text-xs font-medium tracking-wide text-slate-400 uppercase" data-testid="session-heading">
+              Not in an upcoming session
+            </h3>
+
+            <ProgressionCard
+              v-for="item in group.items"
+              :key="item.exercise.name"
+              :item="item"
+              :state="store.stateFor(item.exercise.name)"
+              collapsible
+              @accept="store.accept(item)"
+              @keep="store.keep(item)"
+              @refresh="store.load()"
+            />
+          </div>
+        </div>
+      </details>
     </template>
   </section>
 </template>

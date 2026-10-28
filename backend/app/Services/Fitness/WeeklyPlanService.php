@@ -117,7 +117,7 @@ class WeeklyPlanService
                     $plan = $this->workoutPlanService->createOrReplace($user, [
                         'planned_date' => $date,
                         'activity_type' => ActivityLog::TYPE_RECOVERY,
-                        'title' => 'Rest',
+                        'title' => WorkoutPlan::REST_TITLE,
                         'reasoning' => $change['reason'],
                         'reasoning_factors' => $reasoningFactors,
                         'source' => WorkoutPlan::SOURCE_AI,

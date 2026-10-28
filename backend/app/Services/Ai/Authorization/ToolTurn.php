@@ -3,6 +3,7 @@
 namespace App\Services\Ai\Authorization;
 
 use App\Models\User;
+use App\Models\WorkoutPlan;
 use App\Services\Tools\ToolRegistry;
 use Illuminate\Support\Facades\Log;
 
@@ -29,6 +30,18 @@ final class ToolTurn
 
     /** @var array<int, array{exercise: string, date: string, requested_kg: float}> loads written without a baseline and left unset */
     private array $loadsLeftUnset = [];
+
+    /** "Add this workout to my dashboard" is handled once per turn: written, held for confirmation, or refused. */
+    private bool $saveHandled = false;
+
+    /** A replacement of an existing plan that the application will ask the user to confirm. */
+    private ?PlanReplacementProposal $pendingReplacement = null;
+
+    /** @var array{date: string, was: string}|null a plan the user explicitly asked to replace, and which was replaced */
+    private ?array $replaced = null;
+
+    /** True once a workout was written to the user's plan under the save scope. */
+    private bool $workoutSaved = false;
 
     public function __construct(
         private readonly ToolRegistry $registry,
@@ -77,6 +90,10 @@ final class ToolTurn
 
         if ($this->authorization->scopedProposal() !== null && $capability->needsAuthorization()) {
             return $this->callConfirmed($name, $capability, $arguments, $user);
+        }
+
+        if ($this->authorization->saveScope !== null && $name === 'create_workout_plan' && $capability === ToolCapability::PlanCreate) {
+            return $this->callSave($name, $capability, $arguments, $user);
         }
 
         $unset = [];
@@ -150,6 +167,127 @@ final class ToolTurn
         $this->confirmedChangeMade = true;
 
         return $result;
+    }
+
+    /**
+     * A write under "add this workout to my dashboard": exactly the workout and the day the user asked for, once.
+     * A day with nothing planned is written. A day with a planned, untouched workout is only replaced if the user
+     * said to replace it; otherwise the replacement is held for their confirmation (see pendingReplacement()) and
+     * nothing is written. A day with anything performed is never replaced.
+     */
+    private function callSave(string $name, ToolCapability $capability, array $arguments, User $user): mixed
+    {
+        $scope = $this->authorization->saveScope;
+
+        if ($this->saveHandled) {
+            return $this->refuse($name, $capability, 'save_already_handled', 'Not done: the one workout the user asked to save has already been handled this turn. Nothing else was changed.');
+        }
+
+        $mismatch = $scope->mismatch($arguments);
+
+        if ($mismatch !== null) {
+            return $this->refuse($name, $capability, 'outside_requested_workout', 'Not done, nothing was changed: the user asked to save one specific workout on '.$scope->date.', and this call is not exactly that: '.$mismatch
+                .' To save it, call create_workout_plan with planned_date '.$scope->date.' and exactly these exercises, each as written: '.$scope->describeItems().'.');
+        }
+
+        if (empty($arguments['reasoning_factors']) || empty($arguments['decision_summary'])) {
+            return ['error' => 'reasoning_factors and decision_summary are required when creating a plan.'];
+        }
+
+        // The day is the application's, whatever the call said (or left out).
+        $arguments['planned_date'] = $scope->date;
+
+        ['arguments' => $arguments, 'unset' => $unset] = $this->loadGuard->withoutUnbaselinedLoads($user, $name, $arguments, false, []);
+
+        $violations = $this->loadGuard->violations($user, $name, $arguments, false);
+
+        if ($violations !== []) {
+            return $this->refuse($name, $capability, 'load_above_limit', 'Not done, nothing was changed: '.implode(' ', $violations));
+        }
+
+        $existing = $user->workoutPlans()->with('exercises')->whereDate('planned_date', $scope->date)->first();
+
+        if ($existing !== null && ! $existing->isReplaceable()) {
+            $this->saveHandled = true;
+
+            return $this->refuse($name, $capability, 'day_already_performed', 'Not done, nothing was changed: '.$scope->date.' already has recorded workout performance, so its plan cannot be replaced. Tell the user, and that they can choose another day.');
+        }
+
+        if ($existing !== null && ! $scope->replacementRequested) {
+            try {
+                $this->pendingReplacement = PlanReplacementProposal::create(
+                    $user->id, $scope->conversationId, $scope->date, $existing->id, $existing->revision(), $this->describeExisting($existing), $arguments,
+                );
+            } catch (\LogicException) {
+                return $this->refuse($name, $capability, 'cannot_ask_for_confirmation', 'Not done, nothing was changed: replacing that day needs the user\'s confirmation and it cannot be asked for right now.');
+            }
+
+            $this->saveHandled = true;
+            $this->loadsLeftUnset = [...$this->loadsLeftUnset, ...$unset];
+
+            return [
+                'error' => 'Nothing was changed yet: '.$scope->date.' already has a planned workout ('.$this->describeExisting($existing).'). The application is now asking the user to confirm replacing it. '
+                    .'Do not say it was saved or replaced; say that nothing has changed until the user confirms.',
+                'pending_confirmation' => true,
+            ];
+        }
+
+        $result = $this->registry->call($name, $arguments, $user);
+
+        if (is_array($result) && ! array_key_exists('error', $result)) {
+            $this->saveHandled = true;
+            $this->workoutSaved = true;
+
+            if ($existing !== null) {
+                $this->replaced = ['date' => $scope->date, 'was' => $this->describeExisting($existing)];
+            }
+
+            if ($unset !== []) {
+                $this->loadsLeftUnset = [...$this->loadsLeftUnset, ...$unset];
+                $names = implode(', ', array_values(array_unique(array_column($unset, 'exercise'))));
+
+                $result['load_not_set'] = [
+                    'exercises' => array_values(array_unique(array_column($unset, 'exercise'))),
+                    'instruction' => "The starting load for {$names} was left unset: there is no recorded or planned load to base one on. Tell the user to choose a weight they can lift comfortably for the target reps and record it. Do not state or suggest a specific weight.",
+                ];
+            }
+        }
+
+        return $result;
+    }
+
+    /** "“Upper body” (Push-ups 3×12, Plank 30 s)", or "a rest day". */
+    private function describeExisting(WorkoutPlan $plan): string
+    {
+        if ($plan->isRestDay()) {
+            return 'a rest day';
+        }
+
+        return PlanReplacementProposal::summarise([
+            'title' => $plan->title,
+            'exercises' => $plan->exercises->map(fn ($e) => [
+                'exercise_name' => $e->exercise_name, 'planned_sets' => $e->planned_sets, 'planned_reps' => $e->planned_reps,
+                'planned_duration_seconds' => $e->planned_duration_seconds,
+            ])->all(),
+        ]);
+    }
+
+    /** The replacement the application must now ask the user to confirm, if this turn found one. */
+    public function pendingReplacement(): ?PlanReplacementProposal
+    {
+        return $this->pendingReplacement;
+    }
+
+    /** @return array{date: string, was: string}|null the plan an explicit replacement request just replaced */
+    public function replaced(): ?array
+    {
+        return $this->replaced;
+    }
+
+    /** True when a workout was written under the save scope this turn. */
+    public function workoutSaved(): bool
+    {
+        return $this->workoutSaved;
     }
 
     /**

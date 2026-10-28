@@ -29,6 +29,9 @@ class WorkoutPlan extends Model
         self::STATUS_SKIPPED,
     ];
 
+    /** The title the weekly adaptation gives a day it clears: an explicit rest day, not a skipped workout. */
+    public const REST_TITLE = 'Rest';
+
     public const SOURCE_AI = 'ai';
 
     public const SOURCE_MANUAL = 'manual';
@@ -82,6 +85,18 @@ class WorkoutPlan extends Model
     }
 
     /**
+     * A day the plan deliberately leaves for rest (what clearing a day writes), as opposed to a real
+     * workout the user marked skipped. Only that exact marker counts: a day with no plan is not a rest day.
+     */
+    public function isRestDay(): bool
+    {
+        return $this->activity_type === 'recovery'
+            && $this->status === self::STATUS_SKIPPED
+            && $this->title === self::REST_TITLE
+            && ! $this->exercises()->exists();
+    }
+
+    /**
      * True once the user has recorded anything for this day (a completed or
      * partial exercise, or a mirrored session). Such a plan can no longer be
      * replaced: replacing it deletes its exercises, which would orphan the
@@ -93,5 +108,33 @@ class WorkoutPlan extends Model
             || $this->exercises()
                 ->whereIn('status', [WorkoutPlanExercise::STATUS_COMPLETED, WorkoutPlanExercise::STATUS_PARTIAL])
                 ->exists();
+    }
+
+    /**
+     * Nothing the user has done is attached to this day, so it may be replaced wholesale if they confirm:
+     * not started, not completed or partly done, and no exercise or session recorded against it.
+     */
+    public function isReplaceable(): bool
+    {
+        return in_array($this->status, [self::STATUS_PLANNED, self::STATUS_SKIPPED], true) && ! $this->hasRecordedPerformance();
+    }
+
+    /**
+     * A fingerprint of everything a replacement would overwrite: the plan's own fields and each exercise's
+     * target and status. A confirmation is bound to it, so a plan edited, progressed or performed since it
+     * was shown no longer matches.
+     */
+    public function revision(): string
+    {
+        $exercises = $this->exercises()->get()->map(fn (WorkoutPlanExercise $e) => [
+            $e->id, $e->exercise_name, $e->planned_sets, $e->planned_reps,
+            $e->planned_weight_kg !== null ? round((float) $e->planned_weight_kg, 2) : null,
+            $e->planned_duration_seconds, $e->status,
+        ])->all();
+
+        return hash('sha256', (string) json_encode([
+            $this->id, $this->planned_date->toDateString(), $this->activity_type, $this->title, $this->status,
+            $this->duration_minutes, $this->workout_session_id, $exercises,
+        ], JSON_PRESERVE_ZERO_FRACTION));
     }
 }
