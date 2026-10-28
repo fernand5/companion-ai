@@ -491,7 +491,7 @@ class ExercisePerformanceTest extends TestCase
             'planned_date' => $this->plan->planned_date->toDateString(),
             'activity_type' => 'strength',
             'title' => 'Fresh start',
-        ]);
+        ], replaceExisting: true);
         $this->assertSame('Fresh start', $this->plan->fresh()->title);
     }
 
@@ -504,7 +504,7 @@ class ExercisePerformanceTest extends TestCase
                 'planned_date' => $this->plan->planned_date->toDateString(),
                 'activity_type' => 'strength',
                 'title' => 'Replacement',
-            ]);
+            ], replaceExisting: true);
             $this->fail('Expected the replacement to be refused.');
         } catch (ValidationException) {
         }

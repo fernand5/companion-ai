@@ -13,6 +13,15 @@ namespace App\Services\Ai\Authorization;
  *    to 45 kg") grants every plan capability;
  *  - a request for a session ("what should I do today?", "give me a workout")
  *    grants writing that day's plan;
+ *  - a request to put a workout on the plan or dashboard ("add this workout to my dashboard",
+ *    "save that to my plan", "add a 30 minute run to my plan for Friday") grants writing that day's
+ *    plan and nothing else, and never a heavier load. When it points at a workout already in the
+ *    conversation ("this", "that", "it"), the caller must find that workout (SavedWorkoutReference)
+ *    before honouring it. One workout and one day, nothing else: the application pins both down before the
+ *    model is called (SaveWorkoutScope), and a day that already has a planned workout is only replaced after
+ *    the user confirms the exact replacement (PlanReplacementProposal), or says outright to replace it
+ *    ("replace today's workout with this one", see statesReplacement()). The same sentence is never ALSO read
+ *    as the broad "change my plan" request, whose permissions are wider;
  *  - a report of something already done ("I benched 3x10 at 40", "mark push-ups
  *    done", "I played soccer yesterday") grants marking progress and adapting the
  *    week, the two flows that already followed an activity report;
@@ -45,6 +54,15 @@ final class PlanChangeIntentClassifier
     /** A determiner so that "update me on ..." and "updates on ..." are not read as "update my ...". */
     private const DETERMINER = '(?:my|the|this|that|these|those|our|today\'?s|tomorrow\'?s|next|upcoming|current)';
 
+    /** The basis of a request to put "this workout" (one already in the conversation) on the plan. */
+    public const BASIS_SAVE_WORKOUT = 'save_workout';
+
+    /** What can be put on the plan: a workout noun, with or without a few describing words. */
+    private const WORKOUT_NOUN = '(?:workouts?|sessions?|routines?|runs?|walks?|jogs?|rides?|swims?|circuits?|exercises?|training|programme?)';
+
+    /** Where it goes: the dashboard, the plan, the schedule, the week, a day. */
+    private const DESTINATION = "(?:to|on|onto|in|into|for|as)\\s+(?:(?:my|the|our|your)\\s+)?(?:[\\w'-]+\\s+){0,2}(?:dashboard|plan|planner|schedule|calendar|checklist|week|weekly|today|tonight|tomorrow|yesterday|\\d{4}-\\d{2}-\\d{2}|workouts?|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b";
+
     /** A message longer than this is treated as pasted material, not as an instruction to the coach. */
     private const MAX_INSTRUCTION_CHARS = 600;
 
@@ -72,6 +90,8 @@ final class PlanChangeIntentClassifier
 
         $explicit = false;
         $request = false;
+        $save = false;
+        $add = false;
         $report = false;
         $wish = false;
         $event = false;
@@ -87,7 +107,17 @@ final class PlanChangeIntentClassifier
                 continue;
             }
 
-            $explicit = $explicit || (! $pasted && ($question ? $this->politeRequest($sentence) : true) && $this->explicitChange($sentence));
+            $directRequest = ! $pasted && ($question ? $this->politeRequest($sentence) : true);
+
+            // "Can you add this workout to my dashboard?" is a question in form and a request in fact.
+            $savesWorkout = $directRequest && $this->saveWorkoutRequest($sentence);
+            $addsWorkout = $directRequest && $this->addWorkoutRequest($sentence);
+            $save = $save || $savesWorkout;
+            $add = $add || $addsWorkout;
+
+            // "put this workout on my plan" is also a verb-plus-noun the broad rule reads as "change my plan"; as a
+            // request to save one workout it is the narrower of the two, so that is how it is read.
+            $explicit = $explicit || ($directRequest && ! $savesWorkout && ! $addsWorkout && $this->explicitChange($sentence));
             $request = $request || (! $pasted && $this->sessionRequest($sentence));
 
             if (! $question) {
@@ -109,6 +139,17 @@ final class PlanChangeIntentClassifier
         if ($request && ! $negated) {
             $granted[] = ToolCapability::PlanCreate;
             $basis[] = 'session_request';
+        }
+
+        // Putting a workout on the plan writes one day's plan, like a request for a session, and may not raise a load.
+        if ($save && ! $negated) {
+            $granted[] = ToolCapability::PlanCreate;
+            $basis[] = self::BASIS_SAVE_WORKOUT;
+        }
+
+        if ($add && ! $negated) {
+            $granted[] = ToolCapability::PlanCreate;
+            $basis[] = 'add_workout';
         }
 
         if ($report) {
@@ -153,6 +194,29 @@ final class PlanChangeIntentClassifier
         preg_match_all('/(\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos?|kilograms?)\b/u', $text, $m);
 
         return array_values(array_map(fn (string $n) => (float) str_replace(',', '.', $n), $m[1]));
+    }
+
+    /**
+     * The user said, in this message, that what is already on the day should be replaced: "replace today's workout
+     * with this one", "add this workout and overwrite what's there". Anything unclear, negated or merely asked about
+     * is not a replacement request; the application then asks for confirmation instead.
+     */
+    public static function statesReplacement(string $message): bool
+    {
+        $text = (new self)->normalize($message);
+
+        if ($text === '' || (new self)->negated($text) || preg_match('/\b(?:don\'?t|do not|without|not|never|keep|leave)\b/u', $text)) {
+            return false;
+        }
+
+        if (str_contains($text, '?') && ! (new self)->politeRequest($text)) {
+            return false;
+        }
+
+        return (bool) preg_match(
+            '/\\b(?:replac\\w*|overwrit\\w*|overrid\\w*|swap\\w*|instead of)\\b[^.?!;]{0,40}\\b(?:workout|plan|planned|session|routine|schedule|dashboard|there|existing|current|today|tomorrow|day|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b/u',
+            $text,
+        );
     }
 
     /** "yes", "ok do it", "go ahead", "sure": no content of its own. */
@@ -253,6 +317,46 @@ final class PlanChangeIntentClassifier
 
         return (bool) preg_match("/\\b(?:give|get|suggest|recommend|prepare|prescribe)\\b(?:\\s+me)?\\s+(?:an?|some|my|today'?s|tomorrow'?s)?\\s*(?:[\\w'-]+\\s+){0,3}(?:workout|session|routine|training)\\b/u", $text)
             || (bool) preg_match("/\\b(?:i need|i want|i'd like|i would like|i'm looking for|looking for)\\s+(?:an?|some)\\s+(?:[\\w'-]+\\s+){0,3}(?:workout|session|routine)\\b/u", $text);
+    }
+
+    /**
+     * "add this workout to my dashboard", "save that to my plan", "put it on today's plan", "push this to my
+     * week": a workout that is ALREADY in the conversation ("this", "that", "it", "the workout"), moved onto
+     * the plan. The verb is a plain request form, never past tense ("I added this workout yesterday" is a
+     * report). "save this workout" needs no destination: saving a workout means putting it on the plan.
+     */
+    private function saveWorkoutRequest(string $text): bool
+    {
+        $verb = '(?:add|save|put|push|send|pin|apply|use|schedule)';
+        // "this workout", "it", or one of several the coach offered: "option 2", "workout B", "the second one".
+        $anaphor = '(?:(?:this|that|these|those|the|today\'s|your)\\s+(?:[\\w\'-]+\\s+){0,1}'.self::WORKOUT_NOUN.'(?:\\s+(?:above|you (?:gave|suggested|wrote|described)))?|this|that|these|those|it'
+            .'|(?:option|plan|workout|routine|session|version|choice)\\s*(?:#|no\\.?)?\\s*(?:\\d{1,2}|[a-d])'
+            .'|(?:the\\s+)?(?:first|second|third|1st|2nd|3rd|last|best|better|easier|harder|shorter|longer|other|lighter|heavier)\\s+(?:one|option|workout|routine|session)'
+            .'|(?:both|all|either)(?:\\s+of)?\\s+(?:the\\s+|these\\s+|those\\s+)?(?:options|workouts|routines|sessions|versions|choices))';
+        $dest = self::DESTINATION;
+
+        if (preg_match("/\\b{$verb}\\s+{$anaphor}\\b[^.?!]{0,40}?\\b{$dest}/u", $text)) {
+            return true;
+        }
+
+        // "replace today's workout with this one": the same request, with the replacement said outright.
+        if (preg_match("/\\b(?:replace|overwrite|swap)\\s+(?:my|the|our|today'?s|tomorrow'?s|[a-z]+'?s)\\s+(?:[\\w'-]+\\s+){0,2}(?:workout|session|routine|plan|day)\\b[^.?!]{0,30}?\\b(?:with|for|by)\\s+(?:this|that|these|those|it|the (?:workout|routine|session) (?:above|you (?:gave|suggested|wrote|described)))\\b/u", $text)) {
+            return true;
+        }
+
+        return (bool) preg_match('/\\bsave\\s+(?:this|that|the|these|those)\\s+(?:[\\w\'-]+\\s+)?'.self::WORKOUT_NOUN.'\\b/u', $text);
+    }
+
+    /**
+     * "add a 30 minute run to my plan for Friday", "put a quick workout on my dashboard": the user names the
+     * workout themselves, so there is nothing in the conversation to look up.
+     */
+    private function addWorkoutRequest(string $text): bool
+    {
+        $verb = '(?:add|put|schedule)';
+        $dest = self::DESTINATION;
+
+        return (bool) preg_match("/\\b{$verb}\\s+(?:an?|some|my|another)\\s+(?:[\\w'-]+\\s+){0,4}".self::WORKOUT_NOUN."\\b[^.?!]{0,30}?\\b{$dest}/u", $text);
     }
 
     /**

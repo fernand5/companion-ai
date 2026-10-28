@@ -34,6 +34,7 @@ class StaleResponseRegressionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        config(['app.key' => 'base64:'.base64_encode(str_repeat('k', 32))]);
         Carbon::setTestNow(Carbon::parse('2026-09-17 00:30:00', 'UTC'));
         $this->user = User::factory()->create(['timezone' => 'America/Bogota']);
     }
@@ -220,7 +221,14 @@ class StaleResponseRegressionTest extends TestCase
         $this->assertSame('2026-09-16', $activity->logged_date->toDateString());
 
         $this->assertSame('Soccer', $plans->forDate($this->user, '2026-09-17')->title, 'Thursday soccer is untouched.');
-        $this->assertSame('Mobility', $plans->forDate($this->user, '2026-09-18')->title, 'Only the affected future day adapted.');
+        $this->assertSame('Legs', $plans->forDate($this->user, '2026-09-18')->title, 'A report is not a request to replace Friday: it waits for the user.');
+        $this->assertStringContainsString('2026-09-18 already has “Legs”', $reply['content']);
+        $this->assertStringContainsString('replace it with “Mobility”', $reply['content']);
+
+        $this->fake(new AiResponse(text: 'unused'));
+        $this->send($id, 'yes')->assertCreated();
+        $this->assertSame('Mobility', $plans->forDate($this->user, '2026-09-18')->title, 'Only the affected future day adapted, once confirmed.');
+        $this->assertSame('Soccer', $plans->forDate($this->user, '2026-09-17')->title);
         $this->assertSame(0, ActivityLog::where('user_id', $this->user->id)->whereDate('logged_date', '2026-09-17')->count());
     }
 

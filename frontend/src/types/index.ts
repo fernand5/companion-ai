@@ -228,9 +228,48 @@ export interface AdherenceData {
   summary: AdherenceSummary
 }
 
+/**
+ * What a day of the week is, from what is stored (see the server's WeekOverviewService):
+ * `not_marked_done` is a past plan nobody marked done, which is NOT the same as missed;
+ * `nothing` is a day with no plan and no logged workout, which is NOT the same as a rest day.
+ */
+export type WeekDayState =
+  | 'completed'
+  | 'partial'
+  | 'in_progress'
+  | 'planned'
+  | 'not_marked_done'
+  | 'skipped'
+  | 'rest'
+  | 'activity_only'
+  | 'nothing'
+
+/** A workout the user logged themselves; `session` carries its exercises when it was logged set by set. */
+export interface WeekActivity extends ActivityLog {
+  session?: WorkoutSession | null
+}
+
 export interface WeeklyPlanDay {
   date: string
+  weekday: string
+  is_today: boolean
+  is_past: boolean
+  state: WeekDayState
   plan: WorkoutPlan | null
+  activities: WeekActivity[]
+}
+
+export interface WeekInfo {
+  start: string
+  end: string
+  /** The user's own "today", decided by the server from their stored timezone. */
+  today: string
+  timezone: string
+}
+
+export interface WeekOverview {
+  week: WeekInfo
+  days: WeeklyPlanDay[]
 }
 
 export interface WeeklyAdaptationResult {

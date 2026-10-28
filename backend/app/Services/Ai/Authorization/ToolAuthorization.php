@@ -22,6 +22,7 @@ final class ToolAuthorization
      *                               write is held to the baseline in PlanLoadGuard, so loads only go up through approval
      * @param  array<int, float>  $statedLoadsKg  loads (kg) the user wrote in the instruction that authorized the write; the only
      *                                            numbers that may start an exercise that has no baseline
+     * @param  SaveWorkoutScope|null  $saveScope  when set, the plan write is limited to saving exactly this workout on exactly this day
      */
     public function __construct(
         array $granted,
@@ -30,15 +31,37 @@ final class ToolAuthorization
         private readonly ?PlanChangeProposal $scope = null,
         public readonly bool $mayRaiseLoads = false,
         public readonly array $statedLoadsKg = [],
+        public readonly ?SaveWorkoutScope $saveScope = null,
     ) {
         $this->granted = array_values(array_unique([ToolCapability::Read, ToolCapability::Record, ...$granted], SORT_REGULAR));
     }
+
+    /** The Weekly Plan adaptation box: the user typed what changed, which authorizes replacing the days it affects. */
+    public const ENDPOINT_WEEKLY_ADAPT = 'weekly_plan';
+
+    /** "Generate my week": fills days that have no plan, and replaces nothing. */
+    public const ENDPOINT_WEEKLY_GENERATE = 'weekly_plan_generate';
 
     /** The user seems to want a change they did not clearly ask for: the application tries to turn it into one precise proposal. */
     public const FOLLOW_UP_PROPOSE = 'propose';
 
     /** Something that might change the plan was mentioned but cannot be confirmed with a "yes": ask for an explicit request. */
     public const FOLLOW_UP_EXPLICIT_REQUEST = 'explicit_request';
+
+    /** The user asked to put "this workout" on the plan, but nothing in the conversation describes one. */
+    public const FOLLOW_UP_NO_WORKOUT_TO_SAVE = 'no_workout_to_save';
+
+    /** More than one workout could be meant, and the user's words do not pick one. */
+    public const FOLLOW_UP_WHICH_WORKOUT = 'which_workout';
+
+    /** The workout in the conversation is visibly unfinished. */
+    public const FOLLOW_UP_INCOMPLETE_WORKOUT = 'incomplete_workout';
+
+    /** The workout is somebody else's words, quoted. */
+    public const FOLLOW_UP_QUOTED_WORKOUT = 'quoted_workout';
+
+    /** The day to put the workout on is unclear, already past, or named twice. */
+    public const FOLLOW_UP_WHICH_DAY = 'which_day';
 
     /** A bare "yes" with nothing valid waiting for it. */
     public const FOLLOW_UP_NOTHING_PENDING = 'nothing_pending';

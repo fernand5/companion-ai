@@ -15,6 +15,10 @@ vi.mock('@/services/progression', () => ({
 
 const list = makeList
 
+/** "Keep as is": an exercise whose target is right where it should be, so there is nothing to approve. */
+const maintain = () =>
+  makeItem({ exercise: { name: 'Squat', slug: 'squat' }, decision: 'MAINTAIN', proposed_target: null, actionable: false, proposal: null, not_actionable_reason: 'not_a_change', state: 'no_change' })
+
 async function mountWith(...items: ReturnType<typeof makeItem>[]) {
   vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(list(...items))
   const wrapper = mount(ProgressionRecommendations)
@@ -210,5 +214,77 @@ describe('ProgressionRecommendations', () => {
     const wrapper = await mountWith(makeItem())
 
     expect(wrapper.get('[data-testid="reload"]').classes()).toContain('min-h-11')
+  })
+
+  describe('compact by default', () => {
+    it('keeps what you can act on open and everything else in one collapsed block', async () => {
+      const wrapper = await mountWith(makeItem(), insufficient(), manualReview(), maintain())
+
+      const block = wrapper.get('[data-testid="no-action"]')
+      expect(block.element.hasAttribute('open')).toBe(false)
+      expect(block.get('summary').text()).toBe('3 exercises need no action')
+
+      // The one you can act on is outside the collapsed block, with its actions.
+      expect(block.findAll('[data-testid="accept"]')).toHaveLength(0)
+      expect(wrapper.findAll('[data-testid="accept"]')).toHaveLength(1)
+      expect(wrapper.findAll('[data-testid="no-action"] h4').map((h) => h.text()).sort()).toEqual(['Overhead Press', 'Pull-up', 'Squat'])
+    })
+
+    it('says "exercise needs" for one, and shows no collapsed block when everything is actionable', async () => {
+      expect((await mountWith(makeItem(), insufficient())).get('[data-testid="no-action"] summary').text()).toBe('1 exercise needs no action')
+      expect((await mountWith(makeItem())).find('[data-testid="no-action"]').exists()).toBe(false)
+    })
+
+    it('shows only the exercise, decision and current target for each collapsed item until it is opened', async () => {
+      const wrapper = await mountWith(insufficient(), manualReview())
+
+      const cards = wrapper.findAll('[data-testid="no-action"] article[data-collapsible="true"]')
+      expect(cards).toHaveLength(2)
+      for (const card of cards) {
+        expect(card.get('details').element.hasAttribute('open')).toBe(false)
+        expect(card.get('summary').text()).toContain('Current target')
+        expect(card.get('summary').find('[data-testid="decision"]').exists()).toBe(true)
+      }
+    })
+
+    it('keeps the recorded sessions and explanations available to inspect inside a collapsed item', async () => {
+      const wrapper = await mountWith(manualReview())
+
+      const card = wrapper.get('[data-testid="no-action"] article[data-collapsible="true"]')
+      expect(card.find('[data-testid="reasons"]').text()).toContain('pain')
+      expect(card.find('[data-testid="sessions"]').exists()).toBe(true)
+      expect(card.find('[data-testid="caveats"]').exists()).toBe(true)
+
+      await card.get('details').trigger('toggle')
+      ;(card.get('details').element as HTMLDetailsElement).open = true
+      expect((card.get('details').element as HTMLDetailsElement).open).toBe(true)
+    })
+
+    it('never offers an action inside the collapsed block', async () => {
+      const wrapper = await mountWith(insufficient(), manualReview(), dismissedItem())
+
+      expect(wrapper.findAll('[data-testid="no-action"] [data-testid="accept"]')).toHaveLength(0)
+      expect(wrapper.findAll('[data-testid="no-action"] [data-testid="keep"]')).toHaveLength(0)
+    })
+
+    it('a kept recommendation sits with the others that need no action, and is still shown as kept', async () => {
+      const wrapper = await mountWith(dismissedItem(), makeItem({ exercise: { name: 'Squat', slug: 'squat' } }))
+
+      expect(wrapper.get('[data-testid="no-action"] [data-testid="kept-card"]').text()).toContain('Kept current target')
+      expect(wrapper.findAll('[data-testid="accept"]')).toHaveLength(1)
+    })
+
+    it('an accepted card stays in view with its result instead of vanishing into the collapsed block', async () => {
+      vi.mocked(progressionService.approveProposal).mockResolvedValue({ applied: true, exercise: { name: 'Bench Press', slug: 'bench-press' }, date: '2026-10-19', from_kg: 40, to_kg: 42.5 })
+      const wrapper = await mountWith(makeItem())
+      // After accepting, the server no longer offers it.
+      vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(list({ ...maintain(), exercise: { name: 'Bench Press', slug: 'bench-press' } }))
+
+      await wrapper.get('[data-testid="accept"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="no-action"] [data-testid="status-note"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="status-note"]').text()).toContain('is now 42.5 kg')
+    })
   })
 })

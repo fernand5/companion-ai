@@ -71,6 +71,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Same shared-AI-capacity reasoning as the chat message throttle below —
     // each call can trigger several sequential Gemini calls.
+    Route::get('/weekly-plan/overview', [WeeklyPlanController::class, 'overview']);
     Route::post('/weekly-plan/generate', [WeeklyPlanController::class, 'generate'])->middleware('throttle:10,1');
     Route::post('/weekly-plan/adapt', [WeeklyPlanController::class, 'adapt'])->middleware('throttle:10,1');
 

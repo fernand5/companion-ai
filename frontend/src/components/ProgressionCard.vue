@@ -10,6 +10,8 @@ import { formatDate, formatTarget } from '@/utils/format'
 const props = defineProps<{
   item: ProgressionItem
   state: ProgressionActionState
+  /** Show only the exercise, decision and current target until opened. For recommendations with nothing to act on. */
+  collapsible?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -83,13 +85,26 @@ const keptMessage = computed(() =>
     <p class="text-sm text-slate-600" role="status" data-testid="status-note">{{ keptMessage }}</p>
   </article>
 
-  <article v-else class="space-y-3 rounded-xl border border-slate-200 bg-white p-4" :data-decision="item.decision">
-    <header class="flex flex-wrap items-start justify-between gap-2">
-      <h4 class="min-w-0 break-words font-semibold text-slate-900">{{ item.exercise.name }}</h4>
-      <span class="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium" :class="decision.classes" data-testid="decision">
-        {{ decision.label }}
+  <article v-else class="rounded-xl border border-slate-200 bg-white" :data-decision="item.decision" :data-collapsible="collapsible ? 'true' : undefined">
+    <component :is="collapsible ? 'details' : 'div'" class="group space-y-3 p-4" :class="collapsible ? 'open:pb-4' : ''">
+    <component
+      :is="collapsible ? 'summary' : 'header'"
+      class="flex flex-wrap items-start justify-between gap-2"
+      :class="collapsible ? 'min-h-11 cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden' : ''"
+    >
+      <span class="min-w-0">
+        <h4 class="break-words font-semibold text-slate-900">{{ item.exercise.name }}</h4>
+        <span v-if="collapsible" class="block text-xs font-normal text-slate-500" data-testid="collapsed-target">
+          Current target: {{ formatTarget(item.current_target) }}
+        </span>
       </span>
-    </header>
+      <span class="flex shrink-0 items-center gap-2">
+        <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="decision.classes" data-testid="decision">
+          {{ decision.label }}
+        </span>
+        <FontAwesomeIcon v-if="collapsible" :icon="icons.chevronDown" :class="[ICON_SIZE.xs, 'text-slate-400 transition-transform group-open:rotate-180']" />
+      </span>
+    </component>
 
     <dl class="grid grid-cols-2 gap-3 text-sm">
       <div>
@@ -208,5 +223,6 @@ const keptMessage = computed(() =>
       </button>
     </div>
     <p v-if="canAct && !finished" class="text-xs text-slate-400">Nothing changes until you accept.</p>
+    </component>
   </article>
 </template>

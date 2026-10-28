@@ -47,6 +47,7 @@ class HistoricalActivityPlanAdaptationTest extends TestCase
 
     public function test_historical_high_load_activity_materially_affecting_today_logs_and_adjusts_the_plan(): void
     {
+        config(['app.key' => 'base64:'.base64_encode(str_repeat('k', 32))]);
         $user = User::factory()->create();
         $conversation = $user->conversations()->create();
 
@@ -86,8 +87,19 @@ class HistoricalActivityPlanAdaptationTest extends TestCase
 
         $this->assertSame(1, $this->activityCountForDate($user, $this->yesterday()));
         $this->assertDatabaseHas('activity_logs', ['user_id' => $user->id, 'type' => 'sport']);
-        $this->assertSame('Active Recovery', app(WorkoutPlanService::class)->forDate($user, $this->today())?->title);
         $this->assertCount(2, $reply->meta['tool_calls']);
+
+        // The user reported something; they did not ask for their planned workout to be thrown away. The activity is
+        // recorded, the plan is left as it is, and the application asks for the exact replacement.
+        $this->assertSame('Original Strength', app(WorkoutPlanService::class)->forDate($user, $this->today())?->title);
+        $this->assertStringContainsString("I haven't changed your plan", $reply->content);
+        $this->assertStringContainsString('“Original Strength”', $reply->content);
+        $this->assertStringContainsString('“Active Recovery”', $reply->content);
+
+        $done = app(AiCoachService::class)->respond($user, $conversation, 'yes');
+
+        $this->assertStringStartsWith('Done. I replaced', $done->content);
+        $this->assertSame('Active Recovery', app(WorkoutPlanService::class)->forDate($user, $this->today())?->title);
     }
 
     public function test_historical_activity_that_does_not_materially_affect_the_week_only_logs(): void

@@ -41,7 +41,7 @@ class WeeklyPlanServiceTest extends TestCase
 
         app(WeeklyPlanService::class)->applyChanges($user, [
             ['date' => $wednesday, 'action' => 'replace', 'activity_type' => 'sport', 'title' => 'Soccer', 'reason' => 'User has soccer Wednesday.'],
-        ], ['User has soccer Wednesday.']);
+        ], ['User has soccer Wednesday.'], mayReplace: [$wednesday]);
 
         // Carbon's `date` cast serializes planned_date with a time component on
         // save, so assertDatabaseHas can't exact-match the raw date string —
@@ -66,7 +66,7 @@ class WeeklyPlanServiceTest extends TestCase
 
         app(WeeklyPlanService::class)->applyChanges($user, [
             ['date' => $friday, 'action' => 'clear', 'reason' => "Can't train Friday."],
-        ]);
+        ], mayReplace: [$friday]);
 
         // Kept as a real row (not deleted) so the explanation stays visible and
         // a later schedule-gap fill doesn't mistake this for "never generated"

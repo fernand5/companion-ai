@@ -1,8 +1,9 @@
 import api from '@/services/api'
-import type { WeeklyAdaptationResult, WorkoutPlan } from '@/types'
+import type { WeekOverview, WeeklyAdaptationResult } from '@/types'
 
-export function fetchWeek(from: string, to: string) {
-  return api.get<WorkoutPlan[]>('/workout-plans', { params: { from, to } }).then((r) => r.data)
+/** The current week, day by day: the plan, what was recorded against it, and unplanned workouts. */
+export function fetchOverview() {
+  return api.get<WeekOverview>('/weekly-plan/overview').then((r) => r.data)
 }
 
 export function generateWeek() {

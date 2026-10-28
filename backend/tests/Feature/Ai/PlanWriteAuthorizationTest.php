@@ -16,6 +16,7 @@ use App\Services\Ai\Authorization\ToolCapability;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\DTOs\AiResponse;
 use App\Services\Ai\DTOs\ToolCallRequest;
+use App\Services\Fitness\WeeklyPlanService;
 use App\Services\Fitness\WorkoutPlanService;
 use App\Services\Tools\AiTool;
 use App\Services\Tools\ToolRegistry;
@@ -418,7 +419,7 @@ class PlanWriteAuthorizationTest extends PerformanceEvalCase
             }
         };
 
-        $turn = (new GuardedToolExecutor(new ToolRegistry([$unknown]), app(PlanLoadGuard::class), app(ProposalMatcher::class)))->begin(ToolAuthorization::readOnly());
+        $turn = (new GuardedToolExecutor(new ToolRegistry([$unknown]), app(PlanLoadGuard::class), app(ProposalMatcher::class), app(WeeklyPlanService::class)))->begin(ToolAuthorization::readOnly());
 
         $this->assertSame([], $turn->declarations());
         $this->assertTrue($turn->call('rewrite_everything', [], $this->user)['blocked']);

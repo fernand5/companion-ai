@@ -3,33 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as weeklyPlanService from '@/services/weeklyPlan'
 import { useWeeklyPlanStore } from '@/stores/weeklyPlan'
-import type { WeeklyAdaptationResult, WorkoutPlan } from '@/types'
+import type { WeeklyAdaptationResult } from '@/types'
 import { getCurrentWeekRange } from '@/utils/week'
 
+import { makePlan, overviewOf } from '@/components/__tests__/weekFixtures'
+
 vi.mock('@/services/weeklyPlan', () => ({
-  fetchWeek: vi.fn(),
+  fetchOverview: vi.fn(),
   generateWeek: vi.fn(),
   submitAdaptation: vi.fn(),
 }))
-
-function makePlan(overrides: Partial<WorkoutPlan> = {}): WorkoutPlan {
-  return {
-    id: 1,
-    planned_date: getCurrentWeekRange(null).dates[2],
-    activity_type: 'strength',
-    title: 'Upper Body',
-    source: 'ai',
-    status: 'planned',
-    duration_minutes: 45,
-    reasoning: null,
-    reasoning_factors: [],
-    training_schedule_id: null,
-    notes: null,
-    exercises: [],
-    updated_at: null,
-    ...overrides,
-  }
-}
 
 function makeResult(overrides: Partial<WeeklyAdaptationResult> = {}): WeeklyAdaptationResult {
   return {
@@ -51,7 +34,7 @@ describe('weeklyPlan store', () => {
   it('builds a 7-day shape with gaps as null', async () => {
     const plan = makePlan()
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
-    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([plan])
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([plan]))
 
     const store = useWeeklyPlanStore()
     await store.loadWeek()
@@ -64,30 +47,30 @@ describe('weeklyPlan store', () => {
   it('shows the existing week first, then asks the backend to fill gaps and refetches only if it generated something', async () => {
     const plan = makePlan()
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: true, explanation: null })
-    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([plan])
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([plan]))
 
     const store = useWeeklyPlanStore()
     await store.loadWeek()
 
     expect(weeklyPlanService.generateWeek).toHaveBeenCalledTimes(1)
-    expect(weeklyPlanService.fetchWeek).toHaveBeenCalledTimes(2)
+    expect(weeklyPlanService.fetchOverview).toHaveBeenCalledTimes(2)
     expect(store.days.find((d) => d.date === plan.planned_date)?.plan).toEqual(plan)
     expect(store.generating).toBe(false)
   })
 
   it('does not refetch when the backend had nothing to generate', async () => {
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
-    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([makePlan()])
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([makePlan()]))
 
     const store = useWeeklyPlanStore()
     await store.loadWeek()
 
-    expect(weeklyPlanService.fetchWeek).toHaveBeenCalledTimes(1)
+    expect(weeklyPlanService.fetchOverview).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the existing week visible and reports the error when gap-filling fails (e.g. provider outage)', async () => {
     const plan = makePlan()
-    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([plan])
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([plan]))
     vi.mocked(weeklyPlanService.generateWeek).mockRejectedValue({
       response: { data: { message: 'The AI coach is temporarily unavailable — please try again in a moment.' } },
     })
@@ -104,7 +87,7 @@ describe('weeklyPlan store', () => {
 
   it('shows the plan immediately while generation is still running', async () => {
     let resolveGenerate: (v: WeeklyAdaptationResult) => void = () => {}
-    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([makePlan()])
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([makePlan()]))
     vi.mocked(weeklyPlanService.generateWeek).mockReturnValue(new Promise((resolve) => { resolveGenerate = resolve }))
 
     const store = useWeeklyPlanStore()
@@ -120,7 +103,7 @@ describe('weeklyPlan store', () => {
   })
 
   it('sets loading true during loadWeek and false after, on both success and failure', async () => {
-    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([])
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([]))
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
 
     const store = useWeeklyPlanStore()
@@ -131,7 +114,7 @@ describe('weeklyPlan store', () => {
   })
 
   it('sets an error and leaves days empty when the initial week load fails', async () => {
-    vi.mocked(weeklyPlanService.fetchWeek).mockRejectedValue(new Error('network error'))
+    vi.mocked(weeklyPlanService.fetchOverview).mockRejectedValue(new Error('network error'))
 
     const store = useWeeklyPlanStore()
     await store.loadWeek()
@@ -161,12 +144,12 @@ describe('weeklyPlan store', () => {
 
   it('refreshes the week after a successful adaptation that applied changes', async () => {
     vi.mocked(weeklyPlanService.submitAdaptation).mockResolvedValue(makeResult({ applied: true }))
-    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([makePlan()])
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([makePlan()]))
 
     const store = useWeeklyPlanStore()
     await store.submitAdaptation('I have soccer Wednesday.')
 
-    expect(weeklyPlanService.fetchWeek).toHaveBeenCalledTimes(1)
+    expect(weeklyPlanService.fetchOverview).toHaveBeenCalledTimes(1)
     expect(store.lastResult?.applied).toBe(true)
   })
 
@@ -178,13 +161,13 @@ describe('weeklyPlan store', () => {
     const store = useWeeklyPlanStore()
     await store.submitAdaptation('What is the weather like?')
 
-    expect(weeklyPlanService.fetchWeek).not.toHaveBeenCalled()
+    expect(weeklyPlanService.fetchOverview).not.toHaveBeenCalled()
     expect(store.lastResult?.explanation).toBe("That doesn't affect your training.")
   })
 
   it('sets an error and preserves the previous days on submit failure', async () => {
     const plan = makePlan()
-    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([plan])
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([plan]))
 
     const store = useWeeklyPlanStore()
     await store.loadWeek()
@@ -197,7 +180,7 @@ describe('weeklyPlan store', () => {
   })
 
   it('keeps the application\'s notices from an adaptation, and clears them on the next one', async () => {
-    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([])
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([]))
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
     vi.mocked(weeklyPlanService.submitAdaptation)
       .mockResolvedValueOnce({ applied: true, explanation: null, notices: ['I left the starting weight for Goblet Squat unset.'] })
@@ -212,7 +195,7 @@ describe('weeklyPlan store', () => {
   })
 
   it('keeps the notices from filling in the week', async () => {
-    vi.mocked(weeklyPlanService.fetchWeek).mockResolvedValue([])
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([]))
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null, notices: ['I left the starting weight for Cable Row unset.'] })
     const store = useWeeklyPlanStore()
 

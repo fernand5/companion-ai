@@ -1,24 +1,28 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import ProgressionRecommendations from '@/components/ProgressionRecommendations.vue'
+import WeekDayCard from '@/components/WeekDayCard.vue'
+import WeekStrip from '@/components/WeekStrip.vue'
 import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
-import { useAuthStore } from '@/stores/auth'
 import { useProgressionStore } from '@/stores/progression'
 import { useWeeklyPlanStore } from '@/stores/weeklyPlan'
-import type { ActivityType } from '@/types'
-import { activityIcon, formatDate } from '@/utils/format'
-import { todayIn } from '@/utils/week'
+import { formatWeekRange } from '@/utils/weekDay'
 
 const store = useWeeklyPlanStore()
 const input = ref('')
-const auth = useAuthStore()
-const today = computed(() => todayIn(auth.user?.timezone))
 
 const progression = useProgressionStore()
+
+/** The user's own "today", as the server decided it. */
+const today = computed(() => store.week?.today ?? null)
+
+/** The days whose details are open. Today starts open; the strip opens the day it points at. */
+const open = ref<Set<string>>(new Set())
+const selected = ref<string | null>(null)
 
 /** How many calculated adjustments are waiting for approval on each day (from the Progression section below). */
 const suggestionsByDay = computed(() => {
@@ -37,6 +41,20 @@ onMounted(() => {
   store.loadWeek()
 })
 
+// Once a week is on screen, open today (only the first time, so a reload never closes what the user opened).
+watch(
+  () => store.week?.start,
+  (start, previous) => {
+    if (!start || !today.value) return
+
+    if (previous === undefined || previous !== start) {
+      selected.value = today.value
+      open.value = new Set([today.value])
+    }
+  },
+  { immediate: true },
+)
+
 // Filling in the week can add the upcoming sessions a recommendation would apply to.
 watch(
   () => store.filled,
@@ -45,7 +63,38 @@ watch(
   },
 )
 
+// An approved progression changes a load in the plan: re-read the week so the day on screen shows what is stored now.
+const appliedCount = computed(() => Object.values(progression.actions).filter((a) => a.status === 'applied').length)
+
+watch(appliedCount, (now, before) => {
+  if (now > before) store.reloadDays()
+})
+
 const showEmptyState = computed(() => store.error !== null && store.days.length === 0)
+
+const range = computed(() => (store.week ? formatWeekRange(store.week.start, store.week.end) : ''))
+
+function toggle(date: string) {
+  const next = new Set(open.value)
+
+  if (next.has(date)) next.delete(date)
+  else next.add(date)
+
+  open.value = next
+  selected.value = date
+}
+
+async function select(date: string) {
+  selected.value = date
+  open.value = new Set(open.value).add(date)
+
+  await nextTick()
+  document.getElementById(`day-${date}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
+
+function showSuggestions() {
+  document.getElementById('progression-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 function submit() {
   const value = input.value.trim()
@@ -57,11 +106,14 @@ function submit() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
-    <h1 class="text-lg font-semibold text-slate-900">Weekly Plan</h1>
-
-    <!-- Outside the week's loading states so it mounts (and fetches) once, not each time the week reloads. -->
-    <ProgressionRecommendations />
+  <div class="mx-auto max-w-2xl space-y-5 p-4 sm:p-6">
+    <header class="space-y-0.5">
+      <h1 class="text-lg font-semibold text-slate-900">Weekly Plan</h1>
+      <p v-if="range" class="flex items-center gap-2 text-sm text-slate-500" data-testid="week-range">
+        {{ range }}
+        <span class="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">This week</span>
+      </p>
+    </header>
 
     <p
       v-if="store.loading"
@@ -76,56 +128,23 @@ function submit() {
     </div>
 
     <template v-else>
+      <WeekStrip :days="store.days" :selected="selected" @select="select" />
+
       <p v-if="store.generating" class="flex items-center gap-1.5 text-sm text-slate-500">
         <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.sm" spin />
         Filling in the rest of your week — this can take a minute…
       </p>
 
-      <div class="space-y-2">
-        <div
+      <div class="space-y-2" data-testid="week-days">
+        <WeekDayCard
           v-for="day in store.days"
           :key="day.date"
-          class="space-y-2 rounded-xl border p-4"
-          :class="day.date === today ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-white'"
-        >
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <p class="text-xs font-medium tracking-wide text-slate-400 uppercase">
-                {{ formatDate(day.date) }}
-              </p>
-              <p v-if="day.plan" class="flex items-center gap-1.5 font-semibold text-slate-900">
-                <FontAwesomeIcon :icon="activityIcon(day.plan.activity_type as ActivityType)" :class="ICON_SIZE.sm" />
-                {{ day.plan.title }}
-              </p>
-              <p v-else class="text-sm text-slate-400">Nothing planned</p>
-              <p
-                v-if="suggestionsByDay[day.date]"
-                class="mt-0.5 text-xs font-medium text-brand-700"
-                data-testid="day-suggestions"
-              >
-                {{ suggestionsByDay[day.date] }} suggested {{ suggestionsByDay[day.date] === 1 ? 'adjustment' : 'adjustments' }} to review below
-              </p>
-            </div>
-
-            <span
-              v-if="day.plan"
-              class="shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize"
-              :class="{
-                'bg-brand-100 text-brand-700': day.plan.status === 'completed',
-                'bg-amber-100 text-amber-700': day.plan.status === 'partial' || day.plan.status === 'in_progress',
-                'bg-slate-100 text-slate-500': day.plan.status === 'planned' || day.plan.status === 'skipped',
-              }"
-            >
-              {{ day.plan.status.replace('_', ' ') }}
-            </span>
-          </div>
-
-          <WhyThisChangedCard
-            v-if="day.plan"
-            :reasoning="day.plan.reasoning"
-            :reasoning-factors="day.plan.reasoning_factors"
-          />
-        </div>
+          :day="day"
+          :expanded="open.has(day.date)"
+          :suggestions="suggestionsByDay[day.date] ?? 0"
+          @toggle="toggle(day.date)"
+          @show-suggestions="showSuggestions"
+        />
       </div>
 
       <ul
@@ -156,12 +175,12 @@ function submit() {
           v-model="input"
           rows="2"
           placeholder='Tell your coach something that might change your week — e.g. "I have soccer on Wednesday"'
-          class="max-h-32 flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          class="max-h-32 min-w-0 flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
         />
         <button
           type="submit"
           :disabled="store.sending || !input.trim()"
-          class="flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+          class="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
         >
           <FontAwesomeIcon
             :icon="store.sending ? icons.loading : icons.action.send"
@@ -177,5 +196,8 @@ function submit() {
         {{ store.error }}
       </p>
     </template>
+
+    <!-- Below the week, and outside its loading states so it mounts (and fetches) once, not each time the week reloads. -->
+    <ProgressionRecommendations />
   </div>
 </template>

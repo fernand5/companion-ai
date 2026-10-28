@@ -2,6 +2,7 @@
 
 namespace App\Services\Ai\Authorization;
 
+use App\Services\Fitness\WeeklyPlanService;
 use App\Services\Tools\ToolRegistry;
 
 /**
@@ -16,10 +17,12 @@ class GuardedToolExecutor
         private readonly ToolRegistry $registry,
         private readonly PlanLoadGuard $loadGuard,
         private readonly ProposalMatcher $matcher,
+        private readonly WeeklyPlanService $weekly,
     ) {}
 
-    public function begin(ToolAuthorization $authorization): ToolTurn
+    /** @param int|null $conversationId the chat the turn belongs to; a confirmation can only be asked for in one */
+    public function begin(ToolAuthorization $authorization, ?int $conversationId = null): ToolTurn
     {
-        return new ToolTurn($this->registry, $this->loadGuard, $this->matcher, $authorization);
+        return new ToolTurn($this->registry, $this->loadGuard, $this->matcher, $authorization, $this->weekly, $conversationId);
     }
 }

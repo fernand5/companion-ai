@@ -44,12 +44,16 @@ class WorkoutPlanService
     }
 
     /**
-     * Create today's (or a given date's) plan, or wholesale-replace it if one
-     * already exists for that date (unique on user_id+planned_date) — e.g. the
-     * AI regenerating the day's recommendation. Always resets to a fresh
-     * "planned" state since the exercises are being replaced.
+     * Create the plan for a date (today by default). A day that already has a plan is only replaced when the
+     * caller passes $replaceExisting = true, which means the USER authorized replacing it (a confirmation they
+     * gave, a replacement they asked for outright, or their own edit form). It defaults to false so that no caller
+     * replaces a plan by accident or by a model's say-so: it gets PlanReplacementNotAuthorized instead.
+     *
+     * A plan that is started, partly done, completed or has any recorded performance is never replaced, whatever
+     * the caller says; that is checked here, at the write, and not only by whoever decides to call it.
+     * Always resets to a fresh "planned" state since the exercises are being replaced.
      */
-    public function createOrReplace(User $user, array $data): WorkoutPlan
+    public function createOrReplace(User $user, array $data, bool $replaceExisting = false): WorkoutPlan
     {
         $validated = Validator::make($data, [
             'planned_date' => 'nullable|date',
@@ -79,7 +83,7 @@ class WorkoutPlanService
                 ->value('id');
         }
 
-        return DB::transaction(function () use ($user, $validated, $plannedDate, $trainingScheduleId) {
+        return DB::transaction(function () use ($user, $validated, $plannedDate, $trainingScheduleId, $replaceExisting) {
             $attributes = [
                 'activity_type' => $validated['activity_type'],
                 'title' => $validated['title'],
@@ -99,15 +103,25 @@ class WorkoutPlanService
             // Look up by whereDate() rather than updateOrCreate()'s raw WHERE match —
             // the `date` cast can serialize with a time component on save, which a
             // bare `where('planned_date', ...)` lookup wouldn't match against.
-            $plan = $user->workoutPlans()->whereDate('planned_date', $plannedDate)->first();
+            $plan = $user->workoutPlans()->whereDate('planned_date', $plannedDate)->lockForUpdate()->first();
 
             // Replacing a plan deletes its exercises. Once any performance has been
             // recorded that would orphan it and double-count the day on the next
-            // completion, so a performed day is never replaced.
+            // completion, so a performed day is never replaced; neither is one that was started or finished.
             if ($plan?->hasRecordedPerformance()) {
                 throw ValidationException::withMessages([
                     'planned_date' => 'This day already has recorded workout performance, so its plan can no longer be replaced.',
                 ]);
+            }
+
+            if ($plan && ! $plan->isReplaceable()) {
+                throw ValidationException::withMessages([
+                    'planned_date' => 'This day\'s workout has already been started or finished, so its plan can no longer be replaced.',
+                ]);
+            }
+
+            if ($plan && ! $replaceExisting) {
+                throw new PlanReplacementNotAuthorized($plan->planned_date->toDateString());
             }
 
             if ($plan) {

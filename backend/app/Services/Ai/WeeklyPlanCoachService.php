@@ -28,6 +28,12 @@ use Illuminate\Support\Facades\Log;
  */
 class WeeklyPlanCoachService
 {
+    /** The Weekly Plan adaptation box: the user typed what changed, which authorizes replacing the days it affects. */
+    public const ADAPT_ENDPOINT = ToolAuthorization::ENDPOINT_WEEKLY_ADAPT;
+
+    /** "Generate my week": fills days that have no plan, and replaces nothing. */
+    public const GENERATE_ENDPOINT = ToolAuthorization::ENDPOINT_WEEKLY_GENERATE;
+
     private const ALLOWED_READ_TOOLS = [
         'get_todays_plan',
         'get_upcoming_schedule',
@@ -65,13 +71,13 @@ class WeeklyPlanCoachService
      *   error?: string,
      * }
      */
-    public function run(User $user, string $instruction): array
+    public function run(User $user, string $instruction, string $endpoint = self::ADAPT_ENDPOINT): array
     {
         $startedAt = microtime(true);
         $latency = fn () => (int) round((microtime(true) - $startedAt) * 1000);
 
         try {
-            $result = $this->decide($user, $instruction);
+            $result = $this->decide($user, $instruction, $endpoint);
         } catch (AiProviderException $e) {
             Log::warning('weekly_plan.failed', [
                 'user_id' => $user->id,
@@ -99,7 +105,7 @@ class WeeklyPlanCoachService
         return $result;
     }
 
-    private function decide(User $user, string $instruction): array
+    private function decide(User $user, string $instruction, string $endpoint): array
     {
         // Mirrors AiCoachService::respond() — the tool loop can make several
         // sequential Gemini calls, which can cumulatively exceed PHP's default
@@ -112,10 +118,11 @@ class WeeklyPlanCoachService
             .$this->promptBuilder->weeklyAdaptationAddendum();
 
         $allowedNames = [...self::ALLOWED_READ_TOOLS, self::DECISION_TOOL];
-        // The user pressed the Weekly Plan button: that request is the authorization, and the
-        // flow's own allow-list (above) still decides which tools exist in it. The executor
+        // The user pressed a Weekly Plan button: that request is the authorization, and the
+        // flow's own allow-list (above) still decides which tools exist in it. Only the adaptation box (they typed what
+        // changed) may replace days that already have a plan; generating a week only fills days with nothing on them. The executor
         // adds the same load ceiling every AI plan write gets.
-        $turn = $this->toolExecutor->begin(ToolAuthorization::userInvokedEndpoint('weekly_plan', ToolCapability::PlanAdapt));
+        $turn = $this->toolExecutor->begin(ToolAuthorization::userInvokedEndpoint($endpoint, ToolCapability::PlanAdapt));
         $tools = $turn->declarations($allowedNames);
 
         $messages = [

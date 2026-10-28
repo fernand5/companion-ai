@@ -2,20 +2,13 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
 import * as weeklyPlanService from '@/services/weeklyPlan'
-import { useAuthStore } from '@/stores/auth'
-import type { WeeklyAdaptationResult, WeeklyPlanDay, WorkoutPlan } from '@/types'
+import type { WeekInfo, WeeklyAdaptationResult, WeeklyPlanDay } from '@/types'
 import { extractErrorMessage } from '@/utils/errors'
-import { getCurrentWeekRange } from '@/utils/week'
-
-function zip(dates: string[], plans: WorkoutPlan[]): WeeklyPlanDay[] {
-  return dates.map((date) => ({
-    date,
-    plan: plans.find((plan) => plan.planned_date === date) ?? null,
-  }))
-}
 
 export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
   const days = ref<WeeklyPlanDay[]>([])
+  /** The week the server is showing (its start, end and the user's "today"); null until the first load. */
+  const week = ref<WeekInfo | null>(null)
   const loading = ref(false)
   const generating = ref(false)
   /** True once filling the week actually added plans (so things derived from the plans can refresh). */
@@ -31,13 +24,14 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
     error.value = null
     filled.value = false
 
-    const { start, end, dates } = getCurrentWeekRange(useAuthStore().user?.timezone)
-
     // Show whatever already exists first. Filling gaps is an AI call that can
     // take a minute or fail outright — it must never keep the user from seeing
-    // (or block them from reading) a week that's already planned.
+    // (or block them from reading) a week that's already planned. The server
+    // decides which week this is (the user's own calendar), not the browser clock.
     try {
-      days.value = zip(dates, await weeklyPlanService.fetchWeek(start, end))
+      const overview = await weeklyPlanService.fetchOverview()
+      days.value = overview.days
+      week.value = overview.week
     } catch (e: unknown) {
       error.value = extractErrorMessage(e, "Couldn't load your weekly plan.")
       loading.value = false
@@ -58,13 +52,29 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
       if (result.notices?.length) notices.value = result.notices
 
       if (result.applied) {
-        days.value = zip(dates, await weeklyPlanService.fetchWeek(start, end))
+        const overview = await weeklyPlanService.fetchOverview()
+        days.value = overview.days
+        week.value = overview.week
         filled.value = true
       }
     } catch (e: unknown) {
       error.value = extractErrorMessage(e, "Couldn't fill in the rest of your week.")
     } finally {
       generating.value = false
+    }
+  }
+
+  /**
+   * Re-read the week without the loading state or filling gaps (no AI call). For when something else changed a
+   * plan, e.g. an approved progression changed a load, so the days on screen match what is stored.
+   */
+  async function reloadDays() {
+    try {
+      const overview = await weeklyPlanService.fetchOverview()
+      days.value = overview.days
+      week.value = overview.week
+    } catch {
+      // Keep showing what is already on screen; a stale load is better than an empty week.
     }
   }
 
@@ -90,5 +100,5 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
     }
   }
 
-  return { days, loading, generating, filled, sending, error, lastResult, notices, loadWeek, submitAdaptation }
+  return { days, week, loading, generating, filled, sending, error, lastResult, notices, loadWeek, reloadDays, submitAdaptation }
 })
