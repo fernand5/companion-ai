@@ -36,6 +36,12 @@ final class ToolAuthorization
         $this->granted = array_values(array_unique([ToolCapability::Read, ToolCapability::Record, ...$granted], SORT_REGULAR));
     }
 
+    /** The Weekly Plan adaptation box: the user typed what changed, which authorizes replacing the days it affects. */
+    public const ENDPOINT_WEEKLY_ADAPT = 'weekly_plan';
+
+    /** "Generate my week": fills days that have no plan, and replaces nothing. */
+    public const ENDPOINT_WEEKLY_GENERATE = 'weekly_plan_generate';
+
     /** The user seems to want a change they did not clearly ask for: the application tries to turn it into one precise proposal. */
     public const FOLLOW_UP_PROPOSE = 'propose';
 

@@ -42,7 +42,7 @@ class WorkoutPlanController extends Controller
         $plan = $this->workoutPlanService->createOrReplace($request->user(), [
             ...$request->validated(),
             'source' => $request->validated('source') ?? WorkoutPlan::SOURCE_MANUAL,
-        ]);
+        ], replaceExisting: true); // the user's own plan form: saving it for a day is the request to replace that day
 
         return new WorkoutPlanResource($plan);
     }

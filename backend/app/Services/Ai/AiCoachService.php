@@ -147,7 +147,7 @@ class AiCoachService
             return $this->answerWithoutModel($user, $conversation, $authorization, $question, ['save_clarification' => true], $startedAt);
         }
 
-        $turn = $this->toolExecutor->begin($authorization);
+        $turn = $this->toolExecutor->begin($authorization, $conversation->id);
         $withheld = array_values(array_intersect(['create_workout_plan', 'propose_weekly_plan_changes', 'update_exercise_status'], $turn->withheldTools()));
 
         // The base prompt tells the model to call these tools; without a word here it would
@@ -244,10 +244,20 @@ class AiCoachService
 
         [$notice, $pending] = $this->followUp($user, $conversation, $userMessage, $authorization, $turn->confirmedChangeMade(), $history);
 
+        // A change that needed the user's confirmation, and could not be asked for, is said not to have happened.
+        if (array_filter($turn->blocked(), fn (array $b) => $b['reason'] === 'cannot_ask_for_confirmation') !== [] && $turn->pendingReplacement() === null) {
+            $finalText = rtrim($finalText)."\n\nI haven't changed your plan: that would replace a day that already has a plan, and I couldn't ask you to confirm it just now. Please try again.";
+        }
+
         // What happened to a requested save is the application's to say, not the model's.
         if ($authorization->saveScope !== null) {
             [$finalText, $savedMeta] = $this->saveOutcome($finalText, $turn, $authorization->saveScope);
             $meta += $savedMeta;
+        } elseif (($held = $turn->pendingReplacement()) !== null) {
+            // Any other turn that ran into a day with a plan on it: the reply stays (it may be the workout the user
+            // asked for), and the application adds what has NOT happened and what it needs to be told.
+            $finalText = rtrim($finalText)."\n\n".$this->replacementQuestion($held);
+            $meta += $this->proposals->presentReplacement($held);
         }
 
         if ($notice !== null) {
@@ -442,7 +452,12 @@ class AiCoachService
                 $text = "I haven't replaced it: {$result} Nothing was changed. If you still want the workout on your plan, ask me again.";
                 $status = 'refused';
             } else {
-                $text = 'Done. I replaced '.$proposal->existingSummary.' on '.$proposal->date.' with '.PlanReplacementProposal::summarise($proposal->replacement).'.';
+                $text = 'Done. '.implode(' ', array_map(
+                    fn (array $c) => $c['action'] === PlanReplacementProposal::CLEAR
+                        ? "I turned {$c['date']} ({$c['existing_summary']}) into a rest day."
+                        : "I replaced {$c['existing_summary']} on {$c['date']} with ".PlanReplacementProposal::summarise($c['replacement']).'.',
+                    $proposal->changes,
+                ));
                 $status = 'applied';
             }
         }
@@ -467,6 +482,25 @@ class AiCoachService
         return $message;
     }
 
+    /** The application's question for a held replacement, in its own words. */
+    private function replacementQuestion(PlanReplacementProposal $proposal): string
+    {
+        $minutes = PlanReplacementProposal::TTL_MINUTES;
+        $changes = $proposal->changes;
+
+        if (count($changes) === 1) {
+            $change = $changes[0];
+
+            return $change['action'] === PlanReplacementProposal::CLEAR
+                ? "I haven't changed your plan. {$change['date']} already has {$change['existing_summary']}. Do you want me to turn it into a rest day? Reply \"yes\" within {$minutes} minutes to do exactly that; anything else leaves it as it is."
+                : "I haven't changed your plan. {$change['date']} already has {$change['existing_summary']}. Do you want me to replace it with ".PlanReplacementProposal::summarise($change['replacement'])."? Reply \"yes\" within {$minutes} minutes to replace it with exactly that; anything else leaves it as it is.";
+        }
+
+        return "I haven't changed your plan yet. These days already have a plan:\n"
+            .implode("\n", array_map(fn (array $c) => '- '.PlanReplacementProposal::describeChange($c), $changes))
+            ."\nDo you want me to make all of these changes? Reply \"yes\" within {$minutes} minutes to make exactly these changes and nothing else; anything else leaves your plan as it is.";
+    }
+
     /**
      * What the user is told about a requested save, whatever the model wrote: a replacement waiting for their
      * confirmation (the model's text is replaced by the question), a replacement they asked for (stated), or a save
@@ -477,13 +511,7 @@ class AiCoachService
     private function saveOutcome(string $text, ToolTurn $turn, SaveWorkoutScope $scope): array
     {
         if (($pending = $turn->pendingReplacement()) !== null) {
-            $minutes = PlanReplacementProposal::TTL_MINUTES;
-
-            return [
-                "I haven't changed your plan. {$pending->date} already has {$pending->existingSummary}. Do you want me to replace it with ".PlanReplacementProposal::summarise($pending->replacement).'? '
-                ."Reply \"yes\" within {$minutes} minutes to replace it with exactly that; anything else leaves it as it is.",
-                $this->proposals->presentReplacement($pending) + ['save_clarification' => true],
-            ];
+            return [$this->replacementQuestion($pending), $this->proposals->presentReplacement($pending) + ['save_clarification' => true]];
         }
 
         if (($replaced = $turn->replaced()) !== null) {

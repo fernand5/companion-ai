@@ -3,7 +3,9 @@
 namespace App\Services\Tools;
 
 use App\Models\User;
+use App\Services\Fitness\PlanReplacementNotAuthorized;
 use App\Services\Fitness\WorkoutPlanService;
+use Carbon\CarbonImmutable;
 use Illuminate\Validation\ValidationException;
 
 class CreateWorkoutPlanTool implements AiTool
@@ -76,11 +78,22 @@ class CreateWorkoutPlanTool implements AiTool
                 'reasoning_factors' => $arguments['reasoning_factors'] ?? null,
                 'exercises' => $arguments['exercises'] ?? null,
                 'source' => 'ai',
-            ]);
+            ], ReplacementGrant::permits($arguments, $this->dateOf($arguments, $user)));
         } catch (ValidationException $e) {
             return ['error' => implode(' ', $e->validator->errors()->all())];
+        } catch (PlanReplacementNotAuthorized $e) {
+            return ['error' => "Nothing was changed: {$e->date} already has a plan and the user has not authorized replacing it."];
         }
 
         return GetTodaysPlanTool::present($plan);
+    }
+
+    private function dateOf(array $arguments, User $user): string
+    {
+        try {
+            return CarbonImmutable::parse($arguments['planned_date'] ?? $user->localToday())->toDateString();
+        } catch (\Throwable) {
+            return (string) $user->localToday();
+        }
     }
 }

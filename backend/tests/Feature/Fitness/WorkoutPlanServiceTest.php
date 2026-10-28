@@ -102,7 +102,7 @@ class WorkoutPlanServiceTest extends TestCase
             'activity_type' => 'strength',
             'title' => 'Replaced Plan',
             'exercises' => [['exercise_name' => 'Bench Press'], ['exercise_name' => 'Row']],
-        ]);
+        ], replaceExisting: true);
 
         $this->assertSame($first->id, $second->id);
         $this->assertSame(1, WorkoutPlan::where('user_id', $user->id)->count());

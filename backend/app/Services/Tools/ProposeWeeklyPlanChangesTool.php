@@ -82,7 +82,7 @@ class ProposeWeeklyPlanChangesTool implements AiTool
         }
 
         try {
-            $result = $this->weeklyPlanService->applyChanges($user, $arguments['changes'], $arguments['reasoning_factors']);
+            $result = $this->weeklyPlanService->applyChanges($user, $arguments['changes'], $arguments['reasoning_factors'], ReplacementGrant::dates($arguments));
         } catch (ValidationException $e) {
             return ['error' => implode(' ', $e->validator->errors()->all())];
         }

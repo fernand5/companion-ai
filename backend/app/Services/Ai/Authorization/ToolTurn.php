@@ -4,8 +4,13 @@ namespace App\Services\Ai\Authorization;
 
 use App\Models\User;
 use App\Models\WorkoutPlan;
+use App\Services\Fitness\WeeklyPlanService;
+use App\Services\Tools\ReplacementGrant;
 use App\Services\Tools\ToolRegistry;
+use App\Support\ApplicationKey;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 /**
  * The tools one turn may use, under one fixed authorization.
@@ -34,8 +39,17 @@ final class ToolTurn
     /** "Add this workout to my dashboard" is handled once per turn: written, held for confirmation, or refused. */
     private bool $saveHandled = false;
 
-    /** A replacement of an existing plan that the application will ask the user to confirm. */
-    private ?PlanReplacementProposal $pendingReplacement = null;
+    /**
+     * Replacements of days that already have an untouched plan, held for the user's confirmation instead of being
+     * written (by date). The application turns them into ONE signed proposal and asks (see pendingReplacement()).
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    private array $held = [];
+
+    private ?PlanReplacementProposal $proposal = null;
+
+    private ?int $heldFor = null;
 
     /** @var array{date: string, was: string}|null a plan the user explicitly asked to replace, and which was replaced */
     private ?array $replaced = null;
@@ -48,6 +62,8 @@ final class ToolTurn
         private readonly PlanLoadGuard $loadGuard,
         private readonly ProposalMatcher $matcher,
         public readonly ToolAuthorization $authorization,
+        private readonly WeeklyPlanService $weekly,
+        private readonly ?int $conversationId = null,
     ) {}
 
     /**
@@ -78,6 +94,8 @@ final class ToolTurn
 
     public function call(string $name, array $arguments, User $user): mixed
     {
+        // Only this class decides that a day may be replaced; whatever the model put there is thrown away.
+        $arguments = ReplacementGrant::strip($arguments);
         $capability = ToolCapabilities::for($name);
 
         if (! $this->authorization->permits($capability)) {
@@ -111,7 +129,23 @@ final class ToolTurn
             }
         }
 
+        // Replacing a day's existing plan is a separate decision from writing a plan (see authorizeReplacement()).
+        $heldDates = [];
+
+        if ($capability === ToolCapability::PlanCreate || $capability === ToolCapability::PlanAdapt) {
+            [$arguments, $early, $heldDates] = $this->authorizeReplacement($name, $capability, $arguments, $user, $unset);
+
+            if ($early !== null) {
+                return $early;
+            }
+        }
+
         $result = $this->registry->call($name, $arguments, $user);
+
+        if ($heldDates !== [] && is_array($result)) {
+            $result['held_for_confirmation'] = $heldDates;
+            $result['note'] = 'Those days already have a plan, so nothing was changed on them: the application is asking the user to confirm. Do not say they were changed.';
+        }
 
         if ($unset !== [] && is_array($result) && ! array_key_exists('error', $result)) {
             $this->loadsLeftUnset = [...$this->loadsLeftUnset, ...$unset];
@@ -124,6 +158,215 @@ final class ToolTurn
         }
 
         return $result;
+    }
+
+    /**
+     * The one place a chat tool call is allowed (or not) to REPLACE a plan that is already on a day. Three kinds of day:
+     *
+     *  - nothing planned: written, as always;
+     *  - started, partly done, completed or with recorded sets: never replaced (the write refuses it too);
+     *  - an untouched plan: the write may replace it only if the authorization covers THIS change. A user-invoked
+     *    endpoint (the Weekly Plan page's own adaptation box) covers it. An explicit request to change the plan covers a
+     *    targeted adjustment of the same exercises (PlanChangeKind::TARGETED). Everything else, a different workout in
+     *    its place or a rest day made of it, from any request, is held: nothing is written, and the application asks
+     *    the user to confirm exactly that (PlanReplacementProposal). A report, a request for a session or a wish is
+     *    never enough, and neither is a model's say-so.
+     *
+     * The service that does the write refuses to replace unless it is handed the grant set here.
+     *
+     * @param  array<int, array{exercise: string, date: string, requested_kg: float}>  $unset
+     * @return array{0: array<string, mixed>, 1: ?array<string, mixed>, 2: array<int, string>} arguments (with the grant), an early result, days held
+     */
+    private function authorizeReplacement(string $name, ToolCapability $capability, array $arguments, User $user, array $unset): array
+    {
+        if ($this->authorization->basis === 'endpoint:'.ToolAuthorization::ENDPOINT_WEEKLY_ADAPT) {
+            return [ReplacementGrant::grant($arguments, true), null, []];
+        }
+
+        if ($name === 'create_workout_plan' && $capability === ToolCapability::PlanCreate) {
+            $date = $this->dateOf($arguments['planned_date'] ?? null, $user);
+            $existing = $this->untouchedPlan($user, $date);
+
+            if ($existing === null) {
+                return [$arguments, null, []]; // nothing there (or not replaceable: the write itself refuses)
+            }
+
+            if ($this->coveredByRequest(PlanChangeKind::of($existing, $arguments))) {
+                return [ReplacementGrant::grant($arguments, [$date]), null, []];
+            }
+
+            $held = $this->buildHold($user, $date, $existing, PlanReplacementProposal::REPLACE, $arguments, $unset);
+
+            if (is_string($held)) {
+                return [$arguments, $this->refuse($name, $capability, 'cannot_ask_for_confirmation', $held), []];
+            }
+
+            $this->commitHold($user, $date, $held);
+
+            return [$arguments, $this->pendingResult($date, $existing), []];
+        }
+
+        if ($name === 'propose_weekly_plan_changes' && is_array($arguments['changes'] ?? null) && $arguments['changes'] !== []) {
+            return $this->authorizeWeeklyReplacements($name, $capability, $arguments, $user, $unset);
+        }
+
+        return [$arguments, null, []];
+    }
+
+    /**
+     * A weekly adaptation keeps working on days with nothing planned and on targeted adjustments the user asked for. A
+     * change that would replace or clear an untouched plan is taken out of the batch and held for confirmation; the rest
+     * of the batch goes ahead. If any change is invalid, or any hold cannot be made, nothing is held and the tool
+     * answers as it always did.
+     *
+     * @param  array<int, array{exercise: string, date: string, requested_kg: float}>  $unset
+     * @return array{0: array<string, mixed>, 1: ?array<string, mixed>, 2: array<int, string>}
+     */
+    private function authorizeWeeklyReplacements(string $name, ToolCapability $capability, array $arguments, User $user, array $unset): array
+    {
+        try {
+            $valid = $this->weekly->validatedChanges($user, $arguments['changes']);
+        } catch (ValidationException) {
+            return [$arguments, null, []]; // the tool reports the same error, and writes nothing
+        }
+
+        $original = array_values($arguments['changes']);
+        $keep = [];
+        $grant = [];
+        $holds = [];
+
+        foreach ($valid as $i => $change) {
+            $existing = $this->untouchedPlan($user, $change['date']);
+
+            // Nowhere to ask (a button, not a conversation): a day that already has a plan is left as it is, and the
+            // write reports it as needing confirmation, while the rest of the batch goes ahead.
+            if ($existing === null || $this->conversationId === null) {
+                $keep[] = $original[$i];
+
+                continue;
+            }
+
+            $kind = $change['action'] === 'clear'
+                ? ($existing->isRestDay() ? PlanChangeKind::NONE : PlanChangeKind::REPLACEMENT)
+                : PlanChangeKind::of($existing, $change);
+
+            if ($this->coveredByRequest($kind)) {
+                $keep[] = $original[$i];
+                $grant[] = $change['date'];
+
+                continue;
+            }
+
+            $held = $this->buildHold(
+                $user, $change['date'], $existing,
+                $change['action'] === 'clear' ? PlanReplacementProposal::CLEAR : PlanReplacementProposal::REPLACE,
+                $change + ['decision_summary' => $change['reason'], 'reasoning_factors' => $arguments['reasoning_factors'] ?? []],
+                $unset,
+                $change['reason'],
+            );
+
+            if (is_string($held)) {
+                return [$arguments, $this->refuse($name, $capability, 'cannot_ask_for_confirmation', $held), []];
+            }
+
+            $holds[$change['date']] = [$held, $existing];
+        }
+
+        foreach ($holds as $date => [$held]) {
+            $this->commitHold($user, $date, $held);
+        }
+
+        $arguments['changes'] = $keep;
+
+        return [$grant === [] ? $arguments : ReplacementGrant::grant($arguments, $grant), null, array_keys($holds)];
+    }
+
+    /** What a request covers without asking again: no change at all, and, if the user asked to change the plan, an adjustment. */
+    private function coveredByRequest(string $kind): bool
+    {
+        return $kind === PlanChangeKind::NONE
+            || ($kind === PlanChangeKind::TARGETED && in_array('explicit_change', explode('+', $this->authorization->basis), true));
+    }
+
+    /** The day's plan if it exists and may still be replaced (untouched), else null. */
+    private function untouchedPlan(User $user, string $date): ?WorkoutPlan
+    {
+        $plan = $user->workoutPlans()->with('exercises')->whereDate('planned_date', $date)->first();
+
+        return $plan !== null && $plan->isReplaceable() ? $plan : null;
+    }
+
+    private function dateOf(mixed $value, User $user): string
+    {
+        try {
+            return CarbonImmutable::parse(is_string($value) && $value !== '' ? $value : $user->localToday())->toDateString();
+        } catch (\Throwable) {
+            return (string) $user->localToday();
+        }
+    }
+
+    /**
+     * One held change, checked against the strictest load rules so the user is never asked to confirm something the
+     * confirmation would then refuse. A string is the reason it cannot be held.
+     *
+     * @param  array<string, mixed>  $replacement  a create_workout_plan call (or a weekly change), unused for a clear
+     * @param  array<int, array{exercise: string, date: string, requested_kg: float}>  $unset
+     * @return array<string, mixed>|string
+     */
+    private function buildHold(User $user, string $date, WorkoutPlan $existing, string $action, array $replacement, array $unset, string $reason = ''): array|string
+    {
+        if ($this->conversationId === null || ! ApplicationKey::usable()) {
+            return 'Not done, nothing was changed: replacing a day that already has a plan needs the user\'s confirmation and it cannot be asked for here.';
+        }
+
+        if (! isset($this->held[$date]) && count($this->held) >= PlanReplacementProposal::MAX_DAYS) {
+            return 'Not done, nothing was changed: too many days at once. Ask about fewer days.';
+        }
+
+        $change = [
+            'date' => $date,
+            'existing_plan_id' => $existing->id,
+            'existing_revision' => $existing->revision(),
+            'existing_summary' => $this->describeExisting($existing),
+            'action' => $action,
+            'reason' => $reason,
+            'replacement' => null,
+            'unset' => [],
+        ];
+
+        if ($action === PlanReplacementProposal::REPLACE) {
+            $replacement = ['planned_date' => $date] + $replacement;
+            ['arguments' => $replacement, 'unset' => $stricter] = $this->loadGuard->withoutUnbaselinedLoads($user, 'create_workout_plan', $replacement, false, []);
+
+            if (($violations = $this->loadGuard->violations($user, 'create_workout_plan', $replacement, false)) !== []) {
+                return 'Not done, nothing was changed: '.implode(' ', $violations);
+            }
+
+            $change['replacement'] = $replacement;
+            $change['unset'] = [...$unset, ...$stricter];
+        }
+
+        return $change;
+    }
+
+    /** @param array<string, mixed> $change */
+    private function commitHold(User $user, string $date, array $change): void
+    {
+        $this->loadsLeftUnset = [...$this->loadsLeftUnset, ...$change['unset']];
+        unset($change['unset']);
+        $this->held[$date] = $change;
+        $this->heldFor = $user->id;
+        $this->proposal = null;
+    }
+
+    /** @return array<string, mixed> */
+    private function pendingResult(string $date, WorkoutPlan $existing): array
+    {
+        return [
+            'error' => 'Nothing was changed yet: '.$date.' already has a planned workout ('.$this->describeExisting($existing).'). The application is now asking the user to confirm replacing it. '
+                .'Do not say it was saved or replaced; say that nothing has changed until the user confirms.',
+            'pending_confirmation' => true,
+        ];
     }
 
     /**
@@ -214,23 +457,20 @@ final class ToolTurn
         }
 
         if ($existing !== null && ! $scope->replacementRequested) {
-            try {
-                $this->pendingReplacement = PlanReplacementProposal::create(
-                    $user->id, $scope->conversationId, $scope->date, $existing->id, $existing->revision(), $this->describeExisting($existing), $arguments,
-                );
-            } catch (\LogicException) {
-                return $this->refuse($name, $capability, 'cannot_ask_for_confirmation', 'Not done, nothing was changed: replacing that day needs the user\'s confirmation and it cannot be asked for right now.');
+            $held = $this->buildHold($user, $scope->date, $existing, PlanReplacementProposal::REPLACE, $arguments, $unset);
+
+            if (is_string($held)) {
+                return $this->refuse($name, $capability, 'cannot_ask_for_confirmation', $held);
             }
 
+            $this->commitHold($user, $scope->date, $held);
             $this->saveHandled = true;
-            $this->loadsLeftUnset = [...$this->loadsLeftUnset, ...$unset];
 
-            return [
-                'error' => 'Nothing was changed yet: '.$scope->date.' already has a planned workout ('.$this->describeExisting($existing).'). The application is now asking the user to confirm replacing it. '
-                    .'Do not say it was saved or replaced; say that nothing has changed until the user confirms.',
-                'pending_confirmation' => true,
-            ];
+            return $this->pendingResult($scope->date, $existing);
         }
+
+        // Writing over an untouched plan the user said to replace, or to an empty day: the grant covers this one day.
+        $arguments = ReplacementGrant::grant($arguments, [$scope->date]);
 
         $result = $this->registry->call($name, $arguments, $user);
 
@@ -272,10 +512,14 @@ final class ToolTurn
         ]);
     }
 
-    /** The replacement the application must now ask the user to confirm, if this turn found one. */
+    /** The replacements the application must now ask the user to confirm, as one signed proposal, if this turn held any. */
     public function pendingReplacement(): ?PlanReplacementProposal
     {
-        return $this->pendingReplacement;
+        if ($this->held === [] || $this->heldFor === null || $this->conversationId === null) {
+            return null;
+        }
+
+        return $this->proposal ??= PlanReplacementProposal::create($this->heldFor, $this->conversationId, array_values($this->held));
     }
 
     /** @return array{date: string, was: string}|null the plan an explicit replacement request just replaced */

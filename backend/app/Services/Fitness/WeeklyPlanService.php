@@ -79,20 +79,24 @@ class WeeklyPlanService
     /**
      * Validates every change up front (nothing is written if any change is
      * invalid — the whole batch fails atomically), then applies the valid
-     * batch inside one transaction. A day whose plan is already completed or
-     * partial is skipped rather than silently overwritten, since that would
-     * corrupt logged history the user has already confirmed.
+     * batch inside one transaction.
+     *
+     * A day that is started, partly done, completed or has recorded performance is skipped rather than overwritten,
+     * since that would corrupt logged history the user has already confirmed. A day that already has an untouched plan
+     * is only replaced or cleared if $mayReplace says the user authorized it for that day (`true` for any day, or the
+     * list of days); otherwise it is skipped as "needs_confirmation" and the rest of the batch goes ahead. Days with
+     * nothing planned are always written.
      *
      * @param  array<int, array<string, mixed>>  $changes
      * @param  string[]  $reasoningFactors
+     * @param  true|array<int, string>  $mayReplace
      * @return array{applied: string[], skipped: array<int, array{date: string, reason: string}>, cleared: string[]}
      */
-    public function applyChanges(User $user, array $changes, array $reasoningFactors = []): array
+    public function applyChanges(User $user, array $changes, array $reasoningFactors = [], true|array $mayReplace = []): array
     {
-        $weekRange = $this->weekRange($user);
-        $validatedChanges = $this->validateChanges($changes, $weekRange);
+        $validatedChanges = $this->validatedChanges($user, $changes);
 
-        return DB::transaction(function () use ($user, $validatedChanges, $reasoningFactors) {
+        return DB::transaction(function () use ($user, $validatedChanges, $reasoningFactors, $mayReplace) {
             $applied = [];
             $skipped = [];
             $cleared = [];
@@ -101,28 +105,22 @@ class WeeklyPlanService
                 $date = $change['date'];
                 $existing = $this->workoutPlanService->forDate($user, $date);
 
-                if ($existing && (in_array($existing->status, [WorkoutPlan::STATUS_COMPLETED, WorkoutPlan::STATUS_PARTIAL], true) || $existing->hasRecordedPerformance())) {
-                    $skipped[] = ['date' => $date, 'reason' => 'already_completed'];
+                if ($existing && ! $existing->isReplaceable()) {
+                    $skipped[] = ['date' => $date, 'reason' => $existing->status === WorkoutPlan::STATUS_IN_PROGRESS && ! $existing->hasRecordedPerformance() ? 'already_started' : 'already_completed'];
+
+                    continue;
+                }
+
+                $replaces = $existing !== null;
+
+                if ($replaces && $mayReplace !== true && ! in_array($date, $mayReplace, true)) {
+                    $skipped[] = ['date' => $date, 'reason' => 'needs_confirmation'];
 
                     continue;
                 }
 
                 if ($change['action'] === 'clear') {
-                    // Marked skipped rather than deleted, for two reasons: (1) the
-                    // day's reasoning/reasoning_factors stay visible ("why is
-                    // nothing planned here" shouldn't lose its explanation), and
-                    // (2) a deleted row would look identical to "never generated"
-                    // to scheduledDaysMissingPlans() — the next schedule-gap fill
-                    // would silently recreate a plan the user explicitly cleared.
-                    $plan = $this->workoutPlanService->createOrReplace($user, [
-                        'planned_date' => $date,
-                        'activity_type' => ActivityLog::TYPE_RECOVERY,
-                        'title' => WorkoutPlan::REST_TITLE,
-                        'reasoning' => $change['reason'],
-                        'reasoning_factors' => $reasoningFactors,
-                        'source' => WorkoutPlan::SOURCE_AI,
-                    ]);
-                    $plan->update(['status' => WorkoutPlan::STATUS_SKIPPED]);
+                    $this->clearDay($user, $date, $change['reason'], $reasoningFactors);
                     $cleared[] = $date;
 
                     continue;
@@ -137,13 +135,48 @@ class WeeklyPlanService
                     'reasoning' => $change['reason'],
                     'reasoning_factors' => $reasoningFactors,
                     'source' => WorkoutPlan::SOURCE_AI,
-                ]);
+                ], replaceExisting: $replaces);
 
                 $applied[] = $date;
             }
 
             return compact('applied', 'skipped', 'cleared');
         });
+    }
+
+    /**
+     * Mark a day as an explicit rest day. Marked skipped rather than deleted, for two reasons: (1) the day's
+     * reasoning/reasoning_factors stay visible ("why is nothing planned here" shouldn't lose its explanation), and (2)
+     * a deleted row would look identical to "never generated" to scheduledDaysMissingPlans() — the next schedule-gap
+     * fill would silently recreate a plan the user explicitly cleared. Replaces whatever untouched plan is there, so the
+     * caller must already hold the user's authorization for that.
+     *
+     * @param  string[]  $reasoningFactors
+     */
+    public function clearDay(User $user, string $date, string $reason, array $reasoningFactors = []): WorkoutPlan
+    {
+        $plan = $this->workoutPlanService->createOrReplace($user, [
+            'planned_date' => $date,
+            'activity_type' => ActivityLog::TYPE_RECOVERY,
+            'title' => WorkoutPlan::REST_TITLE,
+            'reasoning' => $reason,
+            'reasoning_factors' => $reasoningFactors,
+            'source' => WorkoutPlan::SOURCE_AI,
+        ], replaceExisting: true);
+        $plan->update(['status' => WorkoutPlan::STATUS_SKIPPED]);
+
+        return $plan;
+    }
+
+    /**
+     * Each change checked and normalised, or a ValidationException for the first bad one. Nothing is written.
+     *
+     * @param  array<int, array<string, mixed>>  $changes
+     * @return array<int, array<string, mixed>>
+     */
+    public function validatedChanges(User $user, array $changes): array
+    {
+        return $this->validateChanges($changes, $this->weekRange($user));
     }
 
     /**

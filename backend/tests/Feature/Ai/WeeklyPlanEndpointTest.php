@@ -136,6 +136,34 @@ class WeeklyPlanEndpointTest extends TestCase
         $this->assertStringContainsString($thursday, $userMessage['content']);
     }
 
+    public function test_generate_fills_gaps_and_never_replaces_a_day_that_already_has_a_plan_even_if_the_model_tries(): void
+    {
+        $user = User::factory()->create();
+        $tuesday = now()->startOfWeek(Carbon::MONDAY)->addDays(1)->toDateString();
+        $thursday = now()->startOfWeek(Carbon::MONDAY)->addDays(3)->toDateString();
+
+        TrainingSchedule::factory()->for($user)->create(['day_of_week' => 4, 'activity_type' => 'Soccer']);
+        app(WorkoutPlanService::class)->createOrReplace($user, ['planned_date' => $tuesday, 'activity_type' => 'strength', 'title' => 'My own Tuesday']);
+
+        $fake = new FakeAiProvider;
+        $fake->queue(new AiResponse(text: null, toolCalls: [
+            new ToolCallRequest(id: 'call_1', name: 'propose_weekly_plan_changes', arguments: [
+                'decision_summary' => 'Filled the week.',
+                'reasoning_factors' => ['Recurring soccer schedule'],
+                'changes' => [
+                    ['date' => $tuesday, 'action' => 'replace', 'activity_type' => 'recovery', 'title' => 'Overwritten', 'reason' => 'Because.'],
+                    ['date' => $thursday, 'action' => 'replace', 'activity_type' => 'sport', 'title' => 'Soccer', 'reason' => 'Matches recurring schedule.'],
+                ],
+            ]),
+        ]));
+        $this->app->instance(AiProvider::class, $fake);
+
+        $this->actingAs($user, 'sanctum')->postJson('/api/weekly-plan/generate', [])->assertOk();
+
+        $this->assertSame('My own Tuesday', app(WorkoutPlanService::class)->forDate($user, $tuesday)?->title, 'Generating a week fills gaps; it does not replace what is planned.');
+        $this->assertSame('Soccer', app(WorkoutPlanService::class)->forDate($user, $thursday)?->title);
+    }
+
     public function test_generate_does_not_call_the_ai_when_the_schedule_is_already_fully_covered(): void
     {
         $user = User::factory()->create();

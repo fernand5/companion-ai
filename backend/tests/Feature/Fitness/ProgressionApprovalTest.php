@@ -316,7 +316,7 @@ class ProgressionApprovalTest extends PerformanceEvalCase
         app(WorkoutPlanService::class)->createOrReplace($this->user, [
             'planned_date' => $this->day, 'activity_type' => 'strength', 'title' => 'Replaced',
             'exercises' => [['exercise_name' => 'Bench Press', 'planned_sets' => 3, 'planned_reps' => 10, 'planned_weight_kg' => 40]],
-        ]);
+        ], replaceExisting: true);
 
         $this->approve($proposal)->assertStatus(409)->assertJson(['code' => 'stale']);
         $this->assertSame(40.0, $this->benchWeight($this->day));
@@ -671,7 +671,7 @@ class ProgressionApprovalTest extends PerformanceEvalCase
         app(WorkoutPlanService::class)->createOrReplace($this->user, [
             'planned_date' => $this->day, 'activity_type' => 'strength', 'title' => 'Replaced',
             'exercises' => [['exercise_name' => 'Bench Press', 'planned_sets' => 3, 'planned_reps' => 10, 'planned_weight_kg' => 40]],
-        ]);
+        ], replaceExisting: true);
 
         $this->assertSame(0, $this->dismissals(), 'The record goes with the plan row it was about.');
         $this->assertTrue($this->item('Bench Press')['actionable']);

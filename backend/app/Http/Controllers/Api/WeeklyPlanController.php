@@ -75,7 +75,7 @@ class WeeklyPlanController extends Controller
             : 'Generate an initial plan for this week.';
 
         try {
-            $result = $this->weeklyPlanCoachService->run($user, $instruction);
+            $result = $this->weeklyPlanCoachService->run($user, $instruction, WeeklyPlanCoachService::GENERATE_ENDPOINT);
         } catch (AiProviderException $e) {
             return response()->json(['message' => $e->userFacingMessage()], 503);
         }

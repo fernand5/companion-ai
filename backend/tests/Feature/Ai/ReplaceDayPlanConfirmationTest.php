@@ -91,7 +91,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         return app(WorkoutPlanService::class)->createOrReplace($user ?? $this->user, [
             'planned_date' => $date ?? $this->today, 'activity_type' => 'strength', 'title' => $title,
             'exercises' => [['exercise_name' => 'Squats', 'planned_sets' => 3, 'planned_reps' => 10]],
-        ]);
+        ], replaceExisting: true); // test setup: put a plan on the day, whatever is there
     }
 
     private function planOn(string $date, ?User $user = null): ?WorkoutPlan
@@ -240,8 +240,8 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         $this->say('Add this workout to my plan for Friday', $conversation, null, $this->saveCall($friday, 'Second'), new AiResponse(text: 'Added.'));
         $this->assertStringContainsString("{$friday} already has", $this->lastAssistant($conversation)->content);
         $this->assertSame('Upper body', $this->planOn($friday)->title);
-        $this->assertSame($friday, $this->pendingMeta($conversation)['date']);
-        $this->assertNotSame($today->id, $this->pendingMeta($conversation)['existing_plan_id'], "The proposal is about Friday's plan, not today's.");
+        $this->assertSame($friday, $this->pendingMeta($conversation)['changes'][0]['date']);
+        $this->assertNotSame($today->id, $this->pendingMeta($conversation)['changes'][0]['existing_plan_id'], "The proposal is about Friday's plan, not today's.");
     }
 
     public function test_asking_again_after_the_question_finds_the_workout_and_asks_afresh(): void
@@ -345,11 +345,14 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         // A proposal whose fingerprint matches the day as it stands now, but the day has performance on it.
         $plan = $this->logSets($this->user, 0, 'Bench Press', [3, 10, 40], array_fill(0, 3, ['reps' => 10, 'weight_kg' => 40]));
         $conversation = $this->actingAs($this->user, 'sanctum')->postJson('/api/conversations', [])->json('id');
-        $proposal = PlanReplacementProposal::create($this->user->id, $conversation, $this->today, $plan->id, $plan->fresh()->revision(), 'x', ['activity_type' => 'strength', 'title' => 'New', 'decision_summary' => 'x', 'reasoning_factors' => ['y'], 'exercises' => [['exercise_name' => 'Squats', 'planned_sets' => 3, 'planned_reps' => 10]]]);
+        $proposal = PlanReplacementProposal::create($this->user->id, $conversation, [[
+            'date' => $this->today, 'existing_plan_id' => $plan->id, 'existing_revision' => $plan->fresh()->revision(), 'existing_summary' => 'x', 'action' => 'replace',
+            'replacement' => ['activity_type' => 'strength', 'title' => 'New', 'decision_summary' => 'x', 'reasoning_factors' => ['y'], 'exercises' => [['exercise_name' => 'Squats', 'planned_sets' => 3, 'planned_reps' => 10]]],
+        ]]);
 
         $result = app(PlanReplacer::class)->apply($this->user, $proposal);
 
-        $this->assertSame('that day already has recorded workout performance, so its plan can no longer be replaced.', $result, "The application's own check, not just the plan service's.");
+        $this->assertSame($this->today.' already has recorded workout performance, so its plan can no longer be replaced.', $result, "The application's own check, not just the plan service's.");
         $this->assertSame('Bench Press', $this->planOn($this->today)->exercises->first()->exercise_name);
     }
 
@@ -436,10 +439,12 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
     public function test_a_forged_or_edited_proposal_is_refused(): void
     {
         foreach ([
-            'another day' => fn (array $m) => ['date' => now('America/Bogota')->addDays(2)->toDateString()] + $m,
-            'another plan' => fn (array $m) => ['existing_plan_id' => $m['existing_plan_id'] + 100] + $m,
-            'another revision' => fn (array $m) => ['existing_revision' => str_repeat('a', 64)] + $m,
-            'another workout' => fn (array $m) => ['replacement' => ['title' => 'Chosen by someone else'] + $m['replacement']] + $m,
+            'another day' => fn (array $m) => ['changes' => [['date' => now('America/Bogota')->addDays(2)->toDateString()] + $m['changes'][0]]] + $m,
+            'another plan' => fn (array $m) => ['changes' => [['existing_plan_id' => $m['changes'][0]['existing_plan_id'] + 100] + $m['changes'][0]]] + $m,
+            'another revision' => fn (array $m) => ['changes' => [['existing_revision' => str_repeat('a', 64)] + $m['changes'][0]]] + $m,
+            'another workout' => fn (array $m) => ['changes' => [['replacement' => ['title' => 'Chosen by someone else'] + $m['changes'][0]['replacement']] + $m['changes'][0]]] + $m,
+            'another action' => fn (array $m) => ['changes' => [['action' => 'clear', 'replacement' => null] + $m['changes'][0]]] + $m,
+            'an extra day' => fn (array $m) => ['changes' => [...$m['changes'], ['date' => now('America/Bogota')->addDay()->toDateString()] + $m['changes'][0]]] + $m,
             'another user' => fn (array $m) => ['user_id' => $m['user_id'] + 1] + $m,
             'no signature' => fn (array $m) => array_diff_key($m, ['signature' => 1]),
             'a longer life' => fn (array $m) => ['expires_at' => now()->addYear()->toIso8601String()] + $m,
@@ -539,7 +544,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
             ['exercise_name' => 'Push-ups', 'planned_sets' => 3, 'planned_reps' => 12],
         ]), new AiResponse(text: 'Done.'));
 
-        $this->assertNull($this->pendingMeta($conversation)['replacement']['exercises'][0]['planned_weight_kg'], 'The weight in the coach\'s own reply is not signed into the proposal.');
+        $this->assertNull($this->pendingMeta($conversation)['changes'][0]['replacement']['exercises'][0]['planned_weight_kg'], 'The weight in the coach\'s own reply is not signed into the proposal.');
         $this->assertStringContainsString('I left the starting weight for Goblet Squat unset', $this->lastAssistant($conversation)->content);
 
         $this->say('yes', $conversation);
@@ -571,8 +576,8 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
 
         // As if a proposal had been built with a load nothing supports: re-signed by the application, so it is authentic.
         $meta = $message->meta[PendingProposalStore::REPLACEMENT_META_KEY];
-        $meta['replacement']['exercises'][0]['planned_weight_kg'] = 90;
-        $forged = PlanReplacementProposal::create($this->user->id, $conversation, $meta['date'], $meta['existing_plan_id'], $meta['existing_revision'], $meta['existing_summary'], ['activity_type' => 'strength', 'title' => 'Upper body', 'decision_summary' => 'x', 'reasoning_factors' => ['y']] + ['exercises' => $meta['replacement']['exercises']]);
+        $meta['changes'][0]['replacement']['exercises'][0]['planned_weight_kg'] = 90;
+        $forged = PlanReplacementProposal::create($this->user->id, $conversation, [$meta['changes'][0]]);
         $message->update(['meta' => [PendingProposalStore::REPLACEMENT_META_KEY => $forged->toMeta()]]);
 
         $this->say('yes', $conversation);
