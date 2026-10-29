@@ -47,11 +47,13 @@ final class SavedWorkoutReference
     /**
      * @param  Collection<int, Message>  $history  the conversation up to and including the user's current message
      * @param  bool  $inMessageOnly  the request names its own workout ("add a 30 minute run to my plan"), so nothing earlier is looked at
+     * @param  bool  $retry  the message repeats an earlier request, so that request and the replies that did not save it
+     *                       ("I can't…") are not in the way of the workout they were about
      */
-    public function resolve(string $userMessage, Collection $history, bool $inMessageOnly = false): WorkoutReference
+    public function resolve(string $userMessage, Collection $history, bool $inMessageOnly = false, bool $retry = false): WorkoutReference
     {
         $own = self::routines($userMessage);
-        $reply = $inMessageOnly ? null : self::precedingReply($history);
+        $reply = $inMessageOnly ? null : self::precedingReply($history, $retry);
         $inReply = $reply !== null ? self::routines($reply) : [];
 
         if ($own !== []) {
@@ -132,7 +134,145 @@ final class SavedWorkoutReference
             return WorkoutReference::unresolved(WorkoutReference::INCOMPLETE);
         }
 
-        return WorkoutReference::found($text, self::items($text), $origin);
+        // "Romanian Deadlift or Goblet Squat": the user has to pick, and one of them is saved, never both and never a guess.
+        $items = [];
+        $choices = [];
+
+        foreach (self::items($text) as $item) {
+            $options = self::alternatives($item);
+            $chosen = $options !== null ? self::selects($options, $userMessage) : null;
+            $chosenItem = $chosen !== null ? self::withChoice($item, $options, $chosen) : null;
+
+            if ($options !== null && $chosenItem === null) {
+                $choices[] = ['item' => $item, 'options' => $options];
+            }
+
+            $items[] = $chosenItem ?? $item;
+        }
+
+        if ($choices !== []) {
+            return WorkoutReference::needsChoice($choices);
+        }
+
+        return WorkoutReference::found($text, $items, $origin);
+    }
+
+    /**
+     * The exercises an item offers instead of one another ("Romanian Deadlift or Goblet Squat 3x10"), or null if it
+     * names one.
+     *
+     * @return array<int, string>|null
+     */
+    public static function alternatives(string $item): ?array
+    {
+        $text = (string) preg_replace('/[*_`#]+/u', '', $item);
+        $text = (string) preg_replace('/'.self::AMOUNT.'/iu', ' ', $text);
+        $text = (string) preg_replace('/\d+/u', ' ', $text);
+        $text = (string) preg_replace('/\b(?:sets?|reps?|of|rounds?|min(?:ute)?s?|seconds?|secs?|each|per|side|x)\b/iu', ' ', $text);
+        $text = (string) preg_replace('/(?<![\p{L}])-|-(?![\p{L}])/u', ' ', $text);
+        $text = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[^\p{L}\s\'’\/,-]+/u', ' ', $text)));
+
+        if (! preg_match('/\bor\b|\//iu', $text)) {
+            return null;
+        }
+
+        // "Squats, lunges or step-ups"
+        $text = str_replace(',', ' or ', $text);
+
+        $parts = preg_split('/\s+or\s+|\s*\/\s*/iu', $text) ?: [];
+        $parts = array_values(array_filter(array_map(fn (string $p) => trim((string) preg_replace('/^or\s+/iu', '', trim($p))), $parts), fn (string $p) => $p !== ''));
+
+        if (count($parts) < 2 || count($parts) > 4) {
+            return null;
+        }
+
+        foreach ($parts as $part) {
+            $words = preg_split('/\s+/u', $part, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+            if (count($words) > 4 || mb_strlen($part) < 3 || in_array(mb_strtolower($words[0]), ['until', 'as', 'if', 'when', 'more', 'less', 'fewer', 'so', 'then', 'to', 'for', 'with', 'without', 'near', 'about', 'around', 'up', 'both', 'either'], true)) {
+                return null;
+            }
+        }
+
+        return $parts;
+    }
+
+    /**
+     * The one option the message names, or null if it names none or cannot be told apart ("squat" in "goblet squat" is
+     * the longer one's, not a second answer).
+     *
+     * @param  array<int, string>  $options
+     */
+    public static function selects(array $options, string $message): ?string
+    {
+        $haystack = self::squash($message);
+        $named = array_values(array_filter($options, fn (string $o) => self::squash($o) !== '' && str_contains($haystack, self::squash($o))));
+
+        if (count($named) > 1) {
+            $named = array_values(array_filter($named, function (string $o) use ($named) {
+                foreach ($named as $other) {
+                    if ($other !== $o && str_contains(self::squash($other), self::squash($o))) {
+                        return false;
+                    }
+                }
+
+                return true;
+            }));
+        }
+
+        return count($named) === 1 ? $named[0] : null;
+    }
+
+    /**
+     * Whether the message picks one of the offered exercises in at least one of the sets.
+     *
+     * @param  array<int, array<int, string>>  $groups
+     */
+    public static function selectsAny(array $groups, string $message): bool
+    {
+        foreach ($groups as $options) {
+            if (is_array($options) && self::selects($options, $message) !== null) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether the message picks one of several workouts ("option 2", "workout B", "the second one"). */
+    public static function picks(string $message): bool
+    {
+        $message = mb_strtolower($message);
+
+        if (preg_match(self::LABEL, $message)) {
+            return true;
+        }
+
+        foreach (array_keys(self::ORDINALS) as $word) {
+            if (preg_match('/\b'.preg_quote($word, '/').'\s+(?:one|option|workout|routine|session|plan)\b/u', $message)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The item with "A or B" replaced by the chosen exercise, or null if the item is not written in a way that can be.
+     *
+     * @param  array<int, string>  $options
+     */
+    private static function withChoice(string $item, array $options, string $chosen): ?string
+    {
+        $pattern = '/'.implode('\s*(?:,|\bor\b|\/)\s*', array_map(fn (string $o) => preg_quote($o, '/'), $options)).'/iu';
+        $replaced = preg_replace($pattern, $chosen, $item, 1, $count);
+
+        return $count === 1 ? $replaced : null;
+    }
+
+    private static function squash(string $text): string
+    {
+        return rtrim((string) preg_replace('/[^\p{L}]+/u', '', mb_strtolower($text)), 's');
     }
 
     /**
@@ -170,10 +310,15 @@ final class SavedWorkoutReference
 
     // ---- reading the conversation ------------------------------------------------------------------
 
-    /** The reply the user is answering: the nearest assistant message, ignoring the application's own save questions. */
-    private static function precedingReply(Collection $history): ?string
+    /**
+     * The reply the user is answering: the nearest assistant message, ignoring the application's own save questions. On
+     * a retry, also ignoring earlier requests to save and the replies that held no workout (a failure, an apology), but
+     * never an unrelated exchange.
+     */
+    private static function precedingReply(Collection $history, bool $retry): ?string
     {
         $skipRequest = false;
+        $skipSaveRequest = false;
 
         foreach ($history->slice(0, -1)->reverse() as $message) {
             if ($message->role === Message::ROLE_ASSISTANT) {
@@ -183,12 +328,26 @@ final class SavedWorkoutReference
                     continue;
                 }
 
-                return self::withoutApplicationNotices((string) $message->content);
+                $content = self::withoutApplicationNotices((string) $message->content);
+
+                if ($retry && self::routines($content) === []) {
+                    $skipSaveRequest = true;
+
+                    continue;
+                }
+
+                return $content;
             }
 
             // The request that the application's question was about is part of the question, not a change of subject.
             if ($skipRequest) {
                 $skipRequest = false;
+
+                continue;
+            }
+
+            if ($skipSaveRequest && SaveRetry::isSaveLike((string) $message->content)) {
+                $skipSaveRequest = false;
 
                 continue;
             }

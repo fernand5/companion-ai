@@ -249,6 +249,18 @@ export interface WeekActivity extends ActivityLog {
   session?: WorkoutSession | null
 }
 
+/**
+ * One daily step entry, as the user logged it. Steps are a measurement, not a workout: they never make a plan
+ * completed, and entries are never added together (the data does not say whether two entries on one date are
+ * separate walks or running totals). `steps` is null when the entry has no usable count.
+ */
+export interface WeekSteps {
+  id: number
+  logged_date: string
+  steps: number | null
+  created_at: string | null
+}
+
 export interface WeeklyPlanDay {
   date: string
   weekday: string
@@ -257,6 +269,7 @@ export interface WeeklyPlanDay {
   state: WeekDayState
   plan: WorkoutPlan | null
   activities: WeekActivity[]
+  steps: WeekSteps[]
 }
 
 export interface WeekInfo {

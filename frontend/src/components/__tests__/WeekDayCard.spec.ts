@@ -5,10 +5,10 @@ import WeekDayCard from '@/components/WeekDayCard.vue'
 import type { WeeklyPlanDay } from '@/types'
 import { DAY_STATE } from '@/utils/weekDay'
 
-import { WEEK, makeActivity, makeDay, makeExercise, makePlan } from './weekFixtures'
+import { WEEK, makeActivity, makeDay, makeExercise, makePlan, makeSteps } from './weekFixtures'
 
-function card(day: WeeklyPlanDay, props: { expanded?: boolean; suggestions?: number } = {}) {
-  return mount(WeekDayCard, { props: { day, expanded: props.expanded ?? true, suggestions: props.suggestions ?? 0 } })
+function card(day: WeeklyPlanDay, props: { expanded?: boolean; suggestions?: number; collapsible?: boolean } = {}) {
+  return mount(WeekDayCard, { props: { day, expanded: props.expanded ?? true, suggestions: props.suggestions ?? 0, collapsible: props.collapsible ?? true } })
 }
 
 const PAST = WEEK[0] < new Date().toISOString().slice(0, 10) ? WEEK[0] : '2000-01-03'
@@ -214,5 +214,81 @@ describe('WeekDayCard: opening, suggestions and layout', () => {
     expect(wrapper.get('[data-testid="day-heading"]').element.parentElement?.classList.contains('break-words')).toBe(true)
     expect(wrapper.get('[data-testid="exercise"] p').classes()).toContain('break-words')
     expect(wrapper.html()).not.toMatch(/\bw-\[\d+px\]|\bmin-w-\[\d+px\]/)
+  })
+})
+
+describe('WeekDayCard: steps', () => {
+  const withSteps = (steps: ReturnType<typeof makeSteps>[], plan: ReturnType<typeof makePlan> | null = null, activities = [] as ReturnType<typeof makeActivity>[]) =>
+    makeDay(PAST, plan && { ...plan, planned_date: PAST }, activities, { is_past: true, is_today: false, steps })
+
+  it('shows the count and the date it was logged for, apart from workouts', () => {
+    const wrapper = card(withSteps([makeSteps({ steps: 2000, logged_date: PAST })]))
+
+    expect(wrapper.get('[data-testid="steps-count"]').text()).toBe('2,000 steps')
+    expect(wrapper.get('[data-testid="steps-date"]').text()).toMatch(/^Logged for /)
+    expect(wrapper.find('[data-testid="activity"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="day-heading"]').text()).toBe('No workout planned or logged')
+    expect(wrapper.get('[data-testid="day-explanation"]').text()).toContain('Your steps are below')
+    expect(wrapper.find('[data-testid="day-state"]').exists()).toBe(false) // a day with only steps is still "nothing planned"
+  })
+
+  it('does not change a planned workout\'s status or heading', () => {
+    const wrapper = card(withSteps([makeSteps({ steps: 9000 })], makePlan({ status: 'planned', title: 'Upper Body' })))
+
+    expect(wrapper.get('[data-testid="day-heading"]').text()).toBe('Upper Body')
+    expect(wrapper.get('[data-testid="day-state"]').text()).toBe('Not marked done')
+    expect(wrapper.get('[data-testid="steps"]').text()).toContain("don't count as a workout or complete a planned session")
+  })
+
+  it('lists each entry as logged, says they are not added, and offers no total', () => {
+    const wrapper = card(withSteps([makeSteps({ id: 1, steps: 4000 }), makeSteps({ id: 2, steps: 2500 }), makeSteps({ id: 3, steps: 6100 })]))
+
+    expect(wrapper.findAll('[data-testid="steps-count"]').map((e) => e.text())).toEqual(['4,000 steps', '2,500 steps', '6,100 steps'])
+    expect(wrapper.get('[data-testid="steps-note"]').text()).toBe('3 separate entries, shown as logged and not added together.')
+    expect(wrapper.text()).not.toContain('12,600')
+    expect(wrapper.get('[data-testid="day-steps-summary"]').text()).toBe('3 step entries')
+  })
+
+  it('a single entry is summarised by its own count', () => {
+    expect(card(withSteps([makeSteps({ steps: 6000 })]), { expanded: false }).get('[data-testid="day-steps-summary"]').text()).toBe('6,000 steps')
+  })
+
+  it('an entry with no usable count says so, and zero stays zero', () => {
+    expect(card(withSteps([makeSteps({ steps: null })])).get('[data-testid="steps-count"]').text()).toBe('Steps logged (count not recorded)')
+    expect(card(withSteps([makeSteps({ steps: 0 })])).get('[data-testid="steps-count"]').text()).toBe('0 steps')
+  })
+
+  it('sits beside a logged workout without being one', () => {
+    const wrapper = card(withSteps([makeSteps({ steps: 7000 })], null, [makeActivity({ logged_date: PAST })]))
+
+    expect(wrapper.findAll('[data-testid="activity"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="steps-entry"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="day-state"]').text()).toBe('Unplanned activity')
+  })
+
+  it('leaves everything out when there are no steps, and still says nothing was recorded', () => {
+    const wrapper = card(pastDay(null))
+
+    expect(wrapper.find('[data-testid="steps"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="day-heading"]').text()).toBe('No plan or activity recorded')
+  })
+})
+
+describe('WeekDayCard: as the one day on show', () => {
+  it('has no button to open or close it, and its details are always visible', () => {
+    const wrapper = card(futureDay(makePlan({ exercises: [makeExercise()] })), { collapsible: false, expanded: false })
+
+    expect(wrapper.find('[data-testid="day-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-expanded]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="day-body"]').isVisible()).toBe(true)
+    expect(wrapper.get('[data-testid="day-heading"]').text()).toBe('Upper Body')
+    expect(wrapper.find('[data-testid="exercise"]').exists()).toBe(true)
+  })
+
+  it('is a toggle button by default', () => {
+    const wrapper = card(futureDay(makePlan()), { expanded: false })
+
+    expect(wrapper.get('[data-testid="day-toggle"]').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('[data-testid="day-body"]').isVisible()).toBe(false)
   })
 })

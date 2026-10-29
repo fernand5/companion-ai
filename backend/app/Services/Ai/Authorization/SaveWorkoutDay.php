@@ -86,6 +86,20 @@ final class SaveWorkoutDay
         return ['date' => $date->toDateString(), 'problem' => null];
     }
 
+    /** True if the message names a day at all (today, tomorrow, a weekday, a date), whether or not it is a usable one. */
+    public static function names(string $message): bool
+    {
+        return (bool) preg_match('/\b(?:today|tonight|tomorrow|yesterday|next week|'.implode('|', array_keys(self::WEEKDAYS)).')\b|\b\d{4}-\d{2}-\d{2}\b/u', self::plain($message));
+    }
+
+    /** The text without the words that name a day, so that a new answer can name it instead. */
+    public static function without(string $text): string
+    {
+        $stripped = (string) preg_replace('/\b(?:(?:next|last|this|on|for)\s+)?(?:today\'?s?|tonight|tomorrow|yesterday|'.implode('|', array_keys(self::WEEKDAYS)).')\b|\b\d{4}-\d{2}-\d{2}\b/iu', ' ', $text);
+
+        return trim((string) preg_replace('/[ \t]+/u', ' ', $stripped));
+    }
+
     private static function namesADay(string $text): bool
     {
         return (bool) preg_match('/\b(?:tomorrow|'.implode('|', array_keys(self::WEEKDAYS)).')\b|\b\d{4}-\d{2}-\d{2}\b/iu', $text);

@@ -57,6 +57,8 @@ final class ToolTurn
     /** True once a workout was written to the user's plan under the save scope. */
     private bool $workoutSaved = false;
 
+    private ?string $rangeNote = null;
+
     public function __construct(
         private readonly ToolRegistry $registry,
         private readonly PlanLoadGuard $loadGuard,
@@ -437,8 +439,9 @@ final class ToolTurn
             return ['error' => 'reasoning_factors and decision_summary are required when creating a plan.'];
         }
 
-        // The day is the application's, whatever the call said (or left out).
+        // The day is the application's, whatever the call said (or left out); so is the number stored for a range.
         $arguments['planned_date'] = $scope->date;
+        $arguments = $scope->normalise($arguments);
 
         ['arguments' => $arguments, 'unset' => $unset] = $this->loadGuard->withoutUnbaselinedLoads($user, $name, $arguments, false, []);
 
@@ -477,6 +480,7 @@ final class ToolTurn
         if (is_array($result) && ! array_key_exists('error', $result)) {
             $this->saveHandled = true;
             $this->workoutSaved = true;
+            $this->rangeNote = $scope->rangeNote($arguments);
 
             if ($existing !== null) {
                 $this->replaced = ['date' => $scope->date, 'was' => $this->describeExisting($existing)];
@@ -526,6 +530,12 @@ final class ToolTurn
     public function replaced(): ?array
     {
         return $this->replaced;
+    }
+
+    /** What the user is told about ranges stored as one number in the workout just saved, or null. */
+    public function rangeNote(): ?string
+    {
+        return $this->rangeNote;
     }
 
     /** True when a workout was written under the save scope this turn. */

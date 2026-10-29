@@ -6,6 +6,8 @@ use App\Models\ActivityLog;
 use App\Models\User;
 use App\Models\WorkoutPlan;
 use App\Models\WorkoutPlanExercise;
+use App\Models\WorkoutSession;
+use App\Models\WorkoutSet;
 use App\Services\Fitness\WeeklyPlanService;
 use App\Services\Fitness\WeekOverviewService;
 use App\Services\Fitness\WorkoutPlanService;
@@ -317,7 +319,7 @@ class WeekOverviewTest extends TestCase
         $this->assertSame([8, 8], array_column($monday['activities'][0]['session']['exercises'][0]['performed_sets'], 'reps'));
     }
 
-    public function test_steps_and_weigh_ins_are_not_workouts(): void
+    public function test_weigh_ins_are_not_workouts_and_steps_are_not_either(): void
     {
         $user = $this->user();
         ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(0), 'metadata' => ['steps' => 9000]]);
@@ -325,8 +327,149 @@ class WeekOverviewTest extends TestCase
 
         $monday = $this->day($this->overview($user), 0);
 
+        $this->assertSame('nothing', $monday['state'], 'A day with only steps is not "unplanned activity".');
+        $this->assertSame([], $monday['activities'], 'Steps are listed apart from workouts.');
+        $this->assertSame([9000], array_column($monday['steps'], 'steps'));
+        $this->assertStringNotContainsString('weight', json_encode($monday), 'Weigh-ins are not part of a day.');
+    }
+
+    // ---- daily steps -------------------------------------------------------------------------------------------------
+
+    public function test_the_production_week_shows_steps_on_monday_and_tuesday_and_the_treadmill_on_wednesday(): void
+    {
+        $user = $this->user();
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(0), 'metadata' => ['steps' => 2000]]);
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(1), 'metadata' => ['steps' => 6000]]);
+        ActivityLog::factory()->for($user)->create(['type' => 'treadmill', 'logged_date' => $this->date(2), 'duration_minutes' => 27, 'distance_km' => 3.4, 'metadata' => []]);
+
+        $overview = $this->overview($user);
+
+        $monday = $this->day($overview, 0);
+        $this->assertSame([2000], array_column($monday['steps'], 'steps'));
+        $this->assertSame($this->date(0), $monday['steps'][0]['logged_date'], 'The actual date it was logged for.');
         $this->assertSame('nothing', $monday['state']);
+        $this->assertNull($monday['plan']);
         $this->assertSame([], $monday['activities']);
+
+        $this->assertSame([6000], array_column($this->day($overview, 1)['steps'], 'steps'));
+
+        $wednesday = $this->day($overview, 2);
+        $this->assertSame([], $wednesday['steps'], 'No steps were logged on Wednesday, and none are invented.');
+        $this->assertSame('activity_only', $wednesday['state']);
+        $this->assertSame(['treadmill'], array_column($wednesday['activities'], 'type'));
+        $this->assertSame(3.4, $wednesday['activities'][0]['distance_km']);
+        $this->assertSame(27, $wednesday['activities'][0]['duration_minutes']);
+        $this->assertSame(7.6, $wednesday['activities'][0]['speed_kmh']);
+
+        foreach ([3, 4, 5, 6] as $other) {
+            $this->assertSame([], $this->day($overview, $other)['steps']);
+        }
+    }
+
+    public function test_steps_beside_a_planned_workout_do_not_complete_or_change_it(): void
+    {
+        $user = $this->user();
+        $plan = $this->plan($user, $this->date(0), ['status' => 'planned', 'title' => 'Upper body'], [$this->bench()]);
+        $this->plan($user, $this->date(4), ['status' => 'planned', 'title' => 'Friday legs'], [$this->bench()]);
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(0), 'metadata' => ['steps' => 12000]]);
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(4), 'metadata' => ['steps' => 3000]]);
+
+        $overview = $this->overview($user);
+
+        $this->assertSame('not_marked_done', $this->day($overview, 0)['state'], 'A past plan is still unconfirmed: walking is not the workout.');
+        $this->assertSame('planned', $this->day($overview, 4)['state']);
+        $this->assertSame([12000], array_column($this->day($overview, 0)['steps'], 'steps'));
+        $this->assertSame('planned', $plan->fresh()->status, 'Nothing was written.');
+        $this->assertSame('pending', $plan->exercises()->first()->status);
+        $this->assertSame(0, WorkoutSession::where('user_id', $user->id)->count(), 'Steps are not a measured session.');
+        $this->assertSame(0, WorkoutSet::count(), 'And not exercise performance.');
+    }
+
+    public function test_a_planned_sport_is_still_only_planned_when_steps_are_logged_on_its_day(): void
+    {
+        $user = $this->user();
+        $this->plan($user, $this->date(3), ['status' => 'planned', 'activity_type' => 'sport', 'title' => 'Soccer']);
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(3), 'metadata' => ['steps' => 8000]]);
+        ActivityLog::factory()->for($user)->sport()->create(['logged_date' => $this->date(1), 'metadata' => ['sport' => 'Soccer']]);
+
+        $overview = $this->overview($user);
+
+        $this->assertSame('planned', $this->day($overview, 3)['state'], 'Planned soccer is not completed soccer.');
+        $this->assertSame('activity_only', $this->day($overview, 1)['state'], 'Played soccer is.');
+    }
+
+    public function test_several_step_entries_on_one_date_are_each_returned_and_never_added_together(): void
+    {
+        $user = $this->user();
+        foreach ([4000, 2500, 6100] as $steps) {
+            ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(1), 'metadata' => ['steps' => $steps]]);
+        }
+
+        $tuesday = $this->day($this->overview($user), 1);
+
+        $this->assertSame([4000, 2500, 6100], array_column($tuesday['steps'], 'steps'), 'In the order they were logged: the data does not say whether they are separate walks or running totals.');
+        $this->assertCount(3, array_unique(array_column($tuesday['steps'], 'id')));
+        $this->assertArrayNotHasKey('steps_total', $tuesday);
+        $this->assertStringNotContainsString('12600', json_encode($tuesday), 'No sum is offered.');
+    }
+
+    public function test_a_step_entry_without_a_usable_count_is_returned_as_not_recorded_not_as_zero(): void
+    {
+        $user = $this->user();
+        foreach ([[], ['steps' => 'lots'], ['steps' => -5], ['steps' => 7500.5], ['steps' => '6000'], ['steps' => 0]] as $metadata) {
+            ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(0), 'metadata' => $metadata]);
+        }
+
+        $this->assertSame([null, null, null, null, 6000, 0], array_column($this->day($this->overview($user), 0)['steps'], 'steps'));
+    }
+
+    public function test_steps_outside_the_week_and_after_the_last_day_are_left_out_and_the_sunday_edge_is_in(): void
+    {
+        $user = $this->user();
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(-1), 'metadata' => ['steps' => 111]]);
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(6), 'metadata' => ['steps' => 222]]);
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(7), 'metadata' => ['steps' => 333]]);
+
+        $overview = $this->overview($user);
+
+        $this->assertSame([222], array_column($this->day($overview, 6)['steps'], 'steps'));
+        $this->assertSame([], $this->day($overview, 0)['steps']);
+        $this->assertStringNotContainsString('111', json_encode($overview['days']));
+        $this->assertStringNotContainsString('333', json_encode($overview['days']));
+    }
+
+    public function test_the_steps_a_completed_plan_mirrors_onto_the_timeline_are_not_listed_twice(): void
+    {
+        $user = $this->user();
+        $session = WorkoutSession::factory()->for($user)->create();
+        WorkoutPlan::factory()->for($user)->create(['planned_date' => $this->date(0), 'activity_type' => 'steps', 'status' => 'completed', 'workout_session_id' => $session->id]);
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(0), 'workout_session_id' => $session->id, 'metadata' => ['steps' => 5000]]);
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(0), 'metadata' => ['steps' => 7000]]);
+
+        $this->assertSame([7000], array_column($this->day($this->overview($user), 0)['steps'], 'steps'));
+    }
+
+    public function test_another_users_steps_never_appear(): void
+    {
+        $user = $this->user();
+        $other = $this->user();
+        ActivityLog::factory()->for($other)->create(['type' => 'steps', 'logged_date' => $this->date(0), 'metadata' => ['steps' => 99999]]);
+        ActivityLog::factory()->for($user)->create(['type' => 'steps', 'logged_date' => $this->date(0), 'metadata' => ['steps' => 1234]]);
+
+        $json = json_encode($this->overview($user));
+
+        $this->assertStringContainsString('1234', $json);
+        $this->assertStringNotContainsString('99999', $json);
+        $this->assertSame([], $this->day($this->overview($this->user()), 0)['steps'], 'A user with no records sees none.');
+    }
+
+    public function test_a_day_with_no_steps_has_an_empty_list_not_a_made_up_zero(): void
+    {
+        $overview = $this->overview($this->user());
+
+        foreach ($overview['days'] as $day) {
+            $this->assertSame([], $day['steps']);
+        }
     }
 
     // ---- rest days -----------------------------------------------------------------------------------------------

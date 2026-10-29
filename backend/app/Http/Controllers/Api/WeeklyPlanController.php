@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\AdaptWeeklyPlanRequest;
 use App\Http\Resources\ActivityLogResource;
 use App\Http\Resources\WorkoutPlanResource;
+use App\Models\ActivityLog;
 use App\Services\Ai\AiProviderException;
 use App\Services\Ai\WeeklyPlanCoachService;
 use App\Services\Fitness\WeeklyPlanService;
@@ -38,8 +39,23 @@ class WeeklyPlanController extends Controller
                 'state' => $day['state'],
                 'plan' => $day['plan'] ? (new WorkoutPlanResource($day['plan']))->resolve($request) : null,
                 'activities' => ActivityLogResource::collection($day['activities'])->resolve($request),
+                // Each step entry as logged, never added together (see WeekOverviewService). `steps` is null when the
+                // entry has no usable count, which is shown as such rather than as zero.
+                'steps' => $day['steps']->map(fn (ActivityLog $log) => [
+                    'id' => $log->id,
+                    'logged_date' => $log->logged_date->toDateString(),
+                    'steps' => self::stepCount($log),
+                    'created_at' => $log->created_at?->toIso8601String(),
+                ])->values()->all(),
             ], $overview['days']),
         ]);
+    }
+
+    private static function stepCount(ActivityLog $log): ?int
+    {
+        $steps = $log->metadata['steps'] ?? null;
+
+        return is_numeric($steps) && $steps >= 0 && $steps == (int) $steps ? (int) $steps : null;
     }
 
     /**
