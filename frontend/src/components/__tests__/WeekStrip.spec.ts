@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import WeekStrip from '@/components/WeekStrip.vue'
 
-import { TODAY, WEEK, makeActivity, makeDay, makePlan } from './weekFixtures'
+import { TODAY, WEEK, makeActivity, makeDay, makePlan, makeSteps } from './weekFixtures'
 
 const days = () => WEEK.map((date, i) => makeDay(date, i === 1 ? makePlan({ planned_date: date, status: 'completed' }) : null, i === 4 ? [makeActivity({ logged_date: date })] : []))
 
@@ -48,5 +48,23 @@ describe('WeekStrip', () => {
     expect(states[4]).toBe('activity_only')
     expect(states[0]).toBe('nothing')
     expect(wrapper.findAll('button').every((b) => b.attributes('aria-label')?.includes(':'))).toBe(true)
+  })
+
+  it('says which days have steps logged, as text and with a dot that is not the only cue', () => {
+    const withSteps = WEEK.map((date, i) => makeDay(date, null, [], { steps: i === 0 ? [makeSteps({ logged_date: date })] : [] }))
+    const wrapper = mount(WeekStrip, { props: { days: withSteps, selected: null } })
+
+    expect(wrapper.get(`[data-date="${WEEK[0]}"]`).attributes('aria-label')).toContain('steps logged')
+    expect(wrapper.get(`[data-date="${WEEK[1]}"]`).attributes('aria-label')).not.toContain('steps')
+    expect(wrapper.findAll('[data-testid="steps-dot"]')).toHaveLength(1)
+    expect(wrapper.get(`[data-date="${WEEK[0]}"]`).attributes('data-state')).toBe('nothing') // steps do not change what the day is
+  })
+
+  it('points at the panel it controls only when it is given one', () => {
+    const without = mount(WeekStrip, { props: { days: days(), selected: WEEK[0] } })
+    const withPanel = mount(WeekStrip, { props: { days: days(), selected: WEEK[0], controls: 'selected-day' } })
+
+    expect(without.get('button').attributes('aria-controls')).toBeUndefined()
+    expect(withPanel.findAll('button').every((b) => b.attributes('aria-controls') === 'selected-day')).toBe(true)
   })
 })

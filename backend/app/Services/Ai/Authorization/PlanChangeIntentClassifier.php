@@ -329,7 +329,7 @@ final class PlanChangeIntentClassifier
     {
         $verb = '(?:add|save|put|push|send|pin|apply|use|schedule)';
         // "this workout", "it", or one of several the coach offered: "option 2", "workout B", "the second one".
-        $anaphor = '(?:(?:this|that|these|those|the|today\'s|your)\\s+(?:[\\w\'-]+\\s+){0,1}'.self::WORKOUT_NOUN.'(?:\\s+(?:above|you (?:gave|suggested|wrote|described)))?|this|that|these|those|it'
+        $anaphor = '(?:(?:this|that|these|those|the|today\'s|your)\\s+(?:[\\w\'-]+\\s+){0,1}'.self::WORKOUT_NOUN.'(?:\\s+(?:above|you (?:gave|suggested|wrote|described)))?|this|that|these|those|them|it'
             .'|(?:option|plan|workout|routine|session|version|choice)\\s*(?:#|no\\.?)?\\s*(?:\\d{1,2}|[a-d])'
             .'|(?:the\\s+)?(?:first|second|third|1st|2nd|3rd|last|best|better|easier|harder|shorter|longer|other|lighter|heavier)\\s+(?:one|option|workout|routine|session)'
             .'|(?:both|all|either)(?:\\s+of)?\\s+(?:the\\s+|these\\s+|those\\s+)?(?:options|workouts|routines|sessions|versions|choices))';

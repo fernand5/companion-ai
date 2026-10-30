@@ -5,6 +5,8 @@ import { DAY_STATE, stripLabels } from '@/utils/weekDay'
 defineProps<{
   days: WeeklyPlanDay[]
   selected: string | null
+  /** The id of the panel that shows the selected day, when there is one. */
+  controls?: string
 }>()
 
 const emit = defineEmits<{ select: [date: string] }>()
@@ -12,7 +14,9 @@ const emit = defineEmits<{ select: [date: string] }>()
 function describe(day: WeeklyPlanDay): string {
   const long = new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
 
-  return `${long}${day.is_today ? ', today' : ''}: ${DAY_STATE[day.state].label}`
+  const steps = day.steps?.length ? ', steps logged' : ''
+
+  return `${long}${day.is_today ? ', today' : ''}: ${DAY_STATE[day.state].label}${steps}`
 }
 </script>
 
@@ -32,6 +36,7 @@ function describe(day: WeeklyPlanDay): string {
           "
           :aria-label="describe(day)"
           :aria-pressed="selected === day.date"
+          :aria-controls="controls"
           :aria-current="day.is_today ? 'date' : undefined"
           :data-date="day.date"
           :data-state="day.state"
@@ -41,7 +46,10 @@ function describe(day: WeeklyPlanDay): string {
           <span class="text-sm leading-none font-semibold" :class="day.is_today ? 'text-brand-700' : 'text-slate-900'">
             {{ stripLabels(day.date).day }}
           </span>
-          <span class="h-1.5 w-1.5 rounded-full" :class="DAY_STATE[day.state].dot" aria-hidden="true" />
+          <span class="flex items-center gap-0.5" aria-hidden="true">
+            <span class="h-1.5 w-1.5 rounded-full" :class="DAY_STATE[day.state].dot" />
+            <span v-if="day.steps?.length" class="h-1.5 w-1.5 rounded-full bg-teal-400" data-testid="steps-dot" />
+          </span>
         </button>
       </li>
     </ul>

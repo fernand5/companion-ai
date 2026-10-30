@@ -7,18 +7,35 @@ import WorkoutSessionSummary from '@/components/WorkoutSessionSummary.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import type { ActivityType, WeekActivity, WeeklyPlanDay, WorkoutPlanExercise } from '@/types'
 import { activityIcon, activityLabel, activitySummary, formatDate, formatPerformedSets, formatTarget } from '@/utils/format'
-import { DAY_STATE } from '@/utils/weekDay'
+import { DAY_STATE, formatSteps } from '@/utils/weekDay'
 
-const props = defineProps<{
-  day: WeeklyPlanDay
-  expanded: boolean
-  /** How many calculated adjustments wait for approval on this day (shown in the Progression section). */
-  suggestions: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    day: WeeklyPlanDay
+    expanded: boolean
+    /** How many calculated adjustments wait for approval on this day (shown in the Progression section). */
+    suggestions: number
+    /** False when the card is the one day on show: its details are always visible and there is nothing to open. */
+    collapsible?: boolean
+  }>(),
+  { collapsible: true },
+)
 
 const emit = defineEmits<{ toggle: []; 'show-suggestions': [] }>()
 
 const state = computed(() => DAY_STATE[props.day.state])
+const steps = computed(() => props.day.steps ?? [])
+const showBody = computed(() => !props.collapsible || props.expanded)
+
+/** The day's steps in one line for the header: one entry says its count; several say how many entries, not a total. */
+const stepsSummary = computed(() => {
+  if (steps.value.length === 0) return null
+  if (steps.value.length > 1) return `${steps.value.length} step entries`
+
+  const count = steps.value[0].steps
+
+  return count === null ? 'Steps logged' : `${formatSteps(count)} steps`
+})
 const plan = computed(() => props.day.plan)
 const bodyId = computed(() => `day-body-${props.day.date}`)
 
@@ -27,6 +44,9 @@ const heading = computed(() => {
   if (plan.value) return plan.value.title
   if (props.day.state === 'activity_only') return activityName(props.day.activities[0])
   if (props.day.state === 'rest') return 'Rest day'
+
+  // Steps are not a workout, but they are something recorded: never say nothing was.
+  if (steps.value.length > 0) return 'No workout planned or logged'
 
   return props.day.is_past ? 'No plan or activity recorded' : 'Nothing planned'
 })
@@ -92,6 +112,8 @@ const explanation = computed(() => {
     case 'rest':
       return 'A planned rest day.'
     case 'nothing':
+      if (steps.value.length > 0) return 'No workout was planned or logged for this day. Your steps are below.'
+
       return props.day.is_past ? 'Nothing was planned or logged for this day.' : 'No workout is planned for this day yet.'
     case 'activity_only':
       return 'You logged this without a plan for the day.'
@@ -111,6 +133,7 @@ const explanation = computed(() => {
     data-testid="day-card"
   >
     <button
+      v-if="collapsible"
       type="button"
       class="flex min-h-14 w-full items-start justify-between gap-2 rounded-xl p-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
       :aria-expanded="expanded"
@@ -130,6 +153,7 @@ const explanation = computed(() => {
         <span v-if="plan" class="block text-xs text-slate-500" data-testid="day-type">
           {{ activityLabel(plan.activity_type as ActivityType) }}<template v-if="plan.duration_minutes"> · {{ plan.duration_minutes }} min</template>
         </span>
+        <span v-if="stepsSummary" class="block text-xs text-slate-500" data-testid="day-steps-summary">{{ stepsSummary }}</span>
         <span v-if="suggestions > 0" class="block pt-0.5 text-xs font-medium text-brand-700" data-testid="day-suggestions">
           {{ suggestions }} suggested {{ suggestions === 1 ? 'adjustment' : 'adjustments' }} to review below
         </span>
@@ -139,11 +163,37 @@ const explanation = computed(() => {
         <span v-if="day.state !== 'nothing'" class="rounded-full px-2 py-0.5 text-xs font-medium" :class="state.badge" data-testid="day-state">
           {{ state.label }}
         </span>
-        <FontAwesomeIcon :icon="icons.chevronDown" :class="[ICON_SIZE.xs, 'text-slate-400 transition-transform', expanded ? 'rotate-180' : '']" />
+        <FontAwesomeIcon v-if="collapsible" :icon="icons.chevronDown" :class="[ICON_SIZE.xs, 'text-slate-400 transition-transform', expanded ? 'rotate-180' : '']" />
       </span>
     </button>
+    <div v-else class="flex w-full items-start justify-between gap-2 p-4" data-testid="day-header">
+      <span class="min-w-0 space-y-0.5">
+        <span class="flex items-center gap-1.5 text-xs font-medium tracking-wide text-slate-400 uppercase">
+          {{ formatDate(day.date) }}
+          <span v-if="day.is_today" class="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white normal-case" data-testid="today-chip">Today</span>
+        </span>
+        <span class="flex items-start gap-1.5 font-semibold break-words text-slate-900" :class="plan || day.state === 'activity_only' ? '' : 'text-sm font-normal text-slate-500'">
+          <FontAwesomeIcon v-if="headingType" :icon="activityIcon(headingType)" :class="[ICON_SIZE.sm, 'mt-1 shrink-0']" />
+          <span class="min-w-0" data-testid="day-heading">{{ heading }}</span>
+        </span>
+        <span v-if="plan" class="block text-xs text-slate-500" data-testid="day-type">
+          {{ activityLabel(plan.activity_type as ActivityType) }}<template v-if="plan.duration_minutes"> · {{ plan.duration_minutes }} min</template>
+        </span>
+        <span v-if="stepsSummary" class="block text-xs text-slate-500" data-testid="day-steps-summary">{{ stepsSummary }}</span>
+        <span v-if="suggestions > 0" class="block pt-0.5 text-xs font-medium text-brand-700" data-testid="day-suggestions">
+          {{ suggestions }} suggested {{ suggestions === 1 ? 'adjustment' : 'adjustments' }} to review below
+        </span>
+      </span>
 
-    <div v-show="expanded" :id="bodyId" class="space-y-3 px-4 pb-4" data-testid="day-body">
+      <span class="flex shrink-0 items-center gap-2">
+        <span v-if="day.state !== 'nothing'" class="rounded-full px-2 py-0.5 text-xs font-medium" :class="state.badge" data-testid="day-state">
+          {{ state.label }}
+        </span>
+        <FontAwesomeIcon v-if="collapsible" :icon="icons.chevronDown" :class="[ICON_SIZE.xs, 'text-slate-400 transition-transform', expanded ? 'rotate-180' : '']" />
+      </span>
+    </div>
+
+    <div v-show="showBody" :id="bodyId" class="space-y-3 px-4 pb-4" data-testid="day-body">
       <p v-if="explanation" class="text-sm text-slate-500" data-testid="day-explanation">{{ explanation }}</p>
 
       <WhyThisChangedCard v-if="plan" :reasoning="plan.reasoning" :reasoning-factors="plan.reasoning_factors" />
@@ -183,6 +233,23 @@ const explanation = computed(() => {
             <WorkoutSessionSummary v-if="activity.session && activity.session.exercises.length > 0" :session="activity.session" />
           </li>
         </ul>
+      </section>
+
+      <section v-if="steps.length > 0" class="space-y-1.5" aria-label="Steps" data-testid="steps">
+        <h3 class="text-xs font-medium tracking-wide text-slate-400 uppercase">Steps</h3>
+        <ul class="space-y-1.5">
+          <li v-for="entry in steps" :key="entry.id" class="rounded-lg bg-white/70 p-2 text-sm ring-1 ring-slate-100" data-testid="steps-entry">
+            <p class="flex items-start gap-1.5 font-medium break-words text-slate-900">
+              <FontAwesomeIcon :icon="activityIcon('steps')" :class="[ICON_SIZE.sm, 'mt-0.5 shrink-0']" />
+              <span class="min-w-0" data-testid="steps-count">{{ entry.steps === null ? 'Steps logged (count not recorded)' : `${formatSteps(entry.steps)} steps` }}</span>
+            </p>
+            <p class="text-xs text-slate-500" data-testid="steps-date">Logged for {{ formatDate(entry.logged_date) }}</p>
+          </li>
+        </ul>
+        <p v-if="steps.length > 1" class="text-xs text-slate-500" data-testid="steps-note">
+          {{ steps.length }} separate entries, shown as logged and not added together.
+        </p>
+        <p class="text-xs text-slate-400">Steps are a daily measurement. They don't count as a workout or complete a planned session.</p>
       </section>
 
       <button

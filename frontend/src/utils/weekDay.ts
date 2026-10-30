@@ -33,3 +33,8 @@ export function stripLabels(date: string): { weekday: string; day: string } {
     day: String(d.getDate()),
   }
 }
+
+/** "6,000" for a step count. */
+export function formatSteps(steps: number): string {
+  return steps.toLocaleString('en-US')
+}

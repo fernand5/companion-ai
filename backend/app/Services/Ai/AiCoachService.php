@@ -14,9 +14,11 @@ use App\Services\Ai\Authorization\PlanReplacementProposal;
 use App\Services\Ai\Authorization\PlanReplacer;
 use App\Services\Ai\Authorization\ProposalMatcher;
 use App\Services\Ai\Authorization\SavedWorkoutReference;
+use App\Services\Ai\Authorization\SaveRetry;
 use App\Services\Ai\Authorization\SaveWorkoutDay;
 use App\Services\Ai\Authorization\SaveWorkoutScope;
 use App\Services\Ai\Authorization\ToolAuthorization;
+use App\Services\Ai\Authorization\ToolCapabilities;
 use App\Services\Ai\Authorization\ToolCapability;
 use App\Services\Ai\Authorization\ToolTurn;
 use App\Services\Ai\Authorization\WorkoutReference;
@@ -47,6 +49,7 @@ class AiCoachService
         private readonly WeeklyPlanService $weeklyPlanService,
         private readonly SavedWorkoutReference $workoutReference,
         private readonly PlanReplacer $planReplacer,
+        private readonly SaveRetry $saveRetry,
     ) {}
 
     public function respond(User $user, Conversation $conversation, string $userMessage): Message
@@ -143,8 +146,8 @@ class AiCoachService
 
         // A save that cannot be pinned down (which workout? which day?) is asked about, not guessed at, and the
         // model is not asked to improvise around it.
-        if (($question = $this->saveQuestion($authorization->followUp)) !== null) {
-            return $this->answerWithoutModel($user, $conversation, $authorization, $question, ['save_clarification' => true], $startedAt);
+        if (($question = $this->saveQuestion($authorization)) !== null) {
+            return $this->answerWithoutModel($user, $conversation, $authorization, $question['text'], ['save_clarification' => true, 'save_pending' => $question['pending']], $startedAt);
         }
 
         $turn = $this->toolExecutor->begin($authorization, $conversation->id);
@@ -156,7 +159,9 @@ class AiCoachService
             $systemPrompt .= "\n\nNote: ".implode(', ', $withheld).' '.(count($withheld) === 1 ? 'is' : 'are')
                 .' not available for this message because the user has not asked to change their plan. '
                 .'Do not call, describe or write out a call to '.(count($withheld) === 1 ? 'it' : 'them').'; answer in plain text. '
-                .'A suggestion is fine, but say you have not changed anything; the user can ask you to update their plan.';
+                .'A suggestion is fine, but say you have not changed anything; the user can ask you to update their plan. '
+                .'This is only a rule for this message and not a fault: never say you lack access to a tool, that the app cannot update plans, or that anything is unavailable or down. '
+                .'You can add and change plans whenever the user asks; if it would help, tell them how to ask, for example "add this workout to my dashboard".';
         }
 
         // "Add this workout to my dashboard": the write is allowed (and only that write), so say exactly what to write.
@@ -269,6 +274,9 @@ class AiCoachService
             $finalText = rtrim($finalText)."\n\n".$unset;
         }
 
+        // Two things the application can check against what actually happened this turn, whatever the model wrote.
+        $finalText = $this->correctClaims($finalText, $authorization, $turn, $toolTrace);
+
         if ($pending !== null) {
             $meta += $this->proposals->present($pending);
         }
@@ -339,7 +347,35 @@ class AiCoachService
             }
         }
 
-        return $this->scopeSave($this->intentClassifier->classify($userMessage), $user, $conversation, $userMessage, $history);
+        $classified = $this->intentClassifier->classify($userMessage);
+        $effective = $userMessage;
+        $retry = false;
+
+        // "could you try to add them again?", "Friday", "Goblet Squat": not requests by themselves. If they continue a
+        // request to put a workout on the plan that the user made earlier in this conversation (and, for an answer, a
+        // question the application asked about it), the earlier request is the authorization and these are its details.
+        if (! $this->asksToSave($classified)) {
+            $continued = $this->saveRetry->continuation($userMessage, $history, $user);
+
+            // Too old, or made on another day: nothing is replayed and nothing is written; the user is told, and asks again.
+            if (($continued['kind'] ?? null) === SaveRetry::EXPIRED) {
+                return ToolAuthorization::readOnly('save_retry_expired', ToolAuthorization::FOLLOW_UP_RETRY_EXPIRED, ['reason' => $continued['reason'], 'made_on' => $continued['made_on']]);
+            }
+
+            if ($continued !== null) {
+                $classified = $this->intentClassifier->classify($continued['request']);
+                $effective = $continued['message'];
+                // Whatever the earlier replies were (an apology, a false "no access", the application's own questions), they are not the workout.
+                $retry = true;
+            }
+        }
+
+        return $this->scopeSave($classified, $user, $conversation, $effective, $history, $retry);
+    }
+
+    private function asksToSave(ToolAuthorization $classified): bool
+    {
+        return array_intersect(explode('+', $classified->basis), [PlanChangeIntentClassifier::BASIS_SAVE_WORKOUT, 'add_workout']) !== [];
     }
 
     /**
@@ -350,7 +386,7 @@ class AiCoachService
      *
      * @param  Collection<int, Message>  $history
      */
-    private function scopeSave(ToolAuthorization $authorization, User $user, Conversation $conversation, string $userMessage, Collection $history): ToolAuthorization
+    private function scopeSave(ToolAuthorization $authorization, User $user, Conversation $conversation, string $userMessage, Collection $history, bool $retry = false): ToolAuthorization
     {
         $sources = explode('+', $authorization->basis);
 
@@ -361,21 +397,22 @@ class AiCoachService
         }
 
         // "add a 30 minute run to my plan" names its own workout; "add this workout" points at one.
-        $reference = $this->workoutReference->resolve($userMessage, $history, inMessageOnly: ! in_array(PlanChangeIntentClassifier::BASIS_SAVE_WORKOUT, $sources, true));
+        $reference = $this->workoutReference->resolve($userMessage, $history, inMessageOnly: ! in_array(PlanChangeIntentClassifier::BASIS_SAVE_WORKOUT, $sources, true), retry: $retry);
 
         if (! $reference->isFound()) {
             return ToolAuthorization::readOnly('save_workout_'.$reference->status, match ($reference->status) {
                 WorkoutReference::AMBIGUOUS => ToolAuthorization::FOLLOW_UP_WHICH_WORKOUT,
                 WorkoutReference::INCOMPLETE => ToolAuthorization::FOLLOW_UP_INCOMPLETE_WORKOUT,
                 WorkoutReference::QUOTED => ToolAuthorization::FOLLOW_UP_QUOTED_WORKOUT,
+                WorkoutReference::CHOICE => ToolAuthorization::FOLLOW_UP_CHOOSE_EXERCISE,
                 default => ToolAuthorization::FOLLOW_UP_NO_WORKOUT_TO_SAVE,
-            });
+            }, ['choices' => $reference->choices]);
         }
 
         $day = SaveWorkoutDay::resolve($userMessage, $reference->origin === WorkoutReference::FROM_PREVIOUS_REPLY ? $reference->source : '', CarbonImmutable::parse($user->localToday()));
 
         if ($day['date'] === null) {
-            return ToolAuthorization::readOnly('save_workout_'.$day['problem'], ToolAuthorization::FOLLOW_UP_WHICH_DAY);
+            return ToolAuthorization::readOnly('save_workout_'.$day['problem'], ToolAuthorization::FOLLOW_UP_WHICH_DAY, ['problem' => $day['problem']]);
         }
 
         $scope = new SaveWorkoutScope($conversation->id, $day['date'], $reference->source, $reference->items, PlanChangeIntentClassifier::statesReplacement($userMessage));
@@ -387,17 +424,68 @@ class AiCoachService
         );
     }
 
-    /** The follow-up codes that are the application asking which workout or day the user means. */
-    private function saveQuestion(?string $followUp): ?string
+    /**
+     * The application asking which workout, which exercise or which day the user means, in words that say exactly what to
+     * reply, and what it stores with the question so that the reply can be recognised as the answer (see SaveRetry).
+     *
+     * @return array{text: string, pending: array<string, mixed>}|null
+     */
+    private function saveQuestion(ToolAuthorization $authorization): ?array
     {
-        return match ($followUp) {
-            ToolAuthorization::FOLLOW_UP_NO_WORKOUT_TO_SAVE => 'I haven\'t changed your plan: I don\'t see a workout in my last reply or in your message to add. Ask me for one (for example "give me a 30-minute workout"), or tell me what to add, like "add this workout to my dashboard: squats 3x10, push-ups 3x12".',
-            ToolAuthorization::FOLLOW_UP_WHICH_WORKOUT => 'I haven\'t changed your plan: more than one workout could be meant and I don\'t want to guess which. Say which one (for example "add option 2 to my dashboard"), or send the exercises in one message, like "add this workout to my dashboard: squats 3x10, push-ups 3x12".',
-            ToolAuthorization::FOLLOW_UP_INCOMPLETE_WORKOUT => 'I haven\'t changed your plan: that workout looks unfinished (it is cut off, trails off, or lists fewer exercises than it announces). Send me the full list, like "add this workout to my dashboard: squats 3x10, push-ups 3x12", or ask me to write it out in full first.',
-            ToolAuthorization::FOLLOW_UP_QUOTED_WORKOUT => 'I haven\'t changed your plan: that workout is quoted from someone else\'s words, and I want to be sure it is the one you want. Write the exercises in your own message, like "add this workout to my dashboard: squats 3x10, push-ups 3x12".',
-            ToolAuthorization::FOLLOW_UP_WHICH_DAY => 'I haven\'t changed your plan: I\'m not sure which day you mean. I can add a workout to today or to a day in the next two months. Say it like "add this workout to my dashboard for Friday".',
+        $example = 'add this workout to my dashboard: squats 3x10, push-ups 3x12';
+
+        return match ($authorization->followUp) {
+            ToolAuthorization::FOLLOW_UP_NO_WORKOUT_TO_SAVE => [
+                'text' => 'I haven\'t changed your plan: I don\'t see a workout in my last reply or in your message to add. Ask me for one (for example "give me a 30-minute workout"), or tell me what to add, like "'.$example.'". You can also just reply with the exercises and their sets and reps.',
+                'pending' => ['kind' => 'none'],
+            ],
+            ToolAuthorization::FOLLOW_UP_WHICH_WORKOUT => [
+                'text' => 'I haven\'t changed your plan: more than one workout could be meant and I don\'t want to guess which. Say which one (for example "add option 2 to my dashboard", or just "option 2"), or send the exercises in one message, like "'.$example.'".',
+                'pending' => ['kind' => 'which_workout'],
+            ],
+            ToolAuthorization::FOLLOW_UP_INCOMPLETE_WORKOUT => [
+                'text' => 'I haven\'t changed your plan: that workout looks unfinished (it is cut off, trails off, or lists fewer exercises than it announces). Send me the full list, like "'.$example.'", or ask me to write it out in full first.',
+                'pending' => ['kind' => 'incomplete'],
+            ],
+            ToolAuthorization::FOLLOW_UP_QUOTED_WORKOUT => [
+                'text' => 'I haven\'t changed your plan: that workout is quoted from someone else\'s words, and I want to be sure it is the one you want. Write the exercises in your own message, like "'.$example.'".',
+                'pending' => ['kind' => 'quoted'],
+            ],
+            ToolAuthorization::FOLLOW_UP_RETRY_EXPIRED => [
+                'text' => ($authorization->followUpData['reason'] ?? null) === SaveRetry::NEW_DAY
+                    ? 'I haven\'t changed your plan: that request to add a workout was made on '.($authorization->followUpData['made_on'] ?? 'an earlier day').', and a new day has started, so I won\'t carry it over and guess which day you mean now. To add the workout, say "add this workout to my dashboard" (and the day, if you want one other than today).'
+                    : 'I haven\'t changed your plan: that request to add a workout is more than '.PlanReplacementProposal::TTL_MINUTES.' minutes old, and I only pick up a request while it is fresh, so nothing was saved. To add the workout, say "add this workout to my dashboard" (and the day, if you want one other than today).',
+                'pending' => ['kind' => 'expired'],
+            ],
+            ToolAuthorization::FOLLOW_UP_CHOOSE_EXERCISE => $this->exerciseChoiceQuestion($authorization->followUpData['choices'] ?? []),
+            ToolAuthorization::FOLLOW_UP_WHICH_DAY => [
+                'text' => ($authorization->followUpData['problem'] ?? null) === SaveWorkoutDay::PAST
+                    ? 'I haven\'t changed your plan: I\'m not sure which day you mean, because I can only add a workout to today or a later day (up to two months ahead). Which day should I use? Reply with just the day, for example "Friday" or "tomorrow".'
+                    : 'I haven\'t changed your plan: I\'m not sure which day you mean. I can add a workout to today or to a day in the next two months. Which day should I use? Reply with just the day, for example "Friday" or "tomorrow".',
+                'pending' => ['kind' => 'day'],
+            ],
             default => null,
         };
+    }
+
+    /**
+     * One or more exercises in the workout are "A or B". Say so plainly (not that anything is unavailable) and ask for
+     * the one to use.
+     *
+     * @param  array<int, array{item: string, options: array<int, string>}>  $choices
+     * @return array{text: string, pending: array<string, mixed>}
+     */
+    private function exerciseChoiceQuestion(array $choices): array
+    {
+        $lines = array_map(fn (array $c) => '"'.implode('" or "', $c['options']).'"', $choices);
+        $first = $choices[0]['options'][0] ?? 'the first one';
+
+        return [
+            'text' => 'I haven\'t changed your plan, and nothing is wrong with saving it: one thing in the workout is a choice. '
+                .(count($lines) === 1 ? 'It lists '.$lines[0].'.' : 'It lists '.implode('; ', $lines).'.')
+                .' Which should I add? Reply with just the name'.(count($lines) === 1 ? '' : 's').', for example "'.$first.'".',
+            'pending' => ['kind' => 'choice', 'options' => array_column($choices, 'options')],
+        ];
     }
 
     /**
@@ -482,6 +570,88 @@ class AiCoachService
         return $message;
     }
 
+    /**
+     * Claims about the plan that the application can check:
+     *  - "I don't have access to the plan tool" / "I'm unable to update your dashboard": false. Plans are updated when the
+     *    user asks, and this turn's tools were withheld by a rule, not by a fault. The user is told how to ask.
+     *  - "I've added it to your dashboard": only true if something was written this turn. If not, the user is told that
+     *    nothing was saved.
+     *
+     * @param  array<int, array{name: string, arguments: array, result: mixed}>  $toolTrace
+     */
+    private function correctClaims(string $text, ToolAuthorization $authorization, ToolTurn $turn, array $toolTrace): string
+    {
+        $wrote = $this->wroteSomething($toolTrace);
+
+        if (self::claimsNoAccess($text)) {
+            return rtrim($text)."\n\nTo be clear, that is not a limit of the app: I can add and change workouts on your plan whenever you ask. "
+                .(! $wrote && ! str_contains($text, "I haven't changed your plan") ? "I haven't changed anything this time. " : '')
+                .'To add a workout I have just shown you, say "add this workout to my dashboard" (or "try again" if you have already asked).';
+        }
+
+        if (! $wrote && $authorization->saveScope === null && $turn->pendingReplacement() === null && ! $turn->confirmedChangeMade()
+            && self::claimsPlanWritten($text) && ! str_contains($text, "I haven't changed your plan")) {
+            return rtrim($text)."\n\nI haven't changed your plan: nothing was saved this time, whatever the message above says. "
+                .'To add a workout I have just shown you, say "add this workout to my dashboard".';
+        }
+
+        return $text;
+    }
+
+    /**
+     * @param  array<int, array{name: string, arguments: array, result: mixed}>  $toolTrace
+     */
+    private function wroteSomething(array $toolTrace): bool
+    {
+        foreach ($toolTrace as $call) {
+            $result = $call['result'] ?? null;
+
+            if (ToolCapabilities::for($call['name'])->value === ToolCapability::Read->value || ! is_array($result) || array_key_exists('error', $result)) {
+                continue;
+            }
+
+            if ($call['name'] === 'propose_weekly_plan_changes' && ($result['applied'] ?? []) === [] && ($result['cleared'] ?? []) === []) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static function claimsNoAccess(string $text): bool
+    {
+        foreach (preg_split('/(?<=[.!?])\s+|\n+/u', $text) ?: [] as $sentence) {
+            if (preg_match('/\b(?:safe|safely|safety|injur\w+|medical|doctor|recommend\w*|should(?:n\'t)?)\b/iu', $sentence)) {
+                continue;
+            }
+
+            if (preg_match('/\b(?:no access|(?:do not|don\'t) have (?:the )?access|lack(?:ing)? access|not able to|unable to|(?:is not|isn\'t) (?:currently )?available|unavailable|(?:can\'t|cannot|can not) (?:currently |directly )?(?:update|add|push|save|modify|edit|change))\b/iu', $sentence)
+                && preg_match('/\b(?:plan|dashboard|schedule|calendar|tool)\b/iu', $sentence)
+                && preg_match('/\b(?:updat\w*|add\w*|sav\w*|push\w*|chang\w*|edit\w*|modif\w*|writ\w*|creat\w*|access\w*|schedul\w*|tool)\b/iu', $sentence)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function claimsPlanWritten(string $text): bool
+    {
+        foreach (preg_split('/(?<=[.!?])\s+|\n+/u', $text) ?: [] as $sentence) {
+            if (str_ends_with(trim($sentence), '?') || preg_match('/\b(?:n\'t|not|unable|cannot|couldn\'t|would|could|can|will|want|if)\b/iu', $sentence)) {
+                continue;
+            }
+
+            if (preg_match('/\b(?:i(?:\'ve| have)?|it(?:\'s| has)?|has been|have been|is now|are now|now)\s*(?:just |now |successfully )?(?:added|saved|put|pushed|scheduled|updated|replaced|created)\b[^.\n]{0,60}\b(?:dashboard|plan|schedule|calendar)\b/iu', $sentence)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** The application's question for a held replacement, in its own words. */
     private function replacementQuestion(PlanReplacementProposal $proposal): string
     {
@@ -501,6 +671,14 @@ class AiCoachService
             ."\nDo you want me to make all of these changes? Reply \"yes\" within {$minutes} minutes to make exactly these changes and nothing else; anything else leaves your plan as it is.";
     }
 
+    /** The application's note that a range was stored as one number, with the blank line before it, or nothing. */
+    private function withRangeNote(ToolTurn $turn): string
+    {
+        $note = $turn->rangeNote();
+
+        return $note === null ? '' : "\n\n".$note;
+    }
+
     /**
      * What the user is told about a requested save, whatever the model wrote: a replacement waiting for their
      * confirmation (the model's text is replaced by the question), a replacement they asked for (stated), or a save
@@ -515,11 +693,11 @@ class AiCoachService
         }
 
         if (($replaced = $turn->replaced()) !== null) {
-            return [rtrim($text)."\n\nAs you asked, I replaced {$replaced['was']} on {$replaced['date']} with this workout.", []];
+            return [rtrim($text)."\n\nAs you asked, I replaced {$replaced['was']} on {$replaced['date']} with this workout.".$this->withRangeNote($turn), []];
         }
 
         if ($turn->workoutSaved()) {
-            return [$text, []];
+            return [rtrim($text).$this->withRangeNote($turn), []];
         }
 
         $performed = array_filter($turn->blocked(), fn (array $b) => $b['reason'] === 'day_already_performed') !== [];

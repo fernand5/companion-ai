@@ -23,6 +23,7 @@ final class ToolAuthorization
      * @param  array<int, float>  $statedLoadsKg  loads (kg) the user wrote in the instruction that authorized the write; the only
      *                                            numbers that may start an exercise that has no baseline
      * @param  SaveWorkoutScope|null  $saveScope  when set, the plan write is limited to saving exactly this workout on exactly this day
+     * @param  array<string, mixed>  $followUpData  what the follow-up question needs to say (the offered exercises, the day), stored with the application's question
      */
     public function __construct(
         array $granted,
@@ -32,6 +33,7 @@ final class ToolAuthorization
         public readonly bool $mayRaiseLoads = false,
         public readonly array $statedLoadsKg = [],
         public readonly ?SaveWorkoutScope $saveScope = null,
+        public readonly array $followUpData = [],
     ) {
         $this->granted = array_values(array_unique([ToolCapability::Read, ToolCapability::Record, ...$granted], SORT_REGULAR));
     }
@@ -54,6 +56,9 @@ final class ToolAuthorization
     /** More than one workout could be meant, and the user's words do not pick one. */
     public const FOLLOW_UP_WHICH_WORKOUT = 'which_workout';
 
+    /** An exercise in the workout is "A or B" and the user has not said which. */
+    public const FOLLOW_UP_CHOOSE_EXERCISE = 'choose_exercise';
+
     /** The workout in the conversation is visibly unfinished. */
     public const FOLLOW_UP_INCOMPLETE_WORKOUT = 'incomplete_workout';
 
@@ -64,12 +69,15 @@ final class ToolAuthorization
     public const FOLLOW_UP_WHICH_DAY = 'which_day';
 
     /** A bare "yes" with nothing valid waiting for it. */
+    /** A retry or answer to a request that is too old, or from another day, to be replayed. */
+    public const FOLLOW_UP_RETRY_EXPIRED = 'retry_expired';
+
     public const FOLLOW_UP_NOTHING_PENDING = 'nothing_pending';
 
     /** Questions and everything else the user has not asked to turn into a plan change. */
-    public static function readOnly(string $basis = 'read_only', ?string $followUp = null): self
+    public static function readOnly(string $basis = 'read_only', ?string $followUp = null, array $followUpData = []): self
     {
-        return new self([], $basis, $followUp);
+        return new self([], $basis, $followUp, followUpData: $followUpData);
     }
 
     /**

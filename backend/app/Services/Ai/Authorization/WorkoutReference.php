@@ -23,6 +23,9 @@ final class WorkoutReference
     /** A routine somebody else wrote, quoted: nothing shows the user means to adopt it. */
     public const QUOTED = 'quoted';
 
+    /** One routine, but an exercise in it is "A or B" and the user has not said which. */
+    public const CHOICE = 'choice';
+
     public const FROM_MESSAGE = 'message';
 
     public const FROM_PREVIOUS_REPLY = 'previous_reply';
@@ -33,6 +36,7 @@ final class WorkoutReference
         public readonly string $source = '',
         public readonly array $items = [],
         public readonly ?string $origin = null,
+        public readonly array $choices = [],
     ) {}
 
     /** @param array<int, string> $items */
@@ -44,6 +48,14 @@ final class WorkoutReference
     public static function unresolved(string $status): self
     {
         return new self($status);
+    }
+
+    /**
+     * @param  array<int, array{item: string, options: array<int, string>}>  $choices  each exercise that is "A or B"
+     */
+    public static function needsChoice(array $choices): self
+    {
+        return new self(self::CHOICE, choices: $choices);
     }
 
     public function isFound(): bool

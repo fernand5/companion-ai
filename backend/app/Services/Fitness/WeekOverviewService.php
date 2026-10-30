@@ -26,6 +26,12 @@ use Illuminate\Support\Collection;
  *  - rest: a day the plan deliberately cleared for rest (WorkoutPlan::isRestDay()).
  *  - activity_only: no plan, but the user logged a workout that day (e.g. soccer).
  *  - nothing: no plan and no logged workout. This is NOT a rest day and is never called one.
+ *
+ * Steps are listed beside the day, never as part of it. A steps entry is a daily measurement, not a session: it does
+ * not make a plan completed, does not turn a day with no plan into "unplanned activity", and is not exercise
+ * performance. Each entry is returned as the user logged it. The data model does not say whether several entries on
+ * one date are separate walks or running totals (the form just logs a number, nothing keeps one per day), so they are
+ * never added together here: the caller shows each one.
  */
 class WeekOverviewService
 {
@@ -49,7 +55,7 @@ class WeekOverviewService
 
     /**
      * What counts as a workout the user did. Steps and weigh-ins are daily measurements, not sessions, so they
-     * do not appear as a day's activity.
+     * do not appear as a day's activity (steps are returned separately, see $steps below).
      */
     public const WORKOUT_TYPES = [ActivityLog::TYPE_TREADMILL, ActivityLog::TYPE_STRENGTH, ActivityLog::TYPE_SPORT, ActivityLog::TYPE_RECOVERY];
 
@@ -61,7 +67,7 @@ class WeekOverviewService
     /**
      * @return array{
      *   week: array{start: string, end: string, today: string, timezone: string},
-     *   days: array<int, array{date: string, weekday: string, is_today: bool, is_past: bool, state: string, plan: ?WorkoutPlan, activities: Collection<int, ActivityLog>}>
+     *   days: array<int, array{date: string, weekday: string, is_today: bool, is_past: bool, state: string, plan: ?WorkoutPlan, activities: Collection<int, ActivityLog>, steps: Collection<int, ActivityLog>}>
      * }
      */
     public function forCurrentWeek(User $user): array
@@ -85,6 +91,17 @@ class WeekOverviewService
             ->get()
             ->groupBy(fn (ActivityLog $log) => $log->logged_date->toDateString());
 
+        // Daily step entries, as logged. The mirror of a completed plan is excluded here too.
+        $steps = $user->activityLogs()
+            ->whereDate('logged_date', '>=', $range['start'])
+            ->whereDate('logged_date', '<=', $range['end'])
+            ->where('type', ActivityLog::TYPE_STEPS)
+            ->whereDoesntHave('completedPlan')
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get()
+            ->groupBy(fn (ActivityLog $log) => $log->logged_date->toDateString());
+
         $days = [];
         $cursor = Carbon::parse($range['start']);
 
@@ -101,6 +118,7 @@ class WeekOverviewService
                 'state' => $this->state($plan, $dayActivities, $date < $today),
                 'plan' => $plan,
                 'activities' => $dayActivities->values(),
+                'steps' => $steps->get($date, collect())->values(),
             ];
         }
 

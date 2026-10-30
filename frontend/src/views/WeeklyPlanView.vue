@@ -20,9 +20,19 @@ const progression = useProgressionStore()
 /** The user's own "today", as the server decided it. */
 const today = computed(() => store.week?.today ?? null)
 
-/** The days whose details are open. Today starts open; the strip opens the day it points at. */
-const open = ref<Set<string>>(new Set())
+/**
+ * The day on show. It is the user's today (as the server decided) until they pick another, and it stays what they
+ * picked when the week is read again, as long as that day is still in the week.
+ */
 const selected = ref<string | null>(null)
+
+/** Off: only the selected day's details are shown. On: all seven days, each opened or closed on its own. */
+const showFullWeek = ref(false)
+
+/** In the full-week view, the days whose details are open. */
+const open = ref<Set<string>>(new Set())
+
+const selectedDay = computed(() => store.days.find((day) => day.date === selected.value) ?? null)
 
 /** How many calculated adjustments are waiting for approval on each day (from the Progression section below). */
 const suggestionsByDay = computed(() => {
@@ -41,15 +51,18 @@ onMounted(() => {
   store.loadWeek()
 })
 
-// Once a week is on screen, open today (only the first time, so a reload never closes what the user opened).
+// Once a week is on screen, show today. A week that is read again keeps the day the user picked if it is still there;
+// a different week (or a day that is gone) starts again from today.
 watch(
-  () => store.week?.start,
-  (start, previous) => {
-    if (!start || !today.value) return
+  () => store.days.map((day) => day.date).join(','),
+  () => {
+    const dates = store.days.map((day) => day.date)
 
-    if (previous === undefined || previous !== start) {
-      selected.value = today.value
-      open.value = new Set([today.value])
+    if (dates.length === 0) return
+
+    if (selected.value === null || !dates.includes(selected.value)) {
+      selected.value = today.value !== null && dates.includes(today.value) ? today.value : dates[0]
+      open.value = new Set([selected.value])
     }
   },
   { immediate: true },
@@ -86,10 +99,21 @@ function toggle(date: string) {
 
 async function select(date: string) {
   selected.value = date
+
+  // One day on show: choosing another simply shows it. The full week opens that day and brings it into view.
+  if (!showFullWeek.value) return
+
   open.value = new Set(open.value).add(date)
 
   await nextTick()
   document.getElementById(`day-${date}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
+
+function toggleFullWeek() {
+  showFullWeek.value = !showFullWeek.value
+
+  // Going back to the full week, the day that was on show is the one that is open.
+  if (showFullWeek.value && selected.value) open.value = new Set(open.value).add(selected.value)
 }
 
 function showSuggestions() {
@@ -128,14 +152,37 @@ function submit() {
     </div>
 
     <template v-else>
-      <WeekStrip :days="store.days" :selected="selected" @select="select" />
+      <WeekStrip :days="store.days" :selected="selected" :controls="showFullWeek ? undefined : 'selected-day'" @select="select" />
+
+      <div class="flex justify-end">
+        <button
+          type="button"
+          class="min-h-11 rounded-lg px-3 text-sm font-medium text-brand-700 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          :aria-pressed="showFullWeek"
+          data-testid="toggle-full-week"
+          @click="toggleFullWeek"
+        >
+          {{ showFullWeek ? 'Show selected day only' : 'Show full week' }}
+        </button>
+      </div>
 
       <p v-if="store.generating" class="flex items-center gap-1.5 text-sm text-slate-500">
         <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.sm" spin />
         Filling in the rest of your week — this can take a minute…
       </p>
 
-      <div class="space-y-2" data-testid="week-days">
+      <div v-if="!showFullWeek && selectedDay" id="selected-day" role="region" aria-live="polite" :aria-label="`Details for ${selectedDay.weekday}`" data-testid="selected-day">
+        <WeekDayCard
+          :key="selectedDay.date"
+          :day="selectedDay"
+          :expanded="true"
+          :collapsible="false"
+          :suggestions="suggestionsByDay[selectedDay.date] ?? 0"
+          @show-suggestions="showSuggestions"
+        />
+      </div>
+
+      <div v-else class="space-y-2" data-testid="week-days">
         <WeekDayCard
           v-for="day in store.days"
           :key="day.date"

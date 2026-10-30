@@ -1,4 +1,4 @@
-import type { WeekActivity, WeekDayState, WeekOverview, WeeklyPlanDay, WorkoutPlan, WorkoutPlanExercise } from '@/types'
+import type { WeekActivity, WeekDayState, WeekOverview, WeekSteps, WeeklyPlanDay, WorkoutPlan, WorkoutPlanExercise } from '@/types'
 import { getCurrentWeekRange, todayIn } from '@/utils/week'
 
 /** The week the fixtures describe: Monday to Sunday around today (UTC, as the specs run). */
@@ -66,6 +66,10 @@ export function makeActivity(overrides: Partial<WeekActivity> = {}): WeekActivit
   }
 }
 
+export function makeSteps(overrides: Partial<WeekSteps> = {}): WeekSteps {
+  return { id: 1, logged_date: WEEK[0], steps: 6000, created_at: null, ...overrides }
+}
+
 function stateOf(plan: WorkoutPlan | null, activities: WeekActivity[], isPast: boolean): WeekDayState {
   if (!plan) return activities.length > 0 ? 'activity_only' : 'nothing'
   if (plan.status === 'planned') return isPast ? 'not_marked_done' : 'planned'
@@ -84,16 +88,21 @@ export function makeDay(date: string, plan: WorkoutPlan | null = null, activitie
     state: stateOf(plan, activities, isPast),
     plan,
     activities,
+    steps: [],
     ...overrides,
   }
 }
 
 /** A server-shaped overview: seven days, the given plans placed on their dates, optional activities by date. */
-export function overviewOf(plans: WorkoutPlan[] = [], activitiesByDate: Record<string, WeekActivity[]> = {}): WeekOverview {
+export function overviewOf(
+  plans: WorkoutPlan[] = [],
+  activitiesByDate: Record<string, WeekActivity[]> = {},
+  stepsByDate: Record<string, WeekSteps[]> = {},
+): WeekOverview {
   return {
     week: { start: WEEK[0], end: WEEK[6], today: TODAY, timezone: 'UTC' },
     days: WEEK.map((date) =>
-      makeDay(date, plans.find((plan) => plan.planned_date === date) ?? null, activitiesByDate[date] ?? []),
+      makeDay(date, plans.find((plan) => plan.planned_date === date) ?? null, activitiesByDate[date] ?? [], { steps: stepsByDate[date] ?? [] }),
     ),
   }
 }
