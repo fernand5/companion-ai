@@ -21,6 +21,9 @@ use App\Services\Ai\Authorization\ToolAuthorization;
 use App\Services\Ai\Authorization\ToolCapabilities;
 use App\Services\Ai\Authorization\ToolCapability;
 use App\Services\Ai\Authorization\ToolTurn;
+use App\Services\Ai\Authorization\WeekPlan;
+use App\Services\Ai\Authorization\WeekPlanReference;
+use App\Services\Ai\Authorization\WeekSaveScope;
 use App\Services\Ai\Authorization\WorkoutReference;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Fitness\WeeklyPlanService;
@@ -50,6 +53,7 @@ class AiCoachService
         private readonly SavedWorkoutReference $workoutReference,
         private readonly PlanReplacer $planReplacer,
         private readonly SaveRetry $saveRetry,
+        private readonly WeekPlanReference $weekReference,
     ) {}
 
     public function respond(User $user, Conversation $conversation, string $userMessage): Message
@@ -171,6 +175,14 @@ class AiCoachService
                 .'If the tool says nothing has changed until the user confirms, tell them that; the application is asking them. If it returns any other error, tell the user what it says instead of claiming it was saved.';
         }
 
+        // "Add this plan to my dashboard": a plan of several days, saved whole or not at all.
+        if (($week = $authorization->weekScope) !== null) {
+            $systemPrompt .= "\n\nThe user asked you to put a plan of several days on their plan. Call propose_weekly_plan_changes once, with a decision_summary, reasoning_factors, and changes for exactly these days and no others: "
+                .$week->describe().'. Each change needs its date (as given), its action, a short reason, and for a workout a title and activity_type (one of strength, treadmill, sport, steps) plus its exercises. '
+                .'Do not add, drop, rename or reorder exercises, do not change a date, and do not choose or raise a weight: give a weight only if the user has a recorded or planned weight for that exact exercise. '
+                .'The application saves the days together and tells the user what was saved, or asks them to confirm; do not say it was saved yourself. If the tool returns an error, tell the user what it says.';
+        }
+
         if (($proposal = $authorization->scopedProposal()) !== null) {
             $systemPrompt .= "\n\nThe user just confirmed exactly one change: ".$proposal->describe().'. Make that change and nothing else: call create_workout_plan once, '
                 .'with exactly these planned_date, activity_type, title, duration_minutes and exercises, plus your own decision_summary and reasoning_factors: '
@@ -250,13 +262,16 @@ class AiCoachService
         [$notice, $pending] = $this->followUp($user, $conversation, $userMessage, $authorization, $turn->confirmedChangeMade(), $history);
 
         // A change that needed the user's confirmation, and could not be asked for, is said not to have happened.
-        if (array_filter($turn->blocked(), fn (array $b) => $b['reason'] === 'cannot_ask_for_confirmation') !== [] && $turn->pendingReplacement() === null) {
+        if ($authorization->weekScope === null && array_filter($turn->blocked(), fn (array $b) => $b['reason'] === 'cannot_ask_for_confirmation') !== [] && $turn->pendingReplacement() === null) {
             $finalText = rtrim($finalText)."\n\nI haven't changed your plan: that would replace a day that already has a plan, and I couldn't ask you to confirm it just now. Please try again.";
         }
 
         // What happened to a requested save is the application's to say, not the model's.
         if ($authorization->saveScope !== null) {
             [$finalText, $savedMeta] = $this->saveOutcome($finalText, $turn, $authorization->saveScope);
+            $meta += $savedMeta;
+        } elseif ($authorization->weekScope !== null) {
+            [$finalText, $savedMeta] = $this->weekOutcome($turn, $authorization->weekScope);
             $meta += $savedMeta;
         } elseif (($held = $turn->pendingReplacement()) !== null) {
             // Any other turn that ran into a day with a plan on it: the reply stays (it may be the workout the user
@@ -396,6 +411,13 @@ class AiCoachService
             return $authorization;
         }
 
+        // A plan of several days is not one workout: its days, dates and rest days are resolved together or asked about.
+        $week = $this->weekReference->resolve($userMessage, $history, CarbonImmutable::parse($user->localToday()), ! in_array(PlanChangeIntentClassifier::BASIS_SAVE_WORKOUT, $sources, true), $retry);
+
+        if ($week->isAWeek()) {
+            return $this->scopeWeek($authorization, $week, $conversation);
+        }
+
         // "add a 30 minute run to my plan" names its own workout; "add this workout" points at one.
         $reference = $this->workoutReference->resolve($userMessage, $history, inMessageOnly: ! in_array(PlanChangeIntentClassifier::BASIS_SAVE_WORKOUT, $sources, true), retry: $retry);
 
@@ -422,6 +444,21 @@ class AiCoachService
             $authorization->basis,
             saveScope: $scope,
         );
+    }
+
+    /** The authorization for "add this plan to my dashboard": exactly these days, or the question that has to be answered first. */
+    private function scopeWeek(ToolAuthorization $authorization, WeekPlan $week, Conversation $conversation): ToolAuthorization
+    {
+        return match ($week->status) {
+            WeekPlan::FOUND => new ToolAuthorization(
+                [ToolCapability::PlanAdapt],
+                $authorization->basis,
+                weekScope: new WeekSaveScope($conversation->id, $week->days, $week->source, $week->omitted),
+            ),
+            WeekPlan::CHOICE => ToolAuthorization::readOnly('save_plan_choice', ToolAuthorization::FOLLOW_UP_CHOOSE_EXERCISE, ['choices' => $week->choices]),
+            WeekPlan::QUOTED => ToolAuthorization::readOnly('save_plan_quoted', ToolAuthorization::FOLLOW_UP_QUOTED_WORKOUT),
+            default => ToolAuthorization::readOnly('save_plan_'.$week->status, ToolAuthorization::FOLLOW_UP_WEEK_PLAN, ['problem' => $week->status, 'problems' => $week->problems, 'detail' => $week->detail]),
+        };
     }
 
     /**
@@ -451,6 +488,7 @@ class AiCoachService
                 'text' => 'I haven\'t changed your plan: that workout is quoted from someone else\'s words, and I want to be sure it is the one you want. Write the exercises in your own message, like "'.$example.'".',
                 'pending' => ['kind' => 'quoted'],
             ],
+            ToolAuthorization::FOLLOW_UP_WEEK_PLAN => $this->weekPlanQuestion($authorization->followUpData),
             ToolAuthorization::FOLLOW_UP_RETRY_EXPIRED => [
                 'text' => ($authorization->followUpData['reason'] ?? null) === SaveRetry::NEW_DAY
                     ? 'I haven\'t changed your plan: that request to add a workout was made on '.($authorization->followUpData['made_on'] ?? 'an earlier day').', and a new day has started, so I won\'t carry it over and guess which day you mean now. To add the workout, say "add this workout to my dashboard" (and the day, if you want one other than today).'
@@ -469,6 +507,49 @@ class AiCoachService
     }
 
     /**
+     * Why a plan of several days cannot be saved yet, said specifically, with the words that fix it.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array{text: string, pending: array<string, mixed>}
+     */
+    private function weekPlanQuestion(array $data): array
+    {
+        $days = implode('; ', array_map(fn (string $d) => '"'.$d.'"', (array) ($data['problems'] ?? [])));
+        $none = 'Nothing was saved for any day.';
+
+        return match ($data['problem'] ?? null) {
+            WeekPlan::UNCLEAR_DAY => [
+                'text' => "I haven't changed your plan: I can't tell exactly what to save for {$days} ({$data['detail']}), and I don't want to guess or invent a workout. {$none} "
+                    .'Tell me what that day holds (for example "Sunday is a rest day", or list its exercises with sets and reps), or ask me to write the plan out in full, then say "add this plan to my dashboard" again.',
+                'pending' => ['kind' => 'week_plan'],
+            ],
+            WeekPlan::PAST_DAYS => [
+                'text' => "I haven't changed your plan: this plan includes days that have already passed ({$days}), and I can only add today or a later day. {$none} "
+                    .'Reply with just the days to add, for example "Saturday and Sunday".',
+                'pending' => ['kind' => 'week_days'],
+            ],
+            WeekPlan::DATES => $days !== '' && ($data['detail'] ?? '') === 'the plan has no such day'
+                ? [
+                    'text' => "I haven't changed your plan: that plan has no {$days}. {$none} Reply with just the days to add from the plan, for example \"Saturday and Sunday\".",
+                    'pending' => ['kind' => 'week_days'],
+                ]
+                : [
+                    'text' => "I haven't changed your plan: I can't tell which dates this plan is for".($days !== '' ? " ({$days}: {$data['detail']})" : " ({$data['detail']})").". {$none} "
+                        .'Ask me to write the plan with a date on each day (for example "Saturday, Oct 31"), then say "add this plan to my dashboard" again.',
+                    'pending' => ['kind' => 'week_plan'],
+                ],
+            WeekPlan::TOO_MANY => [
+                'text' => "I haven't changed your plan: that plan has more than ".WeekPlanReference::MAX_DAYS." days, which is more than I can add at once. {$none} Ask me to add it a week at a time.",
+                'pending' => ['kind' => 'week_plan'],
+            ],
+            default => [
+                'text' => "I haven't changed your plan: I couldn't read that plan day by day. {$none} Ask me to write it out with each day's exercises, then say \"add this plan to my dashboard\".",
+                'pending' => ['kind' => 'week_plan'],
+            ],
+        };
+    }
+
+    /**
      * One or more exercises in the workout are "A or B". Say so plainly (not that anything is unavailable) and ask for
      * the one to use.
      *
@@ -477,7 +558,7 @@ class AiCoachService
      */
     private function exerciseChoiceQuestion(array $choices): array
     {
-        $lines = array_map(fn (array $c) => '"'.implode('" or "', $c['options']).'"', $choices);
+        $lines = array_map(fn (array $c) => '"'.implode('" or "', $c['options']).'"'.(isset($c['day']) ? ' ('.$c['day'].')' : ''), $choices);
         $first = $choices[0]['options'][0] ?? 'the first one';
 
         return [
@@ -541,11 +622,14 @@ class AiCoachService
                 $status = 'refused';
             } else {
                 $text = 'Done. '.implode(' ', array_map(
-                    fn (array $c) => $c['action'] === PlanReplacementProposal::CLEAR
-                        ? "I turned {$c['date']} ({$c['existing_summary']}) into a rest day."
-                        : "I replaced {$c['existing_summary']} on {$c['date']} with ".PlanReplacementProposal::summarise($c['replacement']).'.',
+                    fn (array $c) => match (true) {
+                        $c['action'] === PlanReplacementProposal::CREATE => 'I added '.PlanReplacementProposal::summarise($c['replacement'])." to {$c['date']}.",
+                        $c['action'] === PlanReplacementProposal::CLEAR && $c['existing_plan_id'] === 0 => "I marked {$c['date']} as a rest day.",
+                        $c['action'] === PlanReplacementProposal::CLEAR => "I turned {$c['date']} ({$c['existing_summary']}) into a rest day.",
+                        default => "I replaced {$c['existing_summary']} on {$c['date']} with ".PlanReplacementProposal::summarise($c['replacement']).'.',
+                    },
                     $proposal->changes,
-                ));
+                )).' I checked that it is saved.';
                 $status = 'applied';
             }
         }
@@ -581,6 +665,11 @@ class AiCoachService
      */
     private function correctClaims(string $text, ToolAuthorization $authorization, ToolTurn $turn, array $toolTrace): string
     {
+        // A plan of several days is reported by the application alone (weekOutcome()): nothing of the model's is left to correct.
+        if ($authorization->weekScope !== null) {
+            return $text;
+        }
+
         $wrote = $this->wroteSomething($toolTrace);
 
         if (self::claimsNoAccess($text)) {
@@ -666,9 +755,59 @@ class AiCoachService
                 : "I haven't changed your plan. {$change['date']} already has {$change['existing_summary']}. Do you want me to replace it with ".PlanReplacementProposal::summarise($change['replacement'])."? Reply \"yes\" within {$minutes} minutes to replace it with exactly that; anything else leaves it as it is.";
         }
 
+        if (array_filter($changes, fn (array $c) => $c['action'] === PlanReplacementProposal::CREATE || $c['existing_plan_id'] === 0) !== []) {
+            return "I haven't changed your plan yet. Saving this plan would make these changes, and some of these days already have a plan that would be replaced:\n"
+                .implode("\n", array_map(fn (array $c) => '- '.PlanReplacementProposal::describeChange($c), $changes))
+                ."\nDo you want me to make all of these changes? Reply \"yes\" within {$minutes} minutes to make exactly these changes and nothing else; anything else leaves your plan as it is.";
+        }
+
         return "I haven't changed your plan yet. These days already have a plan:\n"
             .implode("\n", array_map(fn (array $c) => '- '.PlanReplacementProposal::describeChange($c), $changes))
             ."\nDo you want me to make all of these changes? Reply \"yes\" within {$minutes} minutes to make exactly these changes and nothing else; anything else leaves your plan as it is.";
+    }
+
+    /**
+     * What the user is told about a plan of several days, whatever the model wrote: what was saved (after it was read
+     * back), the changes waiting for their confirmation, the days that stopped it, or that nothing was saved and why.
+     *
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    private function weekOutcome(ToolTurn $turn, WeekSaveScope $scope): array
+    {
+        if (($pending = $turn->pendingReplacement()) !== null) {
+            return [$this->replacementQuestion($pending), $this->proposals->presentReplacement($pending) + ['save_clarification' => true]];
+        }
+
+        if (($saved = $turn->weekSaved()) !== null) {
+            $lines = array_map(fn (array $c) => '- '.CarbonImmutable::parse($c['date'])->format('l, M j').': '.($c['action'] === PlanReplacementProposal::CLEAR ? 'rest day' : PlanReplacementProposal::summarise($c['replacement'])), $saved);
+            $already = $turn->weekAlready() === [] ? '' : ' '.implode(', ', $turn->weekAlready()).(count($turn->weekAlready()) === 1 ? ' was' : ' were').' already on your plan exactly like this, so I left '.(count($turn->weekAlready()) === 1 ? 'it' : 'them').' as '.(count($turn->weekAlready()) === 1 ? 'it is' : 'they are').'.';
+
+            $omitted = $scope->omitted === [] ? '' : ' I left out '.implode(', ', $scope->omitted).' because you named only the days above; say "add this plan to my dashboard" again if you want the rest.';
+
+            return ['Done. I added this to your plan, all together, and checked that it is saved:'."\n".implode("\n", $lines).$already.$omitted.$this->withRangeNote($turn), ['plan_replacement' => 'applied']];
+        }
+
+        if ($turn->weekBlocked() !== []) {
+            $list = implode(', ', array_map(fn (array $b) => $b['date'].' ('.$b['label'].': '.($b['reason'] === 'started' ? 'already started' : 'already has recorded workout performance').')', $turn->weekBlocked()));
+
+            return [
+                "I haven't changed your plan, and I didn't save any day of it: {$list} can't be replaced, and I save a plan whole or not at all so your week is never half done. "
+                .'To add the other days, reply with just those days, for example "Sunday" (or "add this plan to my dashboard for Sunday").',
+                ['save_clarification' => true, 'save_pending' => ['kind' => 'week_days']],
+            ];
+        }
+
+        if ($turn->weekAlready() !== []) {
+            return ['Everything in that plan ('.implode(', ', $turn->weekAlready()).') is already on your plan exactly as shown, so there was nothing to change.', ['save_clarification' => true]];
+        }
+
+        $problem = $turn->weekProblem();
+
+        return [
+            "I haven't changed your plan: ".($problem !== null ? rtrim($problem, '. ').'. Nothing was saved for any day.' : 'the plan was not saved, and nothing was saved for any day.')
+            .' Ask me again with "add this plan to my dashboard".',
+            ['save_clarification' => true],
+        ];
     }
 
     /** The application's note that a range was stored as one number, with the blank line before it, or nothing. */

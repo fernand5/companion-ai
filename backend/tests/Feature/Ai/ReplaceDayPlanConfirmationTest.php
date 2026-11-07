@@ -13,6 +13,7 @@ use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\DTOs\AiResponse;
 use App\Services\Ai\DTOs\ToolCallRequest;
 use App\Services\Fitness\WorkoutPlanService;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -225,23 +226,25 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
 
     public function test_only_the_requested_day_is_touched(): void
     {
-        $friday = now('America/Bogota')->next('Friday')->toDateString();
+        $day = CarbonImmutable::parse($this->user->localToday())->addDays(2); // a named weekday that is never today, whatever day the test runs on
+        $named = $day->toDateString();
+        $name = $day->format('l');
         $conversation = $this->coachDescribesAWorkout();
         $today = $this->existingPlan('Today plan');
 
-        // Friday is empty: written straight away, today's plan is left alone.
-        $this->say('Add this workout to my plan for Friday', $conversation, null, $this->saveCall($friday), new AiResponse(text: 'Added.'));
+        // The named day is empty: written straight away, today's plan is left alone.
+        $this->say("Add this workout to my plan for {$name}", $conversation, null, $this->saveCall($named), new AiResponse(text: 'Added.'));
 
-        $this->assertSame('Upper body', $this->planOn($friday)->title);
+        $this->assertSame('Upper body', $this->planOn($named)->title);
         $this->assertSame($today->revision(), $this->planOn($this->today)->revision());
 
-        // Friday now has a plan: asking again is a replacement of Friday, and only Friday.
+        // The named day now has a plan: asking again is a replacement of that day, and only that day.
         $conversation = $this->coachDescribesAWorkout();
-        $this->say('Add this workout to my plan for Friday', $conversation, null, $this->saveCall($friday, 'Second'), new AiResponse(text: 'Added.'));
-        $this->assertStringContainsString("{$friday} already has", $this->lastAssistant($conversation)->content);
-        $this->assertSame('Upper body', $this->planOn($friday)->title);
-        $this->assertSame($friday, $this->pendingMeta($conversation)['changes'][0]['date']);
-        $this->assertNotSame($today->id, $this->pendingMeta($conversation)['changes'][0]['existing_plan_id'], "The proposal is about Friday's plan, not today's.");
+        $this->say("Add this workout to my plan for {$name}", $conversation, null, $this->saveCall($named, 'Second'), new AiResponse(text: 'Added.'));
+        $this->assertStringContainsString("{$named} already has", $this->lastAssistant($conversation)->content);
+        $this->assertSame('Upper body', $this->planOn($named)->title);
+        $this->assertSame($named, $this->pendingMeta($conversation)['changes'][0]['date']);
+        $this->assertNotSame($today->id, $this->pendingMeta($conversation)['changes'][0]['existing_plan_id'], "The proposal is about the named day's plan, not today's.");
     }
 
     public function test_asking_again_after_the_question_finds_the_workout_and_asks_afresh(): void

@@ -8,6 +8,7 @@ use App\Models\WorkoutPlan;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\DTOs\AiResponse;
 use App\Services\Ai\DTOs\ToolCallRequest;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\FakeAiProvider;
@@ -197,14 +198,16 @@ class SaveWorkoutReferenceFlowTest extends PerformanceEvalCase
 
     public function test_a_day_the_user_names_is_the_day_and_the_model_cannot_move_it(): void
     {
-        $friday = now('America/Bogota')->next('Friday')->toDateString();
+        $day = CarbonImmutable::parse($this->user->localToday())->addDays(2); // a named weekday that is never today, whatever day the test runs on
+        $named = $day->toDateString();
+        $name = $day->format('l');
         $conversation = $this->coachSays("1. Push-ups 3x12\n2. Dumbbell rows 3x10");
         $exercises = [['exercise_name' => 'Push-ups', 'planned_sets' => 3, 'planned_reps' => 12], ['exercise_name' => 'Dumbbell rows', 'planned_sets' => 3, 'planned_reps' => 10]];
 
-        $this->say('Add this workout to my plan for Friday', $conversation, $this->saveCall($exercises, $this->today, 'Wrong day'), $this->saveCall($exercises, null, 'Friday'), new AiResponse(text: 'Added for Friday.'));
+        $this->say("Add this workout to my plan for {$name}", $conversation, $this->saveCall($exercises, $this->today, 'Wrong day'), $this->saveCall($exercises, null, 'Friday'), new AiResponse(text: 'Added for Friday.'));
 
         $this->assertSame(['Friday'], WorkoutPlan::where('user_id', $this->user->id)->pluck('title')->all());
-        $this->assertSame($friday, WorkoutPlan::where('user_id', $this->user->id)->first()->planned_date->toDateString());
+        $this->assertSame($named, WorkoutPlan::where('user_id', $this->user->id)->first()->planned_date->toDateString());
     }
 
     public function test_an_omitted_day_is_filled_in_by_the_application_not_defaulted_by_the_model(): void

@@ -198,9 +198,9 @@ describe('WeekDayCard: opening, suggestions and layout', () => {
   })
 
   it('points to suggested adjustments on that day, singular and plural, and offers to jump to them', async () => {
-    expect(card(futureDay(makePlan()), { suggestions: 1 }).get('[data-testid="day-suggestions"]').text()).toBe('1 suggested adjustment to review below')
+    expect(card(futureDay(makePlan()), { suggestions: 1 }).get('[data-testid="day-suggestions"]').text()).toBe('1 suggested adjustment to review in Progress')
     const many = card(futureDay(makePlan()), { suggestions: 3 })
-    expect(many.get('[data-testid="day-suggestions"]').text()).toBe('3 suggested adjustments to review below')
+    expect(many.get('[data-testid="day-suggestions"]').text()).toBe('3 suggested adjustments to review in Progress')
 
     await many.get('[data-testid="show-suggestions"]').trigger('click')
     expect(many.emitted('show-suggestions')).toHaveLength(1)

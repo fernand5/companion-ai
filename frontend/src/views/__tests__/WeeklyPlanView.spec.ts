@@ -1,8 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { makeItem, makeList } from '@/components/__tests__/progressionFixtures'
+import { insufficient, makeItem, makeList } from '@/components/__tests__/progressionFixtures'
 import { TODAY, WEEK, makeActivity, makeExercise, makePlan, makeSteps, overviewOf } from '@/components/__tests__/weekFixtures'
 import * as progressionService from '@/services/progression'
 import * as weeklyPlanService from '@/services/weeklyPlan'
@@ -13,6 +14,19 @@ vi.mock('@/services/weeklyPlan', () => ({ fetchOverview: vi.fn(), generateWeek: 
 vi.mock('@/services/progression', () => ({ fetchRecommendations: vi.fn(), approveProposal: vi.fn(), keepCurrentTarget: vi.fn() }))
 
 const week = WEEK
+
+/** The Weekly Plan sends the user to the Progress tab for suggested loads, so it needs a router to do it. */
+function makeRouter() {
+  return createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/weekly-plan', name: 'weekly-plan', component: { template: '<div />' } },
+      { path: '/progress', name: 'progress', component: { template: '<div />' } },
+    ],
+  })
+}
+
+const withRouter = (router = makeRouter(), extra: Record<string, unknown> = {}) => ({ global: { plugins: [router] }, ...extra })
 
 /** Switch to the all-seven-days view. */
 async function showFullWeek(wrapper: ReturnType<typeof mount>) {
@@ -26,7 +40,7 @@ async function mountView(...items: ReturnType<typeof makeItem>[]) {
   vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
   vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(makeList(...items))
 
-  const wrapper = mount(WeeklyPlanView)
+  const wrapper = mount(WeeklyPlanView, withRouter())
   await flushPromises()
 
   return wrapper
@@ -44,7 +58,7 @@ describe('WeeklyPlanView and progression', () => {
 
     const markers = wrapper.findAll('[data-testid="day-suggestions"]')
     expect(markers).toHaveLength(1)
-    expect(markers[0].text()).toBe('1 suggested adjustment to review below')
+    expect(markers[0].text()).toBe('1 suggested adjustment to review in Progress')
   })
 
   it('counts several suggestions on one day, and none for kept or informational ones', async () => {
@@ -56,7 +70,7 @@ describe('WeeklyPlanView and progression', () => {
     await showFullWeek(wrapper)
 
     const markers = wrapper.findAll('[data-testid="day-suggestions"]')
-    expect(markers.map((m) => m.text())).toEqual(['2 suggested adjustments to review below'])
+    expect(markers.map((m) => m.text())).toEqual(['2 suggested adjustments to review in Progress'])
   })
 
   it('shows no day markers when nothing is suggested, and loads the recommendations once', async () => {
@@ -78,7 +92,7 @@ describe('refreshing suggestions after the week is filled in', () => {
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: true, explanation: null })
     vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(makeList())
 
-    mount(WeeklyPlanView)
+    mount(WeeklyPlanView, withRouter())
     await flushPromises()
 
     expect(progressionService.fetchRecommendations).toHaveBeenCalledTimes(2)
@@ -96,12 +110,12 @@ describe('notices about loads the application left for the user to choose', () =
     vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(makeList())
 
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
-    const quiet = mount(WeeklyPlanView)
+    const quiet = mount(WeeklyPlanView, withRouter())
     await flushPromises()
     expect(quiet.find('[data-testid="plan-notices"]').exists()).toBe(false)
 
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null, notices: ['I left the starting weight for Goblet Squat unset: choose a weight you can lift comfortably.'] })
-    const noted = mount(WeeklyPlanView)
+    const noted = mount(WeeklyPlanView, withRouter())
     await flushPromises()
     expect(noted.get('[data-testid="plan-notices"]').text()).toContain('I left the starting weight for Goblet Squat unset')
   })
@@ -112,7 +126,7 @@ async function mountWeek(plans: ReturnType<typeof makePlan>[] = [], activities: 
   vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
   vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(makeList(...items))
 
-  const wrapper = mount(WeeklyPlanView, { attachTo: document.body })
+  const wrapper = mount(WeeklyPlanView, withRouter(undefined, { attachTo: document.body }))
   await flushPromises()
 
   return wrapper
@@ -124,14 +138,29 @@ describe('the week comes first', () => {
     vi.clearAllMocks()
   })
 
-  it('puts the week, then the selected day, then the coach box, then the progression section, in that order', async () => {
+  it('puts the week, then the selected day, then the coach box, in that order', async () => {
     const wrapper = await mountWeek([plan(WEEK[1], 'Upper')], {}, makeItem())
     const html = wrapper.html()
 
-    const order = ['data-testid="week-strip"', 'data-testid="selected-day"', '<textarea', 'id="progression-heading"'].map((marker) => html.indexOf(marker))
+    const order = ['data-testid="week-strip"', 'data-testid="selected-day"', '<textarea'].map((marker) => html.indexOf(marker))
 
     expect(order.every((i) => i >= 0)).toBe(true)
     expect(order).toEqual([...order].sort((a, b) => a - b))
+    wrapper.unmount()
+  })
+
+  it('has no Progression section: the recommendations live on the Progress tab', async () => {
+    const wrapper = await mountWeek([plan(WEEK[1], 'Upper')], {}, makeItem(), insufficient())
+
+    for (const pass of [0, 1]) {
+      expect(wrapper.find('#progression-heading').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Calculated from the sets you recorded')
+      for (const id of ['accept', 'keep', 'reload', 'no-action', 'summary']) {
+        expect(wrapper.find(`[data-testid="${id}"]`).exists(), `${id} (pass ${pass})`).toBe(false)
+      }
+      await showFullWeek(wrapper)
+    }
+
     wrapper.unmount()
   })
 
@@ -165,16 +194,16 @@ describe('the week comes first', () => {
     wrapper.unmount()
   })
 
-  it('shows the selected day even when the progression recommendations cannot load', async () => {
+  it('shows the selected day even when the progression recommendations cannot load, and says nothing about it', async () => {
     vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([plan(WEEK[1], 'Upper')]))
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
     vi.mocked(progressionService.fetchRecommendations).mockRejectedValue(new Error('network'))
 
-    const wrapper = mount(WeeklyPlanView)
+    const wrapper = mount(WeeklyPlanView, withRouter())
     await flushPromises()
 
     expect(wrapper.findAll('[data-testid="day-card"]')).toHaveLength(1)
-    expect(wrapper.find('[data-testid="error"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="error"]').exists()).toBe(false)
   })
 })
 
@@ -387,19 +416,6 @@ describe('one day on show', () => {
     wrapper.unmount()
   })
 
-  it('keeps the progression section below the day, in either view', async () => {
-    const wrapper = await mountWeek([plan(WEEK[1], 'Upper')], {}, makeItem())
-
-    for (let pass = 0; pass < 2; pass++) {
-      const html = wrapper.html()
-      expect(html.indexOf('data-testid="day-card"')).toBeGreaterThan(-1)
-      expect(html.lastIndexOf('data-testid="day-card"')).toBeLessThan(html.indexOf('id="progression-heading"'))
-      await showFullWeek(wrapper)
-    }
-
-    wrapper.unmount()
-  })
-
   it('has suggestions point at the day they apply to, which shows when it is selected', async () => {
     const wrapper = await mountWeek([plan(WEEK[1], 'Upper')], {}, makeItem({ applies_to: { date: WEEK[1], title: 'Upper', plan_status: 'planned' } }))
 
@@ -407,8 +423,28 @@ describe('one day on show', () => {
 
     await strip(wrapper, WEEK[1]).trigger('click')
 
-    expect(wrapper.get('[data-testid="day-suggestions"]').text()).toBe('1 suggested adjustment to review below')
+    expect(wrapper.get('[data-testid="day-suggestions"]').text()).toBe('1 suggested adjustment to review in Progress')
     wrapper.unmount()
+  })
+
+  it('sends the user to the progression recommendations on the Progress tab from a day with suggestions', async () => {
+    const router = makeRouter()
+    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([plan(TODAY, 'Upper')]))
+    vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
+    vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(makeList(makeItem({ applies_to: { date: TODAY, title: 'Upper', plan_status: 'planned' } })))
+    await router.push('/weekly-plan')
+
+    const wrapper = mount(WeeklyPlanView, withRouter(router))
+    await flushPromises()
+    expect(wrapper.get('[data-testid="show-suggestions"]').text()).toBe('Review the adjustment in Progress')
+
+    await wrapper.get('[data-testid="show-suggestions"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('progress')
+    expect(router.currentRoute.value.hash).toBe('#progression-heading')
+    expect(progressionService.approveProposal).not.toHaveBeenCalled()
+    expect(progressionService.keepCurrentTarget).not.toHaveBeenCalled()
   })
 })
 
@@ -425,7 +461,7 @@ describe('steps in the selected day', () => {
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
     vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(makeList())
 
-    const wrapper = mount(WeeklyPlanView, { attachTo: document.body })
+    const wrapper = mount(WeeklyPlanView, withRouter(undefined, { attachTo: document.body }))
     await flushPromises()
 
     return wrapper
@@ -564,7 +600,7 @@ describe('the week from the server decides what today is', () => {
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
     vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(makeList())
 
-    const wrapper = mount(WeeklyPlanView)
+    const wrapper = mount(WeeklyPlanView, withRouter())
     await flushPromises()
 
     expect(wrapper.findAll('[data-testid="day-card"]').map((c) => c.attributes('data-date'))).toEqual([WEEK[5]])
@@ -580,47 +616,23 @@ describe('the week from the server decides what today is', () => {
   })
 })
 
-describe('an approved progression is visible in the week', () => {
+describe('accepting a suggested load is not done from the Weekly Plan', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
   })
 
-  it('re-reads the week after an approval, so the day shows the new load, and does not refill the week', async () => {
-    const withLoad = (kg: number) => overviewOf([makePlan({ id: 3, planned_date: TODAY, title: 'Lower Body', exercises: [makeExercise({ planned_weight_kg: kg })] })])
-    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValueOnce(withLoad(40))
-    vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
-    vi.mocked(progressionService.fetchRecommendations).mockResolvedValueOnce(makeList(makeItem({ applies_to: { date: TODAY, title: 'Lower Body', plan_status: 'planned' } })))
-    vi.mocked(progressionService.approveProposal).mockResolvedValue({ applied: true, exercise: { name: 'Bench Press', slug: 'bench-press' }, date: TODAY, from_kg: 40, to_kg: 42.5 })
-
-    const wrapper = mount(WeeklyPlanView)
-    await flushPromises()
-    const today = () => wrapper.get(`[data-testid="day-card"][data-date="${TODAY}"]`)
-    expect(today().get('[data-testid="exercise-planned"]').text()).toBe('3×10 @ 40 kg')
-
-    // After the approval the server holds 42.5 kg and has nothing more to suggest.
-    vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(withLoad(42.5))
-    vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(makeList())
-    await wrapper.get('[data-testid="accept"]').trigger('click')
-    await flushPromises()
-
-    expect(today().get('[data-testid="exercise-planned"]').text()).toBe('3×10 @ 42.5 kg')
-    expect(weeklyPlanService.fetchOverview).toHaveBeenCalledTimes(2)
-    expect(weeklyPlanService.generateWeek).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeping the current target does not change or reload the week', async () => {
+  it('offers no accept or keep here, and reads each week once', async () => {
     vi.mocked(weeklyPlanService.fetchOverview).mockResolvedValue(overviewOf([makePlan({ id: 3, planned_date: TODAY })]))
     vi.mocked(weeklyPlanService.generateWeek).mockResolvedValue({ applied: false, explanation: null })
     vi.mocked(progressionService.fetchRecommendations).mockResolvedValue(makeList(makeItem({ applies_to: { date: TODAY, title: 'Upper', plan_status: 'planned' } })))
-    vi.mocked(progressionService.keepCurrentTarget).mockResolvedValue({ kept: true } as never)
 
-    const wrapper = mount(WeeklyPlanView)
-    await flushPromises()
-    await wrapper.get('[data-testid="keep"]').trigger('click')
+    const wrapper = mount(WeeklyPlanView, withRouter())
     await flushPromises()
 
+    expect(wrapper.find('[data-testid="accept"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="keep"]').exists()).toBe(false)
     expect(weeklyPlanService.fetchOverview).toHaveBeenCalledTimes(1)
+    expect(progressionService.fetchRecommendations).toHaveBeenCalledTimes(1)
   })
 })
-

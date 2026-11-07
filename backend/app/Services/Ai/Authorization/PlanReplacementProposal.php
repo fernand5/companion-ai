@@ -6,9 +6,11 @@ use App\Support\ApplicationKey;
 use Carbon\CarbonImmutable;
 
 /**
- * The whole-day replacements that the application showed the user and asked them to confirm: for each day, THIS
- * exact existing plan (id and content fingerprint at the moment it was shown) is replaced by THIS exact workout, or
- * cleared to a rest day. One day for "add this workout to my dashboard"; a few for a weekly adaptation.
+ * The whole-day changes that the application showed the user and asked them to confirm: for each day, THIS exact
+ * existing plan (id and content fingerprint at the moment it was shown) is replaced by THIS exact workout, or cleared
+ * to a rest day; or, for a day with nothing planned, THIS workout (or a rest day) is added (CREATE; the day must still
+ * be empty when it is applied). One day for "add this workout to my dashboard"; up to seven for a weekly adaptation or
+ * for "add this plan to my dashboard".
  *
  * Same discipline as PlanChangeProposal: built by the application (the workout from a call it already checked against
  * the user's request and the load rules, the existing plan from its own records), immutable, signed, and bound to one
@@ -28,6 +30,12 @@ final class PlanReplacementProposal
 
     public const CLEAR = 'clear';
 
+    /** A day with nothing planned gets this workout. `existing_plan_id` is 0 and the day must still be empty. */
+    public const CREATE = 'create';
+
+    /** What a day with nothing planned is called in the application's own words. */
+    public const NOTHING_PLANNED = 'nothing planned';
+
     private const VERSION = 2;
 
     private const EXERCISE_FIELDS = ['exercise_name', 'planned_sets', 'planned_reps', 'planned_weight_kg', 'planned_duration_seconds'];
@@ -45,8 +53,8 @@ final class PlanReplacementProposal
     ) {}
 
     /**
-     * Each change: date, existing_plan_id, existing_revision, existing_summary, action (replace|clear) and, for a
-     * replace, the create_workout_plan arguments that have already been checked.
+     * Each change: date, existing_plan_id (0 for a day with nothing planned), existing_revision, existing_summary, action
+     * (replace|clear|create) and, for a replace or create, the create_workout_plan arguments that have already been checked.
      *
      * @param  array<int, array<string, mixed>>  $changes
      */
@@ -99,8 +107,11 @@ final class PlanReplacementProposal
         foreach ($meta['changes'] as $change) {
             if (! is_array($change) || ! is_string($change['date'] ?? null) || ! is_int($change['existing_plan_id'] ?? null)
                 || ! is_string($change['existing_revision'] ?? null) || ! is_string($change['existing_summary'] ?? null)
-                || ! in_array($change['action'] ?? null, [self::REPLACE, self::CLEAR], true)
-                || (($change['action'] === self::REPLACE) !== is_array($change['replacement'] ?? null))) {
+                || ! in_array($change['action'] ?? null, [self::REPLACE, self::CLEAR, self::CREATE], true)
+                || (($change['action'] !== self::CLEAR) !== is_array($change['replacement'] ?? null))
+                // A day with nothing planned has no plan to name, and a create is only ever for such a day.
+                || ($change['action'] === self::CREATE && ($change['existing_plan_id'] !== 0 || $change['existing_revision'] !== ''))
+                || ($change['action'] === self::REPLACE && $change['existing_plan_id'] === 0)) {
                 return null;
             }
         }
@@ -154,6 +165,14 @@ final class PlanReplacementProposal
      */
     public static function describeChange(array $change): string
     {
+        if ($change['action'] === self::CREATE) {
+            return "{$change['date']}: ".self::summarise($change['replacement']).' would be added (nothing is planned yet)';
+        }
+
+        if ($change['action'] === self::CLEAR && $change['existing_plan_id'] === 0) {
+            return "{$change['date']}: would be marked as a rest day (nothing is planned yet)";
+        }
+
         return $change['action'] === self::CLEAR
             ? "{$change['date']}: {$change['existing_summary']} would become a rest day"
             : "{$change['date']}: {$change['existing_summary']} would be replaced with ".self::summarise($change['replacement']);

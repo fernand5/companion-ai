@@ -59,6 +59,21 @@ final class ToolTurn
 
     private ?string $rangeNote = null;
 
+    /** "Add this plan to my dashboard" is handled once per turn: saved, held for confirmation, or refused. */
+    private bool $weekHandled = false;
+
+    /** @var array<int, array<string, mixed>>|null the changes that were written, all of them, when a plan of several days was saved */
+    private ?array $weekSaved = null;
+
+    /** @var array<int, array{date: string, label: string, reason: string}> days that were started or performed, which stopped the whole plan from being saved */
+    private array $weekBlocked = [];
+
+    /** Why a plan of several days was not saved, in words the application can pass on, when it was refused for something the user can act on. */
+    private ?string $weekProblem = null;
+
+    /** @var array<int, string> days of the plan that were already on the user's plan exactly as shown */
+    private array $weekAlready = [];
+
     public function __construct(
         private readonly ToolRegistry $registry,
         private readonly PlanLoadGuard $loadGuard,
@@ -66,6 +81,7 @@ final class ToolTurn
         public readonly ToolAuthorization $authorization,
         private readonly WeeklyPlanService $weekly,
         private readonly ?int $conversationId = null,
+        private readonly ?PlanReplacer $replacer = null,
     ) {}
 
     /**
@@ -114,6 +130,12 @@ final class ToolTurn
 
         if ($this->authorization->saveScope !== null && $name === 'create_workout_plan' && $capability === ToolCapability::PlanCreate) {
             return $this->callSave($name, $capability, $arguments, $user);
+        }
+
+        if ($this->authorization->weekScope !== null && $capability->needsAuthorization()) {
+            return $name === 'propose_weekly_plan_changes'
+                ? $this->callWeekSave($name, $capability, $arguments, $user)
+                : $this->refuse($name, $capability, 'outside_requested_plan', 'Not done: the user asked to save one specific plan of several days, which is done with propose_weekly_plan_changes only. Nothing was changed.');
         }
 
         $unset = [];
@@ -500,6 +522,144 @@ final class ToolTurn
         return $result;
     }
 
+    /**
+     * A write under "add this plan to my dashboard": exactly the days and the content the user was shown, ALL of them or
+     * none. Everything is checked before anything is written (the days named, each exercise as written, the load rules,
+     * and that no day has been started or performed). Days with nothing planned are then written together, in one
+     * transaction that reads the data back (PlanReplacer). If any day already has an untouched plan, nothing is written:
+     * the whole set is held as one signed proposal and the user is asked to confirm exactly those changes. If any day
+     * was started or performed, nothing is written for any day, so a week is never half saved.
+     */
+    private function callWeekSave(string $name, ToolCapability $capability, array $arguments, User $user): mixed
+    {
+        $scope = $this->authorization->weekScope;
+
+        if ($this->weekHandled) {
+            return $this->refuse($name, $capability, 'save_already_handled', 'Not done: the one plan the user asked to save has already been handled this turn. Nothing else was changed.');
+        }
+
+        $mismatch = $scope->mismatch($arguments['changes'] ?? null);
+
+        if ($mismatch !== null) {
+            return $this->refuse($name, $capability, 'outside_requested_plan', 'Not done, nothing was changed: the user asked to save one specific plan, and this call is not exactly that: '.$mismatch
+                .' To save it, call propose_weekly_plan_changes once, with changes for exactly these days: '.$scope->describe().'. Each change also needs a reason.');
+        }
+
+        if (empty($arguments['decision_summary']) || empty($arguments['reasoning_factors'])) {
+            return ['error' => 'decision_summary and reasoning_factors are required when saving a plan.'];
+        }
+
+        $changes = $scope->normalise(array_values($arguments['changes']));
+        $today = CarbonImmutable::parse($user->localToday());
+
+        try {
+            $valid = $this->weekly->validatedChanges($user, $changes, ['start' => $today->toDateString(), 'end' => $today->addDays(WeekPlanReference::HORIZON_DAYS)->toDateString()]);
+        } catch (ValidationException $e) {
+            return ['error' => implode(' ', $e->validator->errors()->all())];
+        }
+
+        $labels = array_column($scope->days, 'label', 'date');
+        $built = [];
+        $unset = [];
+        $already = [];
+        $blocked = [];
+
+        foreach ($valid as $change) {
+            $date = $change['date'];
+            $existing = $user->workoutPlans()->with('exercises')->whereDate('planned_date', $date)->first();
+
+            // Started or performed: never touched, and the rest of the plan is not saved around it.
+            if ($existing !== null && ! $existing->isReplaceable()) {
+                $blocked[] = ['date' => $date, 'label' => $labels[$date] ?? $date, 'reason' => $existing->hasRecordedPerformance() ? 'performed' : 'started'];
+
+                continue;
+            }
+
+            $replacement = null;
+
+            if ($change['action'] === 'replace') {
+                $replacement = ['planned_date' => $date] + $change + ['decision_summary' => $change['reason'], 'reasoning_factors' => $arguments['reasoning_factors']];
+                ['arguments' => $replacement, 'unset' => $stricter] = $this->loadGuard->withoutUnbaselinedLoads($user, 'create_workout_plan', $replacement, false, []);
+
+                if (($violations = $this->loadGuard->violations($user, 'create_workout_plan', $replacement, false)) !== []) {
+                    $this->weekProblem = implode(' ', $violations);
+
+                    return $this->refuse($name, $capability, 'load_above_limit', 'Not done, nothing was changed: '.implode(' ', $violations));
+                }
+
+                $unset = [...$unset, ...$stricter];
+            }
+
+            if ($existing !== null && ($replacement === null ? $existing->isRestDay() : PlanChangeKind::of($existing, $replacement) === PlanChangeKind::NONE)) {
+                $already[] = $date;
+
+                continue;
+            }
+
+            $built[] = [
+                'date' => $date,
+                'existing_plan_id' => $existing?->id ?? 0,
+                'existing_revision' => $existing?->revision() ?? '',
+                'existing_summary' => $existing !== null ? $this->describeExisting($existing) : PlanReplacementProposal::NOTHING_PLANNED,
+                'action' => $replacement === null ? PlanReplacementProposal::CLEAR : ($existing === null ? PlanReplacementProposal::CREATE : PlanReplacementProposal::REPLACE),
+                'reason' => $change['reason'],
+                'replacement' => $replacement,
+            ];
+        }
+
+        $this->weekHandled = true;
+
+        if ($blocked !== []) {
+            $this->weekBlocked = $blocked;
+
+            return $this->refuse($name, $capability, 'week_day_protected', 'Not done, nothing was changed for any day: '.implode(', ', array_map(fn (array $b) => $b['date'].' ('.($b['reason'] === 'started' ? 'already started' : 'already has recorded workout performance').')', $blocked))
+                .' cannot be replaced, and a plan is saved whole or not at all. Tell the user which days, and that they can ask for the other days only.');
+        }
+
+        $this->weekAlready = $already;
+
+        if ($built === []) {
+            return ['note' => 'Nothing needed changing: every day of that plan is already on the user\'s plan exactly as shown. Tell the user that.', 'already_on_plan' => $already];
+        }
+
+        if ($this->conversationId === null || ! ApplicationKey::usable() || $this->replacer === null) {
+            return $this->refuse($name, $capability, 'cannot_ask_for_confirmation', 'Not done, nothing was changed: saving a plan of several days needs the application\'s confirmation record and it cannot be made here.');
+        }
+
+        $needsConfirmation = array_filter($built, fn (array $c) => $c['existing_plan_id'] !== 0) !== [];
+
+        if ($needsConfirmation) {
+            // All of it waits, the empty days too: a confirmation covers exactly this set and nothing near it.
+            foreach ($built as $change) {
+                $this->commitHold($user, $change['date'], $change + ['unset' => $change['date'] === $built[0]['date'] ? $unset : []]);
+            }
+
+            return [
+                'error' => 'Nothing was changed yet: some of those days already have a planned workout, so the application is asking the user to confirm exactly these changes. Do not say anything was saved or replaced; say that nothing has changed until the user confirms.',
+                'pending_confirmation' => true,
+            ];
+        }
+
+        $result = $this->replacer->apply($user, PlanReplacementProposal::create($user->id, $this->conversationId, $built));
+
+        if (is_string($result)) {
+            $this->weekProblem = $result;
+
+            return $this->refuse($name, $capability, 'week_not_saved', 'Not done, nothing was changed: '.$result);
+        }
+
+        $this->weekSaved = $built;
+        $this->workoutSaved = true;
+        $this->rangeNote = $scope->rangeNote($changes);
+        $this->loadsLeftUnset = [...$this->loadsLeftUnset, ...$unset];
+
+        return [
+            'saved' => array_map(fn (array $c) => ['date' => $c['date'], 'action' => $c['action']], $built),
+            'already_on_plan' => $already,
+            'note' => 'Every day of the plan was saved together and read back. The application will tell the user exactly what was saved; keep your reply short.',
+        ];
+    }
+
     /** "“Upper body” (Push-ups 3×12, Plank 30 s)", or "a rest day". */
     private function describeExisting(WorkoutPlan $plan): string
     {
@@ -530,6 +690,35 @@ final class ToolTurn
     public function replaced(): ?array
     {
         return $this->replaced;
+    }
+
+    /** @return array<int, array<string, mixed>>|null the changes written when a plan of several days was saved, else null */
+    public function weekSaved(): ?array
+    {
+        return $this->weekSaved;
+    }
+
+    /** @return array<int, array{date: string, label: string, reason: string}> */
+    public function weekBlocked(): array
+    {
+        return $this->weekBlocked;
+    }
+
+    /** @return array<int, string> */
+    public function weekAlready(): array
+    {
+        return $this->weekAlready;
+    }
+
+    public function weekProblem(): ?string
+    {
+        return $this->weekProblem;
+    }
+
+    /** True once the plan of several days has been written, held, refused or found to be on the plan already. */
+    public function weekHandled(): bool
+    {
+        return $this->weekHandled;
     }
 
     /** What the user is told about ranges stored as one number in the workout just saved, or null. */

@@ -172,11 +172,12 @@ class WeeklyPlanService
      * Each change checked and normalised, or a ValidationException for the first bad one. Nothing is written.
      *
      * @param  array<int, array<string, mixed>>  $changes
+     * @param  array{start: string, end: string}|null  $within  the days that may be planned; the current week when null
      * @return array<int, array<string, mixed>>
      */
-    public function validatedChanges(User $user, array $changes): array
+    public function validatedChanges(User $user, array $changes, ?array $within = null): array
     {
-        return $this->validateChanges($changes, $this->weekRange($user));
+        return $this->validateChanges($changes, $within ?? $this->weekRange($user), $within !== null);
     }
 
     /**
@@ -184,7 +185,7 @@ class WeeklyPlanService
      * @param  array{start: string, end: string}  $weekRange
      * @return array<int, array<string, mixed>>
      */
-    private function validateChanges(array $changes, array $weekRange): array
+    private function validateChanges(array $changes, array $weekRange, bool $customRange = false): array
     {
         $validated = [];
 
@@ -206,7 +207,9 @@ class WeeklyPlanService
 
             if ($item['date'] < $weekRange['start'] || $item['date'] > $weekRange['end']) {
                 throw ValidationException::withMessages([
-                    "changes.{$index}.date" => "Date {$item['date']} is outside the current week ({$weekRange['start']} to {$weekRange['end']}).",
+                    "changes.{$index}.date" => $customRange
+                        ? "Date {$item['date']} is outside the days that can be planned ({$weekRange['start']} to {$weekRange['end']})."
+                        : "Date {$item['date']} is outside the current week ({$weekRange['start']} to {$weekRange['end']}).",
                 ]);
             }
 
