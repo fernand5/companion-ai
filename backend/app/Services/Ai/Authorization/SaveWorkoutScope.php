@@ -191,11 +191,27 @@ final class SaveWorkoutScope
      */
     public function rangeNote(array $arguments): ?string
     {
+        $parts = $this->rangeParts($arguments);
+
+        if ($parts === []) {
+            return null;
+        }
+
+        return 'Your plan keeps one number for each of these, so I saved the low end of every range: '.implode('; ', $parts).'. You can change them in the plan.';
+    }
+
+    /**
+     * Each exercise whose range was stored as one number, said once: "Goblet Squat 8 reps (written 8-12)".
+     *
+     * @return array<int, string>
+     */
+    public function rangeParts(array $arguments): array
+    {
         $exercises = $arguments['exercises'] ?? null;
         $parts = [];
 
         if (! is_array($exercises)) {
-            return null;
+            return [];
         }
 
         foreach ($this->matched($exercises) as $index => $key) {
@@ -215,11 +231,7 @@ final class SaveWorkoutScope
             }
         }
 
-        if ($parts === []) {
-            return null;
-        }
-
-        return 'Your plan keeps one number for each of these, so I saved the low end of every range: '.implode('; ', $parts).'. You can change them in the plan.';
+        return $parts;
     }
 
     /**

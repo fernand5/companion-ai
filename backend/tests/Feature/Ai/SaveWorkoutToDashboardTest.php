@@ -9,6 +9,7 @@ use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\DTOs\AiResponse;
 use App\Services\Ai\DTOs\ToolCallRequest;
 use App\Services\Fitness\WorkoutPlanService;
+use Carbon\CarbonImmutable;
 use Tests\Support\FakeAiProvider;
 use Tests\Support\PerformanceEval\PerformanceEvalCase;
 
@@ -146,11 +147,13 @@ class SaveWorkoutToDashboardTest extends PerformanceEvalCase
     public function test_the_user_can_name_the_day(): void
     {
         $conversation = $this->coachDescribesAWorkout();
-        $friday = now('America/Bogota')->next('Friday')->toDateString();
+        $day = CarbonImmutable::parse($this->user->localToday())->addDays(2); // a named weekday that is never today, whatever day the test runs on
+        $named = $day->toDateString();
+        $name = $day->format('l');
 
-        $this->say('Add that to my plan for Friday', $conversation, $this->save($this->exercises(), $friday), new AiResponse(text: 'Added for Friday.'));
+        $this->say("Add that to my plan for {$name}", $conversation, $this->save($this->exercises(), $named), new AiResponse(text: 'Added for Friday.'));
 
-        $this->assertSame(1, $this->plansFor($this->user, $friday));
+        $this->assertSame(1, $this->plansFor($this->user, $named));
         $this->assertSame(0, $this->plansFor($this->user, $this->today));
     }
 

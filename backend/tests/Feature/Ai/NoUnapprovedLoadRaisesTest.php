@@ -157,7 +157,7 @@ class NoUnapprovedLoadRaisesTest extends PerformanceEvalCase
 
     public function test_a_session_for_today_cannot_raise_a_load(): void
     {
-        $turn = $this->chat('What should I do today?', $this->create(now()->toDateString(), 42.5, 'Today raised'), new AiResponse(text: 'Here you go.'));
+        $turn = $this->chat('What should I do today?', $this->create($this->user->localToday(), 42.5, 'Today raised'), new AiResponse(text: 'Here you go.'));
 
         $this->assertSame(0, $this->titled('Today raised'));
         $this->assertSame('load_above_limit', $turn->meta['blocked_tool_calls'][0]['reason']);
@@ -165,7 +165,7 @@ class NoUnapprovedLoadRaisesTest extends PerformanceEvalCase
 
     public function test_a_session_for_today_at_the_last_performed_load_is_fine(): void
     {
-        $this->chat('What should I do today?', $this->create(now()->toDateString(), 40.0, 'Today steady'), new AiResponse(text: 'Here you go.'));
+        $this->chat('What should I do today?', $this->create($this->user->localToday(), 40.0, 'Today steady'), new AiResponse(text: 'Here you go.'));
 
         $this->assertSame(1, $this->titled('Today steady'));
     }
@@ -186,7 +186,7 @@ class NoUnapprovedLoadRaisesTest extends PerformanceEvalCase
         $turn = $this->chat(
             'What should I do today?',
             new AiResponse(text: null, toolCalls: [new ToolCallRequest(id: 't', name: 'get_progression_recommendation', arguments: ['exercise_name' => 'Bench Press'])]),
-            $this->create(now()->toDateString(), 42.5, 'Applied suggestion'),
+            $this->create($this->user->localToday(), 42.5, 'Applied suggestion'),
             new AiResponse(text: 'Applied the suggested 42.5 kg.'),
         );
 
@@ -208,7 +208,7 @@ class NoUnapprovedLoadRaisesTest extends PerformanceEvalCase
     public function test_a_new_exercise_with_no_history_is_planned_without_a_model_chosen_load(): void
     {
         $this->chat('What should I do today?', new AiResponse(text: null, toolCalls: [new ToolCallRequest(id: 'n', name: 'create_workout_plan', arguments: [
-            'activity_type' => 'strength', 'title' => 'New lift', 'decision_summary' => 'x', 'reasoning_factors' => ['x'], 'planned_date' => now()->toDateString(),
+            'activity_type' => 'strength', 'title' => 'New lift', 'decision_summary' => 'x', 'reasoning_factors' => ['x'], 'planned_date' => $this->user->localToday(),
             'exercises' => [['exercise_name' => 'Zercher Squat', 'planned_sets' => 3, 'planned_reps' => 5, 'planned_weight_kg' => 60]],
         ])]), new AiResponse(text: 'ok'));
 

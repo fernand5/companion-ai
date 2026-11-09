@@ -24,6 +24,7 @@ final class ToolAuthorization
      *                                            numbers that may start an exercise that has no baseline
      * @param  SaveWorkoutScope|null  $saveScope  when set, the plan write is limited to saving exactly this workout on exactly this day
      * @param  array<string, mixed>  $followUpData  what the follow-up question needs to say (the offered exercises, the day), stored with the application's question
+     * @param  WeekSaveScope|null  $weekScope  when set, the plan write is limited to saving exactly this plan on exactly these days
      */
     public function __construct(
         array $granted,
@@ -34,6 +35,7 @@ final class ToolAuthorization
         public readonly array $statedLoadsKg = [],
         public readonly ?SaveWorkoutScope $saveScope = null,
         public readonly array $followUpData = [],
+        public readonly ?WeekSaveScope $weekScope = null,
     ) {
         $this->granted = array_values(array_unique([ToolCapability::Read, ToolCapability::Record, ...$granted], SORT_REGULAR));
     }
@@ -68,10 +70,13 @@ final class ToolAuthorization
     /** The day to put the workout on is unclear, already past, or named twice. */
     public const FOLLOW_UP_WHICH_DAY = 'which_day';
 
-    /** A bare "yes" with nothing valid waiting for it. */
+    /** A plan of several days cannot be saved as it stands: a day is unclear, has passed, or has no date that fits (see WeekPlan). */
+    public const FOLLOW_UP_WEEK_PLAN = 'week_plan';
+
     /** A retry or answer to a request that is too old, or from another day, to be replayed. */
     public const FOLLOW_UP_RETRY_EXPIRED = 'retry_expired';
 
+    /** A bare "yes" with nothing valid waiting for it. */
     public const FOLLOW_UP_NOTHING_PENDING = 'nothing_pending';
 
     /** Questions and everything else the user has not asked to turn into a plan change. */

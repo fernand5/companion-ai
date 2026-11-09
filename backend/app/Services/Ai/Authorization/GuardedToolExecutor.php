@@ -18,11 +18,12 @@ class GuardedToolExecutor
         private readonly PlanLoadGuard $loadGuard,
         private readonly ProposalMatcher $matcher,
         private readonly WeeklyPlanService $weekly,
+        private readonly ?PlanReplacer $replacer = null,
     ) {}
 
     /** @param int|null $conversationId the chat the turn belongs to; a confirmation can only be asked for in one */
     public function begin(ToolAuthorization $authorization, ?int $conversationId = null): ToolTurn
     {
-        return new ToolTurn($this->registry, $this->loadGuard, $this->matcher, $authorization, $this->weekly, $conversationId);
+        return new ToolTurn($this->registry, $this->loadGuard, $this->matcher, $authorization, $this->weekly, $conversationId, $this->replacer ?? app(PlanReplacer::class));
     }
 }

@@ -155,7 +155,7 @@ const explanation = computed(() => {
         </span>
         <span v-if="stepsSummary" class="block text-xs text-slate-500" data-testid="day-steps-summary">{{ stepsSummary }}</span>
         <span v-if="suggestions > 0" class="block pt-0.5 text-xs font-medium text-brand-700" data-testid="day-suggestions">
-          {{ suggestions }} suggested {{ suggestions === 1 ? 'adjustment' : 'adjustments' }} to review below
+          {{ suggestions }} suggested {{ suggestions === 1 ? 'adjustment' : 'adjustments' }} to review in Progress
         </span>
       </span>
 
@@ -181,7 +181,7 @@ const explanation = computed(() => {
         </span>
         <span v-if="stepsSummary" class="block text-xs text-slate-500" data-testid="day-steps-summary">{{ stepsSummary }}</span>
         <span v-if="suggestions > 0" class="block pt-0.5 text-xs font-medium text-brand-700" data-testid="day-suggestions">
-          {{ suggestions }} suggested {{ suggestions === 1 ? 'adjustment' : 'adjustments' }} to review below
+          {{ suggestions }} suggested {{ suggestions === 1 ? 'adjustment' : 'adjustments' }} to review in Progress
         </span>
       </span>
 
@@ -259,7 +259,7 @@ const explanation = computed(() => {
         data-testid="show-suggestions"
         @click="emit('show-suggestions')"
       >
-        Review {{ suggestions === 1 ? 'the adjustment' : 'the adjustments' }}
+        Review {{ suggestions === 1 ? 'the adjustment' : 'the adjustments' }} in Progress
       </button>
     </div>
   </article>

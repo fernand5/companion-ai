@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, onMounted } from 'vue'
 
 import ErrorNotice from '@/components/ErrorNotice.vue'
+import ProgressionRecommendations from '@/components/ProgressionRecommendations.vue'
 import ProgressChart from '@/components/ProgressChart.vue'
 import StatCard from '@/components/StatCard.vue'
 import WeeklySummaryCard from '@/components/WeeklySummaryCard.vue'
@@ -43,6 +44,9 @@ const workoutValues = computed(() => data.value?.weekly_workouts.map((d) => d.wo
       Progress
     </h1>
 
+    <!-- Load progression: what to do next with the weights. Mounted on its own so it neither waits for nor is hidden by the charts below. -->
+    <ProgressionRecommendations />
+
     <div v-if="store.progressLoading" class="flex items-center justify-center gap-2 py-12 text-center text-slate-400">
       <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.md" spin />
       Loading progress…
@@ -53,6 +57,8 @@ const workoutValues = computed(() => data.value?.weekly_workouts.map((d) => d.wo
     </div>
 
     <div v-else-if="data" class="space-y-6">
+      <h2 class="text-base font-semibold text-slate-900" data-testid="trends-heading">Trends and history</h2>
+
       <WeeklySummaryCard
         :summary="store.weeklySummary"
         :loading="store.weeklySummaryLoading"

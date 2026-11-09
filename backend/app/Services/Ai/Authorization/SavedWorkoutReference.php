@@ -86,7 +86,8 @@ final class SavedWorkoutReference
             $line = trim((string) preg_replace('/[*_`#]+/u', '', $line));
 
             // The request around a routine is not part of it: "Add this workout to my dashboard: squats 3x10".
-            $line = (string) preg_replace('/^(?:(?:please|can you|could you|would you)\s+)?(?:add|save|put|push|send|pin|apply|use|schedule)\b[^:\d]{0,80}:\s*/iu', '', $line);
+            // (It must name where the routine goes: "Push-ups: 3 sets of 12" and "Push press: 3x5" are exercises, not requests.)
+            $line = (string) preg_replace('/^(?:(?:please|can you|could you|would you)\s+)?(?:add|save|put|push|send|pin|apply|use|schedule)\s+[^:\d]{0,80}?\b(?:workout|plan|dashboard|routine|session|schedule|calendar|exercises?|week)\b[^:\d]{0,40}:\s*/iu', '', $line);
             // A list marker is not part of an exercise either.
             $line = trim((string) preg_replace('/^(?:[-•–—>]+|\d+[.)])\s+/u', '', $line));
 
@@ -102,6 +103,50 @@ final class SavedWorkoutReference
         }
 
         return $items;
+    }
+
+    /** The coach's reply the user's message is answering, as the single-workout path reads it (see precedingReply()). */
+    public static function replyBefore(Collection $history, bool $retry = false): ?string
+    {
+        return self::precedingReply($history, $retry);
+    }
+
+    /** Whether the text names a movement or activity (squat, walk, yoga…), with or without an amount. */
+    public static function namesMovement(string $text): bool
+    {
+        return (bool) preg_match('/\b'.self::EXERCISE.'\b/iu', $text);
+    }
+
+    /** Whether a routine is visibly unfinished (cut off, "etc.", fewer exercises than it announces, a numbered step with no detail). */
+    public static function looksUnfinished(string $text): bool
+    {
+        return self::incomplete($text);
+    }
+
+    /** Whether the text is somebody else's words, quoted. */
+    public static function isQuoted(string $text): bool
+    {
+        return self::quoted($text);
+    }
+
+    /**
+     * One exercise line, settled against the user's words: the line itself, or, when it offers "A or B", the line with
+     * the option the user named, or the options still to choose from.
+     *
+     * @return array{item: string, options: array<int, string>|null}
+     */
+    public static function settle(string $item, string $userMessage): array
+    {
+        $options = self::alternatives($item);
+
+        if ($options === null) {
+            return ['item' => $item, 'options' => null];
+        }
+
+        $chosen = self::selects($options, $userMessage);
+        $chosenItem = $chosen !== null ? self::withChoice($item, $options, $chosen) : null;
+
+        return $chosenItem !== null ? ['item' => $chosenItem, 'options' => null] : ['item' => $item, 'options' => $options];
     }
 
     public static function describesWorkout(string $text): bool
@@ -435,7 +480,7 @@ final class SavedWorkoutReference
     /** Visibly unfinished: cut off, trailing off, announcing more than it lists, or a numbered step with no detail. */
     private static function incomplete(string $text): bool
     {
-        if (preg_match('/…|\.{3}|\betc\b|\band so on\b|\band more\b|\bthe rest\b|\bremaining (?:exercises|sets|moves)\b|\bas before\b|\bsame as\b|\bto be (?:decided|determined|added)\b|\btbd\b|\bmore (?:exercises|moves) (?:to come|later)\b/iu', $text)) {
+        if (preg_match('/…|\.{3}|\betc\b|\band so on\b|\band more\b|\bthe rest\b(?!\s+of\s+(?:the|this|your)\s+(?:week|day|weekend|month|session))|\bremaining (?:exercises|sets|moves)\b|\bas before\b|\bsame as\b|\bto be (?:decided|determined|added)\b|\btbd\b|\bmore (?:exercises|moves) (?:to come|later)\b/iu', $text)) {
             return true;
         }
 

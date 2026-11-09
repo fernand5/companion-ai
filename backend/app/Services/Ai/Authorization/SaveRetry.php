@@ -130,7 +130,7 @@ final class SaveRetry
                     }
 
                     // The day the user gives now is the day; the one in the request it replaces (or the earlier answer) is not a second day.
-                    $dayAnswer = ($previous->meta['save_pending']['kind'] ?? null) === 'day';
+                    $dayAnswer = in_array($previous->meta['save_pending']['kind'] ?? null, ['day', 'week_days'], true);
                     $request = $dayAnswer ? SaveWorkoutDay::without($found['request']) : $found['request'];
                     $earlier = $dayAnswer ? array_map(SaveWorkoutDay::without(...), $found['answers']) : $found['answers'];
 
@@ -191,7 +191,7 @@ final class SaveRetry
         }
 
         return match ($pending['kind'] ?? null) {
-            'day' => SaveWorkoutDay::names($message),
+            'day', 'week_days' => SaveWorkoutDay::names($message),
             'choice' => SavedWorkoutReference::selectsAny(is_array($pending['options'] ?? null) ? $pending['options'] : [], $message),
             'which_workout' => SavedWorkoutReference::picks($message),
             // Nothing could be found to save, or what was found could not be used: the answer is the workout itself.

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import ErrorNotice from '@/components/ErrorNotice.vue'
-import ProgressionRecommendations from '@/components/ProgressionRecommendations.vue'
 import WeekDayCard from '@/components/WeekDayCard.vue'
 import WeekStrip from '@/components/WeekStrip.vue'
 import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
@@ -14,7 +14,9 @@ import { formatWeekRange } from '@/utils/weekDay'
 
 const store = useWeeklyPlanStore()
 const input = ref('')
+const router = useRouter()
 
+// The recommendations themselves live on the Progress tab. This page only reads the same store to point at the day each one applies to.
 const progression = useProgressionStore()
 
 /** The user's own "today", as the server decided it. */
@@ -34,7 +36,7 @@ const open = ref<Set<string>>(new Set())
 
 const selectedDay = computed(() => store.days.find((day) => day.date === selected.value) ?? null)
 
-/** How many calculated adjustments are waiting for approval on each day (from the Progression section below). */
+/** How many calculated adjustments are waiting for approval on each day (reviewed on the Progress tab). */
 const suggestionsByDay = computed(() => {
   const counts: Record<string, number> = {}
 
@@ -49,6 +51,7 @@ const suggestionsByDay = computed(() => {
 
 onMounted(() => {
   store.loadWeek()
+  progression.load()
 })
 
 // Once a week is on screen, show today. A week that is read again keeps the day the user picked if it is still there;
@@ -75,13 +78,6 @@ watch(
     if (filled) progression.load()
   },
 )
-
-// An approved progression changes a load in the plan: re-read the week so the day on screen shows what is stored now.
-const appliedCount = computed(() => Object.values(progression.actions).filter((a) => a.status === 'applied').length)
-
-watch(appliedCount, (now, before) => {
-  if (now > before) store.reloadDays()
-})
 
 const showEmptyState = computed(() => store.error !== null && store.days.length === 0)
 
@@ -116,8 +112,9 @@ function toggleFullWeek() {
   if (showFullWeek.value && selected.value) open.value = new Set(open.value).add(selected.value)
 }
 
+/** Accepting or keeping a suggested load happens on the Progress tab, where its evidence and history are. */
 function showSuggestions() {
-  document.getElementById('progression-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  router.push({ name: 'progress', hash: '#progression-heading' })
 }
 
 function submit() {
@@ -243,8 +240,5 @@ function submit() {
         {{ store.error }}
       </p>
     </template>
-
-    <!-- Below the week, and outside its loading states so it mounts (and fetches) once, not each time the week reloads. -->
-    <ProgressionRecommendations />
   </div>
 </template>

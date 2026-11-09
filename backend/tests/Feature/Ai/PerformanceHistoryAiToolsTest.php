@@ -10,6 +10,7 @@ use App\Models\WorkoutSession;
 use App\Models\WorkoutSet;
 use App\Services\Fitness\ExercisePerformanceRecord;
 use App\Services\Tools\ToolRegistry;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -215,6 +216,9 @@ class PerformanceHistoryAiToolsTest extends TestCase
 
     public function test_the_outcomes_are_distinguishable(): void
     {
+        // The rows below are dated early September and the tool looks back 60 days from "now": pin now beside them.
+        $this->travelTo(CarbonImmutable::parse('2026-09-15'));
+
         $this->legacyRow('2026-09-01', 'A Done Measured', 'entered', [[10, 40], [10, 40]], 'completed');
         $this->legacyRow('2026-09-02', 'B Done As Planned', 'as_planned', [[10, 40], [10, 40]], 'completed');
         $this->legacyRow('2026-09-03', 'C Partial As Planned', 'as_planned', [], 'partial');

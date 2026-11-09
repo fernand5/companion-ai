@@ -4,6 +4,13 @@ import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  // A link to a section of a page (the Progress tab's progression recommendations) lands on that section.
+  scrollBehavior(to, _from, saved) {
+    // (The header stays on screen, so leave room for it.)
+    if (to.hash) return { el: to.hash, top: 72, behavior: 'smooth' }
+
+    return saved ?? { top: 0 }
+  },
   routes: [
     {
       path: '/login',
