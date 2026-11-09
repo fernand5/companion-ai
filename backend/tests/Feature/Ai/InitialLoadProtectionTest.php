@@ -11,6 +11,7 @@ use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\DTOs\AiResponse;
 use App\Services\Ai\DTOs\ToolCallRequest;
 use App\Services\Fitness\WorkoutPlanService;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\FakeAiProvider;
 use Tests\Support\PerformanceEval\PerformanceEvalCase;
@@ -33,6 +34,10 @@ class InitialLoadProtectionTest extends PerformanceEvalCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // A fixed mid-week noon in the users' timezone: these tests need days later this week, which do not exist
+        // on a Sunday, and the server's UTC day is already a different day for them late on Sunday evening.
+        $this->travelTo(Carbon::parse('2026-11-04 12:00', 'America/Bogota'));
 
         config(['app.key' => 'base64:'.base64_encode(str_repeat('k', 32))]);
         $this->user = $this->newUser();
