@@ -22,6 +22,14 @@ class FitnessProfile extends Model
         'equipment',
         'preferred_training_days',
         'preferred_training_duration_minutes',
+        'coach_style',
+        'response_detail',
+    ];
+
+    /** What a freshly created row holds before the user chooses (matches the column defaults). */
+    protected $attributes = [
+        'coach_style' => 'balanced',
+        'response_detail' => 'standard',
     ];
 
     protected function casts(): array

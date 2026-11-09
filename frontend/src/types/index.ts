@@ -5,6 +5,17 @@ export interface User {
   timezone: string | null
 }
 
+/** How the AI coach sounds. A voice only: it never changes training rules or what the coach may do. */
+export type CoachStyle = 'supportive' | 'balanced' | 'intense'
+
+/** How much the AI coach writes. Length and depth only; safety cautions are never dropped. */
+export type ResponseDetail = 'concise' | 'standard' | 'detailed'
+
+export interface CoachingPreferences {
+  coach_style: CoachStyle
+  response_detail: ResponseDetail
+}
+
 export interface FitnessProfile {
   id: number
   height_cm: number | null
@@ -17,6 +28,8 @@ export interface FitnessProfile {
   equipment: string[]
   preferred_training_days: number[]
   preferred_training_duration_minutes: number | null
+  coach_style: CoachStyle
+  response_detail: ResponseDetail
   updated_at: string | null
 }
 

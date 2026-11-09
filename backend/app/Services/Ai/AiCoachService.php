@@ -40,6 +40,13 @@ use Illuminate\Support\Facades\Log;
  */
 class AiCoachService
 {
+    /** How long the dashboard card may be per response-detail setting (it is a small widget, so even "detailed" stays short). */
+    private const DASHBOARD_LENGTH = [
+        'concise' => '1-2 short sentences',
+        'standard' => '2-3 short sentences',
+        'detailed' => '3-5 short sentences',
+    ];
+
     public function __construct(
         private readonly AiProvider $aiProvider,
         private readonly GuardedToolExecutor $toolExecutor,
@@ -110,7 +117,7 @@ class AiCoachService
         // should affect an upcoming day, not only today's plan.
         $weekRange = $this->weeklyPlanService->weekRange($user);
         $context = $this->contextBuilder->build($user, $userMessage, $conversation, includeWeekPlan: true, weekRange: $weekRange, includePerformance: true);
-        $systemPrompt = $this->promptBuilder->build($this->contextBuilder->toPromptText($context));
+        $systemPrompt = $this->promptBuilder->build($this->contextBuilder->toPromptText($context), CoachingPreferences::forUser($user));
 
         // The reading rules are only worth their tokens when there is history to read.
         if (($context['performance'] ?? '') !== '') {
@@ -947,13 +954,16 @@ class AiCoachService
         // midnight, either serving a stale recommendation into their new day
         // or invalidating mid-evening while it's still "today" for them.
         $localNow = $user->localNow();
-        $cacheKey = "dashboard_recommendation:{$user->id}:".$localNow->toDateString().':'.$this->dashboardInputsFingerprint($user);
+        // The voice is part of the key: changing the coach style or detail must show on the next load,
+        // not only once something else the recommendation is written from has changed.
+        $preferences = CoachingPreferences::forUser($user);
+        $cacheKey = "dashboard_recommendation:{$user->id}:".$localNow->toDateString().':'.$this->dashboardInputsFingerprint($user).':'.$preferences->key();
 
-        return Cache::remember($cacheKey, $localNow->copy()->endOfDay(), function () use ($user) {
+        return Cache::remember($cacheKey, $localNow->copy()->endOfDay(), function () use ($user, $preferences) {
             set_time_limit(60);
 
             $context = $this->contextBuilder->build($user, 'What should I do today?');
-            $systemPrompt = $this->promptBuilder->build($this->contextBuilder->toPromptText($context));
+            $systemPrompt = $this->promptBuilder->build($this->contextBuilder->toPromptText($context), $preferences);
 
             // No tools are passed to this call (kept fast/cheap, not persisted),
             // but the shared system prompt still instructs the model to call
@@ -966,7 +976,7 @@ class AiCoachService
 
             $response = $this->aiProvider->chat([
                 ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user', 'content' => 'In 2-3 short sentences, what should I do today and why?'],
+                ['role' => 'user', 'content' => 'In '.self::DASHBOARD_LENGTH[$preferences->detail->value].', what should I do today and why?'],
             ]);
 
             return $response->text ?? "Log today's activity and I'll tailor a recommendation.";
