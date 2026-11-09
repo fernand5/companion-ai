@@ -20,6 +20,7 @@ class WeeklySummaryService
     public function __construct(
         private readonly AdherenceService $adherenceService,
         private readonly AiProvider $aiProvider,
+        private readonly SystemPromptBuilder $promptBuilder,
     ) {}
 
     public function getForCurrentWeek(User $user): WeeklySummary
@@ -47,7 +48,9 @@ class WeeklySummaryService
                     .'with a JSON object with exactly two string fields: "coach_insight" (1-2 encouraging, '
                     .'specific sentences about their week — only note a pattern if the stats clearly support '
                     .'it, otherwise just acknowledge the numbers) and "next_week_focus" (1-2 sentences of '
-                    .'concrete, actionable guidance for next week).',
+                    .'concrete, actionable guidance for next week). '
+                    // Voice only; the JSON shape and the "only what the numbers support" rule above still apply.
+                    .$this->promptBuilder->voiceSection(CoachingPreferences::forUser($user)),
             ],
             ['role' => 'user', 'content' => 'This week\'s stats: '.json_encode($stats)],
         ], [], ['responseMimeType' => 'application/json']);

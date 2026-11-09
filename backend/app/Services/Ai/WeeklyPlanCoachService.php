@@ -114,7 +114,9 @@ class WeeklyPlanCoachService
 
         $weekRange = $this->weeklyPlanService->weekRange($user);
         $context = $this->contextBuilder->build($user, $instruction, includeWeekPlan: true, weekRange: $weekRange);
-        $systemPrompt = $this->promptBuilder->build($this->contextBuilder->toPromptText($context))
+        // The voice shapes only the wording of the explanation. The addendum below comes after it and
+        // keeps its own rules (what may change, the load ceiling) exactly as before.
+        $systemPrompt = $this->promptBuilder->build($this->contextBuilder->toPromptText($context), CoachingPreferences::forUser($user))
             .$this->promptBuilder->weeklyAdaptationAddendum();
 
         $allowedNames = [...self::ALLOWED_READ_TOOLS, self::DECISION_TOOL];

@@ -21,6 +21,8 @@ class FitnessProfileResource extends JsonResource
             'equipment' => $this->equipment ?? [],
             'preferred_training_days' => $this->preferred_training_days ?? [],
             'preferred_training_duration_minutes' => $this->preferred_training_duration_minutes,
+            'coach_style' => $this->coach_style ?? 'balanced',
+            'response_detail' => $this->response_detail ?? 'standard',
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];
     }

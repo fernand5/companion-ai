@@ -2,7 +2,10 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Ai\CoachStyle;
+use App\Services\Ai\ResponseDetail;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateFitnessProfileRequest extends FormRequest
 {
@@ -26,6 +29,9 @@ class UpdateFitnessProfileRequest extends FormRequest
             'preferred_training_days' => ['nullable', 'array'],
             'preferred_training_days.*' => ['integer', 'min:0', 'max:6'],
             'preferred_training_duration_minutes' => ['nullable', 'integer', 'min:5', 'max:240'],
+            // Optional (a partial update leaves them alone) but never null or free text.
+            'coach_style' => ['sometimes', 'required', 'string', Rule::in(CoachStyle::values())],
+            'response_detail' => ['sometimes', 'required', 'string', Rule::in(ResponseDetail::values())],
         ];
     }
 }

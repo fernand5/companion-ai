@@ -2,6 +2,7 @@
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { onMounted, reactive, watch } from 'vue'
 
+import CoachingStyleSettings from '@/components/CoachingStyleSettings.vue'
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import ScheduleEditor from '@/components/ScheduleEditor.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
@@ -168,6 +169,8 @@ async function submit() {
         Saved.
       </p>
     </form>
+
+    <CoachingStyleSettings v-if="!store.loading && !store.error" />
 
     <ScheduleEditor v-if="!store.loading && !store.error" />
   </div>

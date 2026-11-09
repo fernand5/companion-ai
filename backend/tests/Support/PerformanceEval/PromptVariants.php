@@ -7,8 +7,8 @@ use App\Services\Ai\SystemPromptBuilder;
 /**
  * The reading rules under test. `baseline()` is the Phase 4B text, frozen verbatim so
  * later wording can always be compared against it on the same scenarios; the current
- * application text is `current()` (identical to the baseline: the shorter candidate
- * was evaluated and rejected, see OPTIMIZED_CANDIDATE). `none()` is the ablation: the same context, no rules.
+ * application text is `current()` (the baseline, except that its one closing line on length and tone now defers to the
+ * user's chosen coaching voice; the shorter candidate was evaluated and rejected, see OPTIMIZED_CANDIDATE). `none()` is the ablation: the same context, no rules.
  */
 final class PromptVariants
 {
