@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import LanguageSelector from '@/components/LanguageSelector.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useAuthStore } from '@/stores/auth'
 import { extractErrorMessage } from '@/utils/errors'
@@ -79,6 +80,10 @@ async function handleSubmit() {
           {{ submitting ? 'Logging in…' : 'Log in' }}
         </button>
       </form>
+
+      <div class="mt-6 border-t border-slate-100 pt-4">
+        <LanguageSelector scope="guest" />
+      </div>
 
       <p class="mt-4 text-center text-sm text-slate-500">
         No account?

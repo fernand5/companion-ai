@@ -1,3 +1,4 @@
+import { formatCount, formatDateOnly } from '@/i18n/format'
 import type { WeekDayState } from '@/types'
 
 /**
@@ -18,8 +19,7 @@ export const DAY_STATE: Record<WeekDayState, { label: string; badge: string; dot
 
 /** "Oct 26 – Nov 1". */
 export function formatWeekRange(start: string, end: string): string {
-  const format = (date: string) =>
-    new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const format = (date: string) => formatDateOnly(date, { month: 'short', day: 'numeric' })
 
   return `${format(start)} – ${format(end)}`
 }
@@ -29,12 +29,12 @@ export function stripLabels(date: string): { weekday: string; day: string } {
   const d = new Date(`${date}T00:00:00`)
 
   return {
-    weekday: d.toLocaleDateString(undefined, { weekday: 'short' }),
+    weekday: formatDateOnly(date, { weekday: 'short' }),
     day: String(d.getDate()),
   }
 }
 
 /** "6,000" for a step count. */
 export function formatSteps(steps: number): string {
-  return steps.toLocaleString('en-US')
+  return formatCount(steps)
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDateOnly } from '@/i18n/format'
 import type { WeeklyPlanDay } from '@/types'
 import { DAY_STATE, stripLabels } from '@/utils/weekDay'
 
@@ -12,7 +13,7 @@ defineProps<{
 const emit = defineEmits<{ select: [date: string] }>()
 
 function describe(day: WeeklyPlanDay): string {
-  const long = new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+  const long = formatDateOnly(day.date, { weekday: 'long', month: 'long', day: 'numeric' })
 
   const steps = day.steps?.length ? ', steps logged' : ''
 

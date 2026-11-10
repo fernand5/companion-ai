@@ -4,6 +4,7 @@ import { onMounted, reactive, watch } from 'vue'
 
 import CoachingStyleSettings from '@/components/CoachingStyleSettings.vue'
 import ErrorNotice from '@/components/ErrorNotice.vue'
+import LanguageSelector from '@/components/LanguageSelector.vue'
 import ScheduleEditor from '@/components/ScheduleEditor.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useProfileStore } from '@/stores/profile'
@@ -68,6 +69,11 @@ async function submit() {
       <FontAwesomeIcon :icon="icons.nav.profile" :class="ICON_SIZE.md" />
       Profile
     </h1>
+
+    <!-- Outside the profile loading/error states: the language works even before a profile exists. -->
+    <div class="rounded-xl border border-slate-200 bg-white p-4">
+      <LanguageSelector scope="account" />
+    </div>
 
     <div v-if="store.loading" class="flex items-center justify-center gap-2 py-12 text-center text-slate-400">
       <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.md" spin />

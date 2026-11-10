@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\AppLocale;
 use Carbon\Carbon;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -14,7 +15,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'password', 'timezone'])]
+#[Fillable(['name', 'email', 'password', 'timezone', 'locale'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -52,6 +53,12 @@ class User extends Authenticatable
     public function localToday(): string
     {
         return $this->localNow()->toDateString();
+    }
+
+    /** The user's saved language; English if none is stored or the stored value is not a supported one. */
+    public function appLocale(): AppLocale
+    {
+        return AppLocale::fromStored($this->locale);
     }
 
     public function fitnessProfile(): HasOne

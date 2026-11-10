@@ -1,6 +1,7 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 
 import { icons } from '@/constants/icons'
+import { formatDateOnly, formatDecimal, formatMeasure, formatTimeOfDay, weekdayName } from '@/i18n/format'
 import type { ActivityType, PerformedSet } from '@/types'
 
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
@@ -21,23 +22,16 @@ export function activityLabel(type: ActivityType): string {
 }
 
 export function formatDate(dateStr: string): string {
-  const date = new Date(`${dateStr}T00:00:00`)
-
-  return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  return formatDateOnly(dateStr, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
 export function formatTime(timeStr: string): string {
-  const [hours, minutes] = timeStr.split(':')
-  const date = new Date()
-  date.setHours(Number(hours), Number(minutes))
-
-  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return formatTimeOfDay(timeStr)
 }
 
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
+/** Short weekday name for 0 (Sunday) … 6 (Saturday), in the language the user chose. */
 export function dayName(dayOfWeek: number): string {
-  return DAY_NAMES[dayOfWeek] ?? '?'
+  return weekdayName(dayOfWeek, 'short')
 }
 
 /** 450 -> "7:30 /km". */
@@ -48,8 +42,9 @@ export function formatPace(secondsPerKm: number): string {
   return `${minutes}:${String(seconds).padStart(2, '0')} /km`
 }
 
+/** At most two decimals, no trailing zeros, in the user's number format: 42.5 → "42.5" / "42,5". */
 function trimNumber(value: number): string {
-  return String(Number(value.toFixed(2)))
+  return formatDecimal(Number(value.toFixed(2)), { maximumFractionDigits: 2, useGrouping: false })
 }
 
 /**
@@ -83,7 +78,7 @@ function cardioSummary(log: {
   return [
     log.distance_km != null ? `${trimNumber(log.distance_km)} km` : null,
     log.duration_minutes ? `${log.duration_minutes} min` : null,
-    log.speed_kmh != null ? `${log.speed_kmh} km/h` : null,
+    log.speed_kmh != null ? `${formatMeasure(Number(log.speed_kmh))} km/h` : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -102,7 +97,7 @@ export function activitySummary(log: {
     case 'steps':
       return `${meta.steps ?? '?'} steps`
     case 'weight':
-      return `${meta.weight_kg ?? '?'} kg`
+      return `${meta.weight_kg == null ? '?' : formatMeasure(Number(meta.weight_kg))} kg`
     case 'treadmill':
       return cardioSummary(log) || 'Treadmill session'
     case 'sport':
@@ -132,7 +127,7 @@ export function formatTarget(target: { sets: number | null; reps: number | null;
             : target.sets !== null
               ? `${target.sets} sets`
               : null
-  const load = target.weight_kg !== null ? `${Number(target.weight_kg)} kg` : null
+  const load = target.weight_kg !== null ? `${formatMeasure(Number(target.weight_kg))} kg` : null
   const parts = [volume, load].filter((p): p is string => p !== null)
 
   return parts.length === 0 ? 'Not set' : parts.join(' @ ')

@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
+import { applyLocale, currentLocale, isSupportedLocale } from '@/i18n'
 import * as authService from '@/services/auth'
 import type { User } from '@/types'
 
@@ -11,8 +12,17 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!token.value)
 
+  /**
+   * The signed-in user's saved language decides what is shown. It replaces whatever a guest picked on
+   * the sign-in screen, and nothing the guest picked is ever written back over it.
+   */
+  function adoptSavedLocale(account: User) {
+    if (isSupportedLocale(account.locale)) applyLocale(account.locale)
+  }
+
   function setSession(newUser: User, newToken: string) {
     user.value = newUser
+    adoptSavedLocale(newUser)
     token.value = newToken
     localStorage.setItem('auth_token', newToken)
   }
@@ -29,7 +39,8 @@ export const useAuthStore = defineStore('auth', () => {
     password: string
     password_confirmation: string
   }) {
-    const response = await authService.register(payload)
+    // Registration is the one place a guest's language choice becomes the account's language.
+    const response = await authService.register({ ...payload, locale: currentLocale() })
     setSession(response.user, response.token)
   }
 
@@ -54,7 +65,9 @@ export const useAuthStore = defineStore('auth', () => {
     }
 
     try {
-      user.value = await authService.me()
+      const account = await authService.me()
+      user.value = account
+      adoptSavedLocale(account)
     } catch {
       clearSession()
     } finally {

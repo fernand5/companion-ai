@@ -4,6 +4,7 @@ import { computed } from 'vue'
 
 import StatCard from '@/components/StatCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
+import { formatDateTime } from '@/i18n/format'
 import type { WeeklySummary } from '@/types'
 
 const props = defineProps<{
@@ -15,7 +16,7 @@ const props = defineProps<{
 const generatedAtLabel = computed(() => {
   if (!props.summary) return ''
 
-  return new Date(props.summary.generated_at).toLocaleString(undefined, {
+  return formatDateTime(props.summary.generated_at, {
     weekday: 'short',
     hour: 'numeric',
     minute: '2-digit',

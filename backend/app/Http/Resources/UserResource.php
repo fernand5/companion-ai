@@ -14,6 +14,7 @@ class UserResource extends JsonResource
             'name' => $this->name,
             'email' => $this->email,
             'timezone' => $this->timezone,
+            'locale' => $this->appLocale()->value,
         ];
     }
 }

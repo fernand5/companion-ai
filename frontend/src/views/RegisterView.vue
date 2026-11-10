@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import LanguageSelector from '@/components/LanguageSelector.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useAuthStore } from '@/stores/auth'
 import { extractErrorMessage } from '@/utils/errors'
@@ -87,6 +88,8 @@ async function handleSubmit() {
             class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
         </div>
+
+        <LanguageSelector scope="register" />
 
         <p v-if="error" class="flex items-center gap-1.5 text-sm text-red-600">
           <FontAwesomeIcon :icon="icons.warning" :class="ICON_SIZE.sm" />

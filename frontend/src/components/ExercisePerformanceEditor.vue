@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, ref } from 'vue'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
+import { formatMeasure } from '@/i18n/format'
 import { useWorkoutPlanStore } from '@/stores/workoutPlan'
 import type { WorkoutPlanExercise } from '@/types'
 
@@ -64,7 +65,7 @@ const target = computed(() => {
   const parts: string[] = []
 
   if (e.planned_sets && e.planned_reps) parts.push(`${e.planned_sets} × ${e.planned_reps}`)
-  if (e.planned_weight_kg !== null) parts.push(`@ ${e.planned_weight_kg} kg`)
+  if (e.planned_weight_kg !== null) parts.push(`@ ${formatMeasure(Number(e.planned_weight_kg))} kg`)
   if (e.planned_duration_seconds) parts.push(`${e.planned_duration_seconds}s`)
 
   return parts.join(' ')

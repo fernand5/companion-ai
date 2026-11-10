@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatMeasure } from '@/i18n/format'
 import type { WorkoutSession } from '@/types'
 import { formatPerformedSets } from '@/utils/format'
 
@@ -23,7 +24,7 @@ const LABEL = {
       </template>
       <template v-else-if="exercise.sets !== null && exercise.reps !== null">
         — {{ exercise.sets }} × {{ exercise.reps
-        }}<template v-if="exercise.weight_kg !== null"> @ {{ exercise.weight_kg }} kg</template>
+        }}<template v-if="exercise.weight_kg !== null"> @ {{ formatMeasure(exercise.weight_kg) }} kg</template>
       </template>
       <span
         v-if="LABEL[exercise.recorded_as]"

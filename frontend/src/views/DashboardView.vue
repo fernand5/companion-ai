@@ -7,6 +7,7 @@ import RecoveryCheckinForm from '@/components/RecoveryCheckinForm.vue'
 import StatCard from '@/components/StatCard.vue'
 import TodaysPlanCard from '@/components/TodaysPlanCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
+import { formatMeasure } from '@/i18n/format'
 import { useDashboardStore } from '@/stores/dashboard'
 import { useWorkoutPlanStore } from '@/stores/workoutPlan'
 import { activityIcon, activityLabel, activitySummary, dayName, formatTime } from '@/utils/format'
@@ -135,7 +136,7 @@ const recommendationUnavailableMessage = computed(() => {
           <StatCard
             label="Current weight"
             :icon="icons.activityType.weight"
-            :value="data.progress.current_weight_kg ? `${data.progress.current_weight_kg} kg` : '—'"
+            :value="data.progress.current_weight_kg ? `${formatMeasure(Number(data.progress.current_weight_kg))} kg` : '—'"
           />
           <StatCard label="Change" :icon="icons.nav.progress" :value="weightChangeLabel" />
           <StatCard

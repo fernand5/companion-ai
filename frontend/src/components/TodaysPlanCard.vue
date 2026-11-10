@@ -8,6 +8,7 @@ import ExercisePerformanceEditor from '@/components/ExercisePerformanceEditor.vu
 import ExerciseDemo from '@/components/ExerciseDemo.vue'
 import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
+import { formatMeasure } from '@/i18n/format'
 import { useWorkoutPlanStore } from '@/stores/workoutPlan'
 import type { PlanExerciseStatus, WorkoutPlanExercise } from '@/types'
 import { formatPerformedSets } from '@/utils/format'
@@ -32,7 +33,7 @@ function summary(exercise: WorkoutPlanExercise): string {
   if (exercise.planned_sets && exercise.planned_reps) {
     const target = `${exercise.planned_sets} × ${exercise.planned_reps}`
 
-    return exercise.planned_weight_kg !== null ? `${target} @ ${exercise.planned_weight_kg} kg` : target
+    return exercise.planned_weight_kg !== null ? `${target} @ ${formatMeasure(Number(exercise.planned_weight_kg))} kg` : target
   }
   if (exercise.planned_duration_seconds) {
     return `${Math.round(exercise.planned_duration_seconds / 60)} min`

@@ -8,6 +8,7 @@ import ProgressChart from '@/components/ProgressChart.vue'
 import StatCard from '@/components/StatCard.vue'
 import WeeklySummaryCard from '@/components/WeeklySummaryCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
+import { formatMeasure } from '@/i18n/format'
 import { useDashboardStore } from '@/stores/dashboard'
 import { formatDate } from '@/utils/format'
 
@@ -69,12 +70,12 @@ const workoutValues = computed(() => data.value?.weekly_workouts.map((d) => d.wo
         <StatCard
           label="Current"
           :icon="icons.activityType.weight"
-          :value="data.summary.current_weight_kg ? `${data.summary.current_weight_kg} kg` : '—'"
+          :value="data.summary.current_weight_kg ? `${formatMeasure(Number(data.summary.current_weight_kg))} kg` : '—'"
         />
         <StatCard
           label="Starting"
           :icon="icons.activityType.weight"
-          :value="data.summary.starting_weight_kg ? `${data.summary.starting_weight_kg} kg` : '—'"
+          :value="data.summary.starting_weight_kg ? `${formatMeasure(Number(data.summary.starting_weight_kg))} kg` : '—'"
         />
         <StatCard label="Workouts/wk" :icon="icons.activityType.strength" :value="String(data.summary.workouts_this_week)" />
         <StatCard label="Avg steps" :icon="icons.activityType.steps" :value="String(data.summary.average_steps)" />

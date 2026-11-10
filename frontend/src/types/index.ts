@@ -1,8 +1,12 @@
+import type { AppLocale } from '@/i18n'
+
 export interface User {
   id: number
   name: string
   email: string
   timezone: string | null
+  /** The language the user reads the app in, saved on their account. Changes wording only. */
+  locale: AppLocale
 }
 
 /** How the AI coach sounds. A voice only: it never changes training rules or what the coach may do. */

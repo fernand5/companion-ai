@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, reactive } from 'vue'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
+import { formatDecimal } from '@/i18n/format'
 import { useActivityStore } from '@/stores/activity'
 import { formatPace } from '@/utils/format'
 
@@ -33,7 +34,7 @@ const cardioPreview = computed(() => {
 
   if (form.type !== 'treadmill' || !km || km <= 0 || !minutes || minutes <= 0) return null
 
-  return `${(km / (minutes / 60)).toFixed(1)} km/h · ${formatPace((minutes * 60) / km)}`
+  return `${formatDecimal(km / (minutes / 60), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km/h · ${formatPace((minutes * 60) / km)}`
 })
 
 async function submit() {
