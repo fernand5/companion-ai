@@ -137,6 +137,12 @@ class CoachStylePromptTest extends PerformanceEvalCase
         return new CoachingPreferences(CoachStyle::from($style), ResponseDetail::from($detail));
     }
 
+    /** The wording of the dashboard request for the language of the user under test (English here; the Spanish rerun overrides it). */
+    protected function dashboardLength(string $english, string $spanish): string
+    {
+        return $english;
+    }
+
     /** The system prompt of the first model call made for one chat message. */
     private function chatPrompt(string $message = 'What should I do today?', ?User $user = null): string
     {
@@ -423,13 +429,13 @@ class CoachStylePromptTest extends PerformanceEvalCase
 
         $prompt = $this->fake->calls[0]['messages'][0]['content'];
         $this->assertStringContainsString(self::STYLE_MARKER['supportive'], $prompt);
-        $this->assertStringContainsString('In 1-2 short sentences', $this->fake->calls[0]['messages'][1]['content']);
+        $this->assertStringContainsString($this->dashboardLength('In 1-2 short sentences', 'En 1-2 frases cortas'), $this->fake->calls[0]['messages'][1]['content']);
 
         $this->choose('intense', 'detailed');
         $this->assertSame('Second.', $service->dashboardRecommendation($this->user), 'A changed voice is a new recommendation.');
         $this->assertCount(2, $this->fake->calls);
         $this->assertStringContainsString(self::STYLE_MARKER['intense'], $this->fake->calls[1]['messages'][0]['content']);
-        $this->assertStringContainsString('In 3-5 short sentences', $this->fake->calls[1]['messages'][1]['content']);
+        $this->assertStringContainsString($this->dashboardLength('In 3-5 short sentences', 'En 3-5 frases cortas'), $this->fake->calls[1]['messages'][1]['content']);
         $this->assertStringContainsString('no tools are available for this particular response', $this->fake->calls[1]['messages'][0]['content'], 'The existing no-tools note still follows the voice.');
     }
 

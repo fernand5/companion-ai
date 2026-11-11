@@ -27,6 +27,7 @@ use App\Services\Ai\Authorization\WeekSaveScope;
 use App\Services\Ai\Authorization\WorkoutReference;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Fitness\WeeklyPlanService;
+use App\Support\AppLocale;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -45,6 +46,16 @@ class AiCoachService
         'concise' => '1-2 short sentences',
         'standard' => '2-3 short sentences',
         'detailed' => '3-5 short sentences',
+    ];
+
+    /**
+     * The same one-line request, worded in the user's language, so the application's own request does not
+     * pull the answer toward English. The system prompt's language section still decides the language.
+     */
+    private const DASHBOARD_LENGTH_ES = [
+        'concise' => '1-2 frases cortas',
+        'standard' => '2-3 frases cortas',
+        'detailed' => '3-5 frases cortas',
     ];
 
     public function __construct(
@@ -976,10 +987,19 @@ class AiCoachService
 
             $response = $this->aiProvider->chat([
                 ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user', 'content' => 'In '.self::DASHBOARD_LENGTH[$preferences->detail->value].', what should I do today and why?'],
+                ['role' => 'user', 'content' => $this->dashboardRequest($preferences)],
             ]);
 
             return $response->text ?? "Log today's activity and I'll tailor a recommendation.";
         });
+    }
+
+    /** The one-line request the dashboard recommendation is generated from, in the user's language. */
+    private function dashboardRequest(CoachingPreferences $preferences): string
+    {
+        return match ($preferences->locale) {
+            AppLocale::Spanish => 'En '.self::DASHBOARD_LENGTH_ES[$preferences->detail->value].', ¿qué debo hacer hoy y por qué?',
+            AppLocale::English => 'In '.self::DASHBOARD_LENGTH[$preferences->detail->value].', what should I do today and why?',
+        };
     }
 }

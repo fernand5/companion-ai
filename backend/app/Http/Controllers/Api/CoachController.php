@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Ai\AiProviderException;
 use App\Services\Ai\WeeklySummaryService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 
 class CoachController extends Controller
 {
@@ -21,7 +22,8 @@ class CoachController extends Controller
 
         return response()->json([
             'week_start' => $summary->week_start->toDateString(),
-            'stats' => $summary->stats,
+            // The language marker is bookkeeping for regeneration, not part of the response contract.
+            'stats' => Arr::except($summary->stats, [WeeklySummaryService::LANGUAGE_KEY]),
             'coach_insight' => $summary->coach_insight,
             'next_week_focus' => $summary->next_week_focus,
             'generated_at' => $summary->generated_at->toIso8601String(),
