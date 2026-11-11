@@ -3,6 +3,7 @@
 namespace App\Services\Ai\Authorization;
 
 use App\Models\Message;
+use App\Services\Ai\Notices\ApplicationNotices;
 use Illuminate\Support\Collection;
 
 /**
@@ -34,9 +35,6 @@ final class SavedWorkoutReference
 
     /** Not an exercise name even when it sits in front of an amount. */
     private const NOT_AN_EXERCISE = ['workout', 'session', 'routine', 'exercise', 'exercises', 'total', 'duration', 'time', 'rest', 'warm-up', 'warm up', 'warmup', 'cool-down', 'cool down', 'cooldown', 'set', 'sets', 'rep', 'reps', 'round', 'rounds', 'week', 'day', 'note', 'notes', 'tip', 'tips', 'goal', 'focus', 'today', 'tomorrow', 'repeat', 'circuit', 'main set', 'intensity', 'target', 'about', 'around', 'aim for', 'aim', 'do', 'perform', 'complete', 'try', 'for', 'then', 'finish', 'up to', 'at least', 'in total', 'overall', 'add', 'save', 'put', 'push', 'send', 'pin', 'apply', 'use', 'schedule', 'please', 'can', 'could', 'would', 'i', 'we', 'my', 'this', 'that', 'it', 'these', 'those'];
-
-    /** How the application's own notices begin when it adds them under a reply; they are not part of what the coach said. */
-    private const APPLICATION_NOTICES = ["I haven't changed your plan", 'There is nothing waiting for your confirmation', 'I left the starting weight', 'As you asked, I replaced', 'Your plan changed since I asked'];
 
     private const BOUNDARY = '/^[\s>*_#\-•]*(?:(option|plan|workout|routine|session|alternative|choice|version|day|week)\s*(?:#|no\.?|number)?\s*(\d{1,2}|[a-d])\b|(alternatively|another option|if you prefer|or if you prefer))/iu';
 
@@ -373,7 +371,8 @@ final class SavedWorkoutReference
                     continue;
                 }
 
-                $content = self::withoutApplicationNotices((string) $message->content);
+                // The model's words only: what the application added below them is never a workout (see ApplicationNotices).
+                $content = ApplicationNotices::modelText($message);
 
                 if ($retry && self::routines($content) === []) {
                     $skipSaveRequest = true;
@@ -401,22 +400,6 @@ final class SavedWorkoutReference
         }
 
         return null;
-    }
-
-    /** The coach's words only: whatever the application appended below them (its own examples, dates and quotes) is cut off. */
-    private static function withoutApplicationNotices(string $reply): string
-    {
-        $cut = null;
-
-        foreach (self::APPLICATION_NOTICES as $notice) {
-            $at = mb_strpos($reply, "\n\n".$notice);
-
-            if ($at !== false && ($cut === null || $at < $cut)) {
-                $cut = $at;
-            }
-        }
-
-        return $cut === null ? $reply : mb_substr($reply, 0, $cut);
     }
 
     /**
