@@ -126,17 +126,17 @@ class InitialLoadProtectionTest extends PerformanceEvalCase
         $toolResult = collect($this->fake->calls[1]['messages'])->firstWhere('role', 'tool')['content'];
 
         $this->assertSame(['Goblet Squat'], $toolResult['load_not_set']['exercises']);
-        $this->assertStringContainsString('left unset', $toolResult['load_not_set']['instruction']);
-        $this->assertStringContainsString('Do not state or suggest a specific weight', $toolResult['load_not_set']['instruction']);
+        $this->assertSays('left unset', $toolResult['load_not_set']['instruction']);
+        $this->assertSays('Do not state or suggest a specific weight', $toolResult['load_not_set']['instruction']);
     }
 
     public function test_the_user_is_told_in_the_applications_own_words_with_no_suggested_weight(): void
     {
         $turn = $this->chat('What should I do today?', $this->create(now()->toDateString(), [$this->exercise('Goblet Squat', 24), $this->exercise('Cable Row', 35)]), new AiResponse(text: 'Here is your session with goblet squats at 24 kg.'));
 
-        $this->assertStringContainsString('I left the starting weight for Goblet Squat, Cable Row unset', $turn->content);
-        $this->assertStringContainsString('Choose a weight you can lift comfortably', $turn->content);
-        $notice = substr($turn->content, strpos($turn->content, 'I left the starting weight'));
+        $this->assertSays('I left the starting weight for Goblet Squat, Cable Row unset', $turn->content);
+        $this->assertSays('Choose a weight you can lift comfortably', $turn->content);
+        $notice = substr($turn->content, strpos($turn->content, "\n\n") + 2); // the application's own words begin after the coach's
         $this->assertDoesNotMatchRegularExpression('/\d/', $notice, 'The application names no number and invents no universal starting weight.');
     }
 
@@ -177,7 +177,7 @@ class InitialLoadProtectionTest extends PerformanceEvalCase
     {
         $turn = $this->chat('What should I do today?', $this->create(now()->toDateString(), [$this->exercise('Push-ups', null, 3, 15)]), new AiResponse(text: 'Here is your session.'));
 
-        $this->assertStringNotContainsString('starting weight', $turn->content);
+        $this->assertSaysNot('starting weight', $turn->content);
     }
 
     // ---- a baseline that is real ------------------------------------------------------------------------------
@@ -235,7 +235,7 @@ class InitialLoadProtectionTest extends PerformanceEvalCase
         $turn = $this->chat('Please update my plan for tomorrow: add goblet squats at 16 kg.', $this->create($this->d(-1), [$this->exercise('Goblet Squat', 16)]), new AiResponse(text: 'Done.'));
 
         $this->assertSame('16.00', $this->loadOf('Goblet Squat'));
-        $this->assertStringNotContainsString('starting weight', $turn->content);
+        $this->assertSaysNot('starting weight', $turn->content);
     }
 
     public function test_a_different_load_than_the_user_wrote_is_not_taken(): void
@@ -250,7 +250,7 @@ class InitialLoadProtectionTest extends PerformanceEvalCase
         $turn = $this->chat('Please update my plan for tomorrow and add squats.', $this->create($this->d(-1), [$this->exercise('Squat', 100)]), new AiResponse(text: 'Done.'));
 
         $this->assertNull($this->loadOf('Squat'));
-        $this->assertStringContainsString('starting weight for Squat', $turn->content);
+        $this->assertSays('starting weight for Squat', $turn->content);
     }
 
     public function test_a_weight_quoted_from_someone_else_is_not_the_users_own(): void
@@ -277,7 +277,7 @@ class InitialLoadProtectionTest extends PerformanceEvalCase
 
         $this->assertNull($this->loadOf('Goblet Squat'));
         $this->assertCount(1, $result['notices']);
-        $this->assertStringContainsString('starting weight for Goblet Squat', $result['notices'][0]);
+        $this->assertSays('starting weight for Goblet Squat', $result['notices'][0]);
         $this->assertSame(WorkoutPlan::class, get_class(WorkoutPlan::where('title', 'Weekly')->first()), 'The plan itself was written.');
     }
 
@@ -288,7 +288,7 @@ class InitialLoadProtectionTest extends PerformanceEvalCase
         $result = $this->actingAs($this->user, 'sanctum')->postJson('/api/weekly-plan/generate')->assertOk()->json();
 
         $this->assertNull($this->loadOf('Goblet Squat'));
-        $this->assertStringContainsString('starting weight for Goblet Squat', $result['notices'][0] ?? '');
+        $this->assertSays('starting weight for Goblet Squat', $result['notices'][0] ?? '');
     }
 
     // ---- the guard itself -------------------------------------------------------------------------------------------

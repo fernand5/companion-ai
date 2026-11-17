@@ -47,6 +47,11 @@ class ClaimEvidenceTest extends PerformanceEvalCase
 
     // ---- helpers ---------------------------------------------------------------------------------------------
 
+    private function asSpanishUser(): void
+    {
+        $this->user = User::factory()->create(['timezone' => 'America/Bogota', 'locale' => 'es']);
+    }
+
     private function toolCall(string $name, array $arguments, string $id = 'c'): AiResponse
     {
         return new AiResponse(text: null, toolCalls: [new ToolCallRequest(id: $id, name: $name, arguments: $arguments)]);
@@ -141,6 +146,7 @@ class ClaimEvidenceTest extends PerformanceEvalCase
 
     public function test_a_false_plan_saved_claim_after_a_logged_activity_is_corrected_in_spanish(): void
     {
+        $this->asSpanishUser();
         $message = $this->say('Jugué fútbol ayer. I played soccer yesterday.', $this->conversation(),
             $this->logSoccer(), $this->saveCall(), new AiResponse(text: 'Registré tu partido y agregué el entrenamiento a tu plan.'));
 
@@ -203,6 +209,7 @@ class ClaimEvidenceTest extends PerformanceEvalCase
 
     public function test_the_same_valid_flow_in_spanish_gets_no_correction(): void
     {
+        $this->asSpanishUser();
         $message = $this->say('I played soccer yesterday.', $this->conversation(),
             $this->logSoccer(), $this->weekly([$this->recoveryOn($this->today)]), new AiResponse(text: 'Registré tu partido y actualicé tu plan: hoy es recuperación activa.'));
 
@@ -241,6 +248,7 @@ class ClaimEvidenceTest extends PerformanceEvalCase
 
     public function test_a_workout_save_does_not_validate_a_spanish_claim_about_another_change(): void
     {
+        $this->asSpanishUser();
         $conversation = $this->conversation();
         $this->say('Give me a quick upper body workout', $conversation, new AiResponse(text: "Here's a 30-minute session:\n1. Push-ups 3x12\n2. Dumbbell rows 3x10\n3. Plank 3x30 seconds"));
 

@@ -153,7 +153,7 @@ class PlanWriteAuthorizationTest extends PerformanceEvalCase
 
         if ($authorization->allowsAnyPlanChange()) {
             // The one 4C message that really asks for a change ("... Update my plan to do that.").
-            $this->assertStringContainsString('Update my plan', $question);
+            $this->assertSays('Update my plan', $question);
 
             return;
         }
@@ -184,7 +184,7 @@ class PlanWriteAuthorizationTest extends PerformanceEvalCase
 
         $this->assertNull($turn['message']->meta['blocked_tool_calls'][1] ?? null, 'Only the first write was refused.');
         $this->assertSame('load_above_limit', $turn['message']->meta['blocked_tool_calls'][0]['reason']);
-        $this->assertStringContainsString('46.5', $this->toolResultSeenByModel(array_merge($turn['calls']))['error'] ?? json_encode($turn['calls'][1]['messages']), 'The model is told the ceiling.');
+        $this->assertSays('46.5', $this->toolResultSeenByModel(array_merge($turn['calls']))['error'] ?? json_encode($turn['calls'][1]['messages']), 'The model is told the ceiling.');
 
         $plan = WorkoutPlan::where('user_id', $this->user->id)->where('title', 'Bench 45')->first();
         $this->assertNotNull($plan, 'The safe write went through.');
@@ -237,15 +237,15 @@ class PlanWriteAuthorizationTest extends PerformanceEvalCase
         $turn = $this->say('I want to jump to 60 kg next session', new AiResponse(text: 'That is a big jump from 42.5 kg.'));
 
         $this->assertSame($plans, $this->planCount());
-        $this->assertStringContainsString("I haven't changed your plan", $turn['message']->content);
-        $this->assertStringContainsString('send an explicit request', $turn['message']->content);
-        $this->assertStringNotContainsString('Reply "yes"', $turn['message']->content, 'No generic yes is offered when nothing exact can be shown.');
+        $this->assertSays("I haven't changed your plan", $turn['message']->content);
+        $this->assertSays('send an explicit request', $turn['message']->content);
+        $this->assertSaysNot('Reply "yes"', $turn['message']->content, 'No generic yes is offered when nothing exact can be shown.');
         $this->assertArrayNotHasKey('pending_plan_proposal', $turn['message']->meta ?? []);
         $this->assertNotContains('create_workout_plan', array_column($turn['calls'][0]['tools'], 'name'));
 
         $yes = $this->sayIn($turn['conversation'], 'yes', $this->planCall(45, title: 'Bare yes'), new AiResponse(text: 'ok'));
         $this->assertSame(0, WorkoutPlan::where('title', 'Bare yes')->count());
-        $this->assertStringContainsString('nothing waiting for your confirmation', $yes['message']->content);
+        $this->assertSays('nothing waiting for your confirmation', $yes['message']->content);
     }
 
     public function test_the_models_own_offer_to_change_the_plan_authorizes_nothing(): void
@@ -257,7 +257,7 @@ class PlanWriteAuthorizationTest extends PerformanceEvalCase
 
         $this->assertSame(0, WorkoutPlan::where('title', 'Model offer')->count());
         $this->assertSame('not_authorized', $turn['message']->meta['blocked_tool_calls'][0]['reason']);
-        $this->assertStringContainsString('nothing waiting for your confirmation', $turn['message']->content, 'The application says nothing was waiting.');
+        $this->assertSays('nothing waiting for your confirmation', $turn['message']->content, 'The application says nothing was waiting.');
     }
 
     // ---- sequences ------------------------------------------------------------------------------------------
@@ -364,11 +364,11 @@ class PlanWriteAuthorizationTest extends PerformanceEvalCase
     {
         $readOnly = $this->say('What should I focus on next?', new AiResponse(text: 'Log every set.'));
         $prompt = $readOnly['calls'][0]['messages'][0]['content'];
-        $this->assertStringContainsString('create_workout_plan, propose_weekly_plan_changes, update_exercise_status are not available for this message', $prompt);
+        $this->assertSays('create_workout_plan, propose_weekly_plan_changes, update_exercise_status are not available for this message', $prompt);
 
         $request = $this->say('Give me a quick workout', $this->planCall(40, $this->d(0), 'Quick'), new AiResponse(text: 'Here you go.'));
-        $this->assertStringNotContainsString('create_workout_plan, propose_weekly_plan_changes, update_exercise_status are not available', $request['calls'][0]['messages'][0]['content'], 'A session request is offered the plan tool and not told it is withheld.');
-        $this->assertStringContainsString('propose_weekly_plan_changes, update_exercise_status are not available', $request['calls'][0]['messages'][0]['content']);
+        $this->assertSaysNot('create_workout_plan, propose_weekly_plan_changes, update_exercise_status are not available', $request['calls'][0]['messages'][0]['content'], 'A session request is offered the plan tool and not told it is withheld.');
+        $this->assertSays('propose_weekly_plan_changes, update_exercise_status are not available', $request['calls'][0]['messages'][0]['content']);
     }
 
     // ---- structure ---------------------------------------------------------------------------------------------------

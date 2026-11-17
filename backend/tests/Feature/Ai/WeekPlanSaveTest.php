@@ -164,11 +164,11 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $this->assertSame(2, $this->plans(), 'Exactly the two days shown, no other day.');
         $this->assertNull($this->plansOn('2026-10-29'), 'Not today.');
 
-        $this->assertStringStartsWith('Done. I added this to your plan, all together, and checked that it is saved:', $turn['answer']);
-        $this->assertStringContainsString('Saturday, Oct 31', $turn['answer']);
-        $this->assertStringContainsString('Sunday, Nov 1', $turn['answer']);
-        $this->assertStringNotContainsString('unfinished', $turn['answer']);
-        $this->assertStringNotContainsString('both days are on your dashboard', $turn['answer'], 'The application speaks for what was saved, not the model.');
+        $this->assertSaysStartsWith('Done. I added this to your plan, all together, and checked that it is saved:', $turn['answer']);
+        $this->assertSays('Saturday, Oct 31', $turn['answer']);
+        $this->assertSays('Sunday, Nov 1', $turn['answer']);
+        $this->assertSaysNot('unfinished', $turn['answer']);
+        $this->assertSaysNot('both days are on your dashboard', $turn['answer'], 'The application speaks for what was saved, not the model.');
         $this->assertSame('applied', $turn['message']->meta['plan_replacement']);
     }
 
@@ -181,8 +181,8 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $this->assertSame([3, 10, null], [$saturday[0]->planned_sets, $saturday[0]->planned_reps, $saturday[0]->planned_duration_seconds], '10-12 reps stored as 10, whatever the model sent.');
         $this->assertSame([3, 8, null], [$saturday[1]->planned_sets, $saturday[1]->planned_reps, $saturday[1]->planned_duration_seconds], '8-12 reps stored as 8.');
         $this->assertSame([3, null, 30], [$saturday[2]->planned_sets, $saturday[2]->planned_reps, $saturday[2]->planned_duration_seconds], '30 seconds is exact.');
-        $this->assertStringContainsString('I saved the low end of every range', $turn['answer']);
-        $this->assertStringContainsString('Goblet Squats 10 reps (written 10-12)', $turn['answer']);
+        $this->assertSays('I saved the low end of every range', $turn['answer']);
+        $this->assertSays('Goblet Squats 10 reps (written 10-12)', $turn['answer']);
     }
 
     public function test_a_rest_day_is_saved_as_a_rest_day_and_no_workout_is_invented(): void
@@ -197,7 +197,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $this->assertTrue($this->plansOn(self::SUNDAY)->isRestDay());
         $this->assertSame(0, $this->plansOn(self::SUNDAY)->exercises->count());
         $this->assertSame(2, $this->plansOn(self::SATURDAY)->exercises->count());
-        $this->assertStringContainsString('Sunday, Nov 1: rest day', $turn['answer']);
+        $this->assertSays('Sunday, Nov 1: rest day', $turn['answer']);
     }
 
     public function test_a_rest_day_cannot_be_written_as_a_workout_and_a_workout_cannot_be_a_rest_day(): void
@@ -234,19 +234,19 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertNull($this->plansOn(self::SATURDAY), 'Not even the empty day is written before the user confirms.');
         $this->assertSame('My own session', $this->plansOn(self::SUNDAY)->title);
-        $this->assertStringStartsWith("I haven't changed your plan yet.", $turn['answer']);
-        $this->assertStringContainsString('2026-10-31', $turn['answer']);
-        $this->assertStringContainsString('2026-11-01', $turn['answer']);
-        $this->assertStringContainsString('My own session', $turn['answer'], 'The exact plan that would be replaced is shown.');
-        $this->assertStringContainsString('Reply "yes" within 15 minutes', $turn['answer']);
-        $this->assertStringNotContainsString('Saved!', $turn['answer']);
+        $this->assertSaysStartsWith("I haven't changed your plan yet.", $turn['answer']);
+        $this->assertSays('2026-10-31', $turn['answer']);
+        $this->assertSays('2026-11-01', $turn['answer']);
+        $this->assertSays('My own session', $turn['answer'], 'The exact plan that would be replaced is shown.');
+        $this->assertSays('Reply "yes" within 15 minutes', $turn['answer']);
+        $this->assertSaysNot('Saved!', $turn['answer']);
         $this->assertArrayHasKey(PendingProposalStore::REPLACEMENT_META_KEY, $turn['message']->meta);
 
         $yes = $this->say('yes', $conversation);
 
         $this->assertSame(0, $yes['calls'], 'The application applies the signed proposal; the model is not involved.');
-        $this->assertStringStartsWith('Done.', $yes['answer']);
-        $this->assertStringContainsString('I checked that it is saved', $yes['answer']);
+        $this->assertSaysStartsWith('Done.', $yes['answer']);
+        $this->assertSays('I checked that it is saved', $yes['answer']);
         $this->assertSame(['Goblet Squats', 'Push-ups', 'Plank'], $this->plansOn(self::SATURDAY)->exercises->sortBy('position')->pluck('exercise_name')->all());
         $this->assertSame('Active Recovery', $this->plansOn(self::SUNDAY)->title);
         $this->assertSame('applied', $yes['message']->meta['plan_replacement']);
@@ -263,7 +263,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $this->plansOn(self::SUNDAY)->update(['title' => 'Edited by me']);
         $again = $this->say('yes', $conversation, null, new AiResponse(text: 'OK, noted.'));
 
-        $this->assertStringContainsString('nothing waiting for your confirmation', $again['answer']);
+        $this->assertSays('nothing waiting for your confirmation', $again['answer']);
         $this->assertSame('Edited by me', $this->plansOn(self::SUNDAY)->title);
         $this->assertSame(['Goblet Squats', 'Push-ups', 'Plank'], $this->plansOn(self::SATURDAY)->exercises->sortBy('position')->pluck('exercise_name')->all());
     }
@@ -278,10 +278,10 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertNull($this->plansOn(self::SATURDAY), 'Saturday is not saved either: a plan is saved whole or not at all.');
         $this->assertSame('Done already', $this->plansOn(self::SUNDAY)->title);
-        $this->assertStringContainsString("I didn't save any day of it", $turn['answer']);
-        $this->assertStringContainsString('2026-11-01', $turn['answer']);
-        $this->assertStringContainsString('already has recorded workout performance', $turn['answer']);
-        $this->assertStringNotContainsString('All saved', $turn['answer']);
+        $this->assertSays("I didn't save any day of it", $turn['answer']);
+        $this->assertSays('2026-11-01', $turn['answer']);
+        $this->assertSays('already has recorded workout performance', $turn['answer']);
+        $this->assertSaysNot('All saved', $turn['answer']);
 
         // The user asks for the other day only; that is now a plain, complete save.
         $this->say('Saturday', $conversation, null, $this->weekCall([$this->saturday()]), new AiResponse(text: 'ok'));
@@ -305,7 +305,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertNull($this->plansOn(self::SATURDAY), 'All or none.');
         $this->assertSame('My own session', $this->plansOn(self::SUNDAY)->title);
-        $this->assertStringContainsString("I haven't replaced it", $yes['answer']);
+        $this->assertSays("I haven't replaced it", $yes['answer']);
     }
 
     public function test_a_plan_that_appears_on_an_empty_day_after_the_question_stops_the_confirmation(): void
@@ -319,7 +319,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertSame('Added meanwhile', $this->plansOn(self::SATURDAY)->title);
         $this->assertSame('My own session', $this->plansOn(self::SUNDAY)->title);
-        $this->assertStringContainsString('a plan appeared on '.self::SATURDAY, $yes['answer']);
+        $this->assertSays('a plan appeared on '.self::SATURDAY, $yes['answer']);
     }
 
     public function test_the_apply_is_atomic_when_a_later_day_fails_to_write(): void
@@ -347,8 +347,8 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertSame(0, $ask['calls']);
         $this->assertSame(0, $this->plans());
-        $this->assertStringContainsString('"Romanian Deadlift" or "Goblet Squat" (Saturday: Legs)', $ask['answer']);
-        $this->assertStringContainsString('Reply with just the name', $ask['answer']);
+        $this->assertSays('"Romanian Deadlift" or "Goblet Squat" (Saturday: Legs)', $ask['answer']);
+        $this->assertSays('Reply with just the name', $ask['answer']);
         $this->assertSame('choice', $ask['message']->meta['save_pending']['kind']);
 
         $this->say('Goblet Squat', $conversation, null, $this->weekCall([
@@ -381,10 +381,10 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertSame(0, $turn['calls']);
         $this->assertSame(0, $this->plans());
-        $this->assertStringContainsString('"Saturday: Legs"', $turn['answer']);
-        $this->assertStringContainsString('cut off or unfinished', $turn['answer']);
-        $this->assertStringContainsString('Nothing was saved for any day.', $turn['answer']);
-        $this->assertStringNotContainsString('that workout looks unfinished', $turn['answer'], 'Not the single-workout message.');
+        $this->assertSays('"Saturday: Legs"', $turn['answer']);
+        $this->assertSays('cut off or unfinished', $turn['answer']);
+        $this->assertSays('Nothing was saved for any day.', $turn['answer']);
+        $this->assertSaysNot('that workout looks unfinished', $turn['answer'], 'Not the single-workout message.');
     }
 
     public function test_a_day_with_nothing_in_it_is_asked_about_not_invented(): void
@@ -394,8 +394,8 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $turn = $this->say('add this plan to my dashboard', $conversation);
 
         $this->assertSame(0, $this->plans());
-        $this->assertStringContainsString('"Sunday: Mobility"', $turn['answer']);
-        $this->assertStringContainsString('I don\'t want to guess or invent a workout', $turn['answer']);
+        $this->assertSays('"Sunday: Mobility"', $turn['answer']);
+        $this->assertSays('I don\'t want to guess or invent a workout', $turn['answer']);
     }
 
     public function test_days_that_have_passed_are_asked_about_and_the_answer_picks_the_rest(): void
@@ -404,8 +404,8 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $ask = $this->say('add this plan to my dashboard', $conversation);
         $this->assertSame(0, $this->plans());
-        $this->assertStringContainsString('"Wednesday: Legs"', $ask['answer']);
-        $this->assertStringContainsString('already passed', $ask['answer']);
+        $this->assertSays('"Wednesday: Legs"', $ask['answer']);
+        $this->assertSays('already passed', $ask['answer']);
         $this->assertSame('week_days', $ask['message']->meta['save_pending']['kind']);
 
         $this->say('Saturday and Sunday', $conversation, null, $this->weekCall([
@@ -446,7 +446,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertSame(0, $this->plans());
         $this->assertNotContains('create_workout_plan', array_column($this->fake->calls[0]['tools'], 'name'));
-        $this->assertStringContainsString("I haven't changed your plan", $turn['answer']);
+        $this->assertSays("I haven't changed your plan", $turn['answer']);
     }
 
     public function test_no_starting_weight_is_invented_for_any_day(): void
@@ -458,7 +458,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $turn = $this->say('add this plan to my dashboard', $conversation, null, $this->weekCall([$withWeight, $this->sunday()]), new AiResponse(text: 'Done.'));
 
         $this->assertNull($this->plansOn(self::SATURDAY)->exercises->sortBy('position')->first()->planned_weight_kg, 'No baseline, no load.');
-        $this->assertStringContainsString('left the starting weight for Goblet Squats unset', $turn['answer']);
+        $this->assertSays('left the starting weight for Goblet Squats unset', $turn['answer']);
     }
 
     public function test_a_load_above_the_limit_stops_the_whole_plan_and_says_why(): void
@@ -472,9 +472,9 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertNull($this->plansOn(self::SATURDAY));
         $this->assertNull($this->plansOn(self::SUNDAY));
-        $this->assertStringContainsString("I haven't changed your plan", $turn['answer']);
-        $this->assertStringContainsString('Nothing was saved for any day.', $turn['answer']);
-        $this->assertStringNotContainsString('Saved!', $turn['answer']);
+        $this->assertSays("I haven't changed your plan", $turn['answer']);
+        $this->assertSays('Nothing was saved for any day.', $turn['answer']);
+        $this->assertSaysNot('Saved!', $turn['answer']);
     }
 
     // ---- honesty --------------------------------------------------------------------------------------------------------------
@@ -486,9 +486,9 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $turn = $this->say('add this plan to my dashboard', $conversation, null, new AiResponse(text: "I've added your plan to the dashboard for Saturday and Sunday!"));
 
         $this->assertSame(0, $this->plans());
-        $this->assertStringStartsWith("I haven't changed your plan", $turn['answer']);
-        $this->assertStringContainsString('nothing was saved for any day', $turn['answer']);
-        $this->assertStringNotContainsString('added your plan', $turn['answer']);
+        $this->assertSaysStartsWith("I haven't changed your plan", $turn['answer']);
+        $this->assertSays('nothing was saved for any day', $turn['answer']);
+        $this->assertSaysNot('added your plan', $turn['answer']);
         $this->assertTrue($turn['message']->meta['save_clarification']);
     }
 
@@ -498,8 +498,8 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $turn = $this->say('add this plan to my dashboard', $conversation, null, new AiResponse(text: "I'm sorry, I don't have access to the plan updating tool right now."));
 
-        $this->assertStringNotContainsString("don't have access", $turn['answer']);
-        $this->assertStringContainsString("I haven't changed your plan", $turn['answer']);
+        $this->assertSaysNot("don't have access", $turn['answer']);
+        $this->assertSays("I haven't changed your plan", $turn['answer']);
         $this->assertContains('propose_weekly_plan_changes', array_column($this->fake->calls[0]['tools'], 'name'), 'The tool was offered.');
     }
 
@@ -509,10 +509,10 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $turn = $this->say('add this plan to my dashboard', $conversation, null, $this->weekCall([$this->saturday(['title' => 'Full Body Strength']), $this->sunday()]), new AiResponse(text: 'Saved Monday and Tuesday!'));
 
         foreach ([self::SATURDAY, self::SUNDAY] as $date) {
-            $this->assertStringContainsString($this->plansOn($date)->title, $turn['answer']);
+            $this->assertSays($this->plansOn($date)->title, $turn['answer']);
         }
 
-        $this->assertStringNotContainsString('Monday', $turn['answer']);
+        $this->assertSaysNot('Monday', $turn['answer']);
     }
 
     // ---- confirmations cannot be bent ---------------------------------------------------------------------------------
@@ -534,7 +534,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $yes = $this->say('yes', $conversation);
 
         $this->assertNull($this->plansOn(self::SATURDAY));
-        $this->assertStringContainsString('no longer valid', $yes['answer']);
+        $this->assertSays('no longer valid', $yes['answer']);
     }
 
     public function test_a_forged_week_confirmation_saves_nothing(): void
@@ -550,7 +550,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertNull($this->plansOn(self::SATURDAY));
         $this->assertSame('My own session', $this->plansOn(self::SUNDAY)->title);
-        $this->assertStringContainsString('no longer valid', $yes['answer']);
+        $this->assertSays('no longer valid', $yes['answer']);
     }
 
     public function test_a_confirmation_cannot_be_moved_to_a_different_week(): void
@@ -575,7 +575,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $yes = $this->say('yes', $conversation);
 
         $this->assertNull($this->plansOn(self::SATURDAY));
-        $this->assertStringContainsString('changed after I asked', $yes['answer']);
+        $this->assertSays('changed after I asked', $yes['answer']);
     }
 
     public function test_another_user_cannot_confirm_it(): void
@@ -622,7 +622,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $this->assertSame(0, $this->plans());
         $this->assertSame(0, $this->plans($bob));
         $this->assertSame(0, $turn['calls'], 'There is no plan in this conversation to save.');
-        $this->assertStringContainsString("I don't see a workout", $turn['answer']);
+        $this->assertSays("I don't see a workout", $turn['answer']);
         $this->assertNotNull(Conversation::find($theirs));
     }
 
@@ -641,7 +641,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $this->say('add this plan to my dashboard', $late, null, $bad, $bad, $bad, new AiResponse(text: 'Done!'));
         $this->travelTo(Carbon::parse('2026-10-29 10:30', 'America/Bogota'));
         $expired = $this->say('try again', $late);
-        $this->assertStringContainsString('more than 15 minutes old', $expired['answer']);
+        $this->assertSays('more than 15 minutes old', $expired['answer']);
     }
 
     // ---- dates and timezones --------------------------------------------------------------------------------------------
@@ -678,7 +678,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $turn = $this->say('add this plan to my dashboard', $conversation);
 
         $this->assertSame(0, $this->plans());
-        $this->assertStringContainsString("can't tell which dates", $turn['answer']);
+        $this->assertSays("can't tell which dates", $turn['answer']);
     }
 
     // ---- single workouts are unchanged ------------------------------------------------------------------------------------
@@ -728,9 +728,9 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertSame($before, $this->plansFingerprint(), 'Saturday was written first and is gone again.');
         $this->assertNull($this->plansOn(self::SATURDAY));
-        $this->assertStringContainsString('none of the days were saved', $turn['answer']);
-        $this->assertStringContainsString('Nothing was saved for any day.', $turn['answer']);
-        $this->assertStringNotContainsString('Saved both', $turn['answer']);
+        $this->assertSays('none of the days were saved', $turn['answer']);
+        $this->assertSays('Nothing was saved for any day.', $turn['answer']);
+        $this->assertSaysNot('Saved both', $turn['answer']);
         $this->assertArrayNotHasKey('plan_replacement', $turn['message']->meta, 'Nothing is recorded as saved, so a later retry stays possible.');
     }
 
@@ -746,8 +746,8 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $this->assertSame('My own session', $this->plansOn(self::SUNDAY)->title);
         $this->assertSame(['Bench Press'], $this->plansOn(self::SUNDAY)->exercises->pluck('exercise_name')->all(), 'The replaced plan was not half-deleted.');
         $this->assertNull($this->plansOn(self::SATURDAY));
-        $this->assertStringContainsString("I haven't replaced it", $yes['answer']);
-        $this->assertStringContainsString('none of the days were saved', $yes['answer']);
+        $this->assertSays("I haven't replaced it", $yes['answer']);
+        $this->assertSays('none of the days were saved', $yes['answer']);
     }
 
     public function test_a_competing_request_that_fills_a_day_first_leaves_neither_a_partial_week_nor_a_duplicate(): void
@@ -768,7 +768,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $this->assertNull($this->plansOn(self::SATURDAY), 'Saturday was written first and is gone again.');
         $this->assertLessThanOrEqual(1, WorkoutPlan::where('user_id', $this->user->id)->whereDate('planned_date', self::SUNDAY)->count());
         $this->assertSame(0, WorkoutPlan::where('title', 'Full Body Strength')->count(), 'Nothing of this request was kept.');
-        $this->assertStringStartsWith("I haven't changed your plan", $turn['answer']);
+        $this->assertSaysStartsWith("I haven't changed your plan", $turn['answer']);
     }
 
     public function test_a_day_that_has_been_started_blocks_the_whole_plan(): void
@@ -781,8 +781,8 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $turn = $this->say('add this plan to my dashboard', $conversation, null, $this->weekCall([$this->saturday(), $this->sunday()]), new AiResponse(text: 'Saved!'));
 
         $this->assertSame($before, $this->plansFingerprint());
-        $this->assertStringContainsString('already started', $turn['answer']);
-        $this->assertStringContainsString("I didn't save any day of it", $turn['answer']);
+        $this->assertSays('already started', $turn['answer']);
+        $this->assertSays("I didn't save any day of it", $turn['answer']);
     }
 
     public function test_a_partly_performed_day_is_protected_before_and_after_the_confirmation(): void
@@ -795,7 +795,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
         $yes = $this->say('yes', $conversation);
 
         $this->assertSame($before, $this->plansFingerprint());
-        $this->assertStringContainsString("I haven't replaced it", $yes['answer']);
+        $this->assertSays("I haven't replaced it", $yes['answer']);
     }
 
     public function test_every_confirmation_that_is_not_valid_writes_nothing_at_all(): void
@@ -877,7 +877,7 @@ class WeekPlanSaveTest extends PerformanceEvalCase
 
         $this->assertNotNull($this->plansOn(self::SATURDAY));
         $this->assertNull($this->plansOn(self::SUNDAY), 'Sunday was left out, and the user is told so.');
-        $this->assertStringContainsString('I left out Sunday: Active Recovery', $turn['answer']);
+        $this->assertSays('I left out Sunday: Active Recovery', $turn['answer']);
     }
 
     public function test_a_plan_with_exact_dates_is_not_shifted_by_the_servers_clock(): void

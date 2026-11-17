@@ -467,32 +467,41 @@ class ApplicationNoticeConversationTest extends PerformanceEvalCase
         $this->assertSame(0, $this->plans(), 'Detecting a claim writes nothing.');
     }
 
-    public function test_a_spanish_false_save_claim_is_corrected_in_spanish_and_nothing_is_written(): void
+    private function spanishUser(): User
     {
-        $conversation = $this->conversation();
+        return User::factory()->create(['timezone' => 'America/Bogota', 'locale' => 'es']);
+    }
 
-        $turn = $this->say('¿Cómo va mi semana?', $conversation, null, new AiResponse(text: '¡Genial! Ya lo agregué a tu plan.'));
+    public function test_a_spanish_false_save_claim_is_corrected_in_spanish_for_a_user_who_chose_spanish_and_nothing_is_written(): void
+    {
+        $user = $this->spanishUser();
+        $conversation = $this->conversation($user);
+
+        $turn = $this->say('¿Cómo va mi semana?', $conversation, $user, new AiResponse(text: '¡Genial! Ya lo agregué a tu plan.'));
 
         $this->assertStringStartsWith('¡Genial! Ya lo agregué a tu plan.', $turn['message']->content);
         $this->assertStringContainsString('No he cambiado tu plan: esta vez no se guardó nada', $turn['message']->content);
-        $this->assertStringContainsString('"add this workout to my dashboard" (por ahora, en inglés)', $turn['message']->content, 'The phrase it offers is the one the application understands today.');
+        $this->assertStringContainsString('"add this workout to my dashboard"', $turn['message']->content, 'The phrase it offers is the one the application understands today.');
+        $this->assertStringContainsString('Por ahora, las frases entre comillas deben escribirse en inglés.', $turn['message']->content, 'It says so.');
         $this->assertSame([NoticeCode::CLAIM_SAVED_CORRECTED], $this->codes($turn['message']));
         $this->assertSame('¡Genial! Ya lo agregué a tu plan.', ApplicationNotices::modelText($turn['message']));
-        $this->assertSame(0, $this->plans());
+        $this->assertSame(0, $this->plans($user));
     }
 
-    public function test_the_language_chosen_by_the_user_does_not_decide_which_claims_are_recognised(): void
+    public function test_the_claim_is_recognised_in_either_language_and_the_correction_is_in_the_language_the_user_chose(): void
     {
-        foreach (['en', 'es'] as $locale) {
+        foreach (['en' => 'No he cambiado tu plan', 'es' => "I haven't changed your plan"] as $locale => $notThis) {
             $user = User::factory()->create(['timezone' => 'America/Bogota', 'locale' => $locale]);
 
             $english = $this->say('How is my week?', $this->conversation($user), $user, new AiResponse(text: "I've added it to your dashboard."));
             $spanish = $this->say('¿Cómo va mi semana?', $this->conversation($user), $user, new AiResponse(text: 'Ya lo guardé en tu dashboard.'));
 
-            $this->assertSame([NoticeCode::CLAIM_SAVED_CORRECTED], $this->codes($english['message']), $locale);
-            $this->assertSame([NoticeCode::CLAIM_SAVED_CORRECTED], $this->codes($spanish['message']), $locale);
-            $this->assertStringContainsString("I haven't changed your plan", $english['message']->content, 'The correction is in the language of the claim.');
-            $this->assertStringContainsString('No he cambiado tu plan', $spanish['message']->content);
+            // Which claims are recognised does not depend on the language; the words of the correction do.
+            foreach ([$english, $spanish] as $turn) {
+                $this->assertSame([NoticeCode::CLAIM_SAVED_CORRECTED], $this->codes($turn['message']), $locale);
+                $this->assertStringNotContainsString($notThis, $turn['message']->content, $locale);
+                $this->assertStringContainsString($locale === 'en' ? "I haven't changed your plan: nothing was saved" : 'No he cambiado tu plan: esta vez no se guardó nada', $turn['message']->content, $locale);
+            }
         }
     }
 
@@ -521,8 +530,9 @@ class ApplicationNoticeConversationTest extends PerformanceEvalCase
 
     public function test_english_and_spanish_no_access_claims_get_a_correction_that_says_nothing_changed(): void
     {
+        $spanishUser = $this->spanishUser();
         $english = $this->say('Can you change my plan?', $this->conversation(), null, new AiResponse(text: "I'm sorry, I don't have access to the plan tool."));
-        $spanish = $this->say('¿Puedes cambiar mi plan?', $this->conversation(), null, new AiResponse(text: 'Lo siento, no tengo acceso a la herramienta del plan.'));
+        $spanish = $this->say('¿Puedes cambiar mi plan?', $this->conversation($spanishUser), $spanishUser, new AiResponse(text: 'Lo siento, no tengo acceso a la herramienta del plan.'));
 
         $this->assertStringContainsString("To be clear, that is not a limit of the app: I can add and change workouts on your plan whenever you ask. I haven't changed anything this time.", $english['message']->content);
         $this->assertStringContainsString('Para ser claro: eso no es un límite de la aplicación', $spanish['message']->content);
@@ -530,6 +540,7 @@ class ApplicationNoticeConversationTest extends PerformanceEvalCase
         $this->assertSame([NoticeCode::CLAIM_ACCESS_CORRECTED], $this->codes($english['message']));
         $this->assertSame([NoticeCode::CLAIM_ACCESS_CORRECTED], $this->codes($spanish['message']));
         $this->assertSame(0, $this->plans());
+        $this->assertSame(0, $this->plans($spanishUser));
     }
 
     public function test_the_nothing_changed_sentence_is_not_repeated_when_the_application_already_said_it(): void
@@ -579,6 +590,7 @@ class ApplicationNoticeConversationTest extends PerformanceEvalCase
     public function test_the_same_conversation_stores_the_same_plans_and_the_same_notice_codes_in_either_language(): void
     {
         $outcomes = [];
+        $texts = [];
 
         foreach (['en', 'es'] as $locale) {
             $user = User::factory()->create(['timezone' => 'America/Bogota', 'locale' => $locale]);
@@ -593,10 +605,16 @@ class ApplicationNoticeConversationTest extends PerformanceEvalCase
             $outcomes[$locale] = [
                 $plan->title, $plan->exercises->pluck('exercise_name')->all(), $plan->exercises->pluck('planned_reps')->all(),
                 $this->codes($held['message']), $this->codes($applied['message']), $this->codes($failed['message']),
-                $held['message']->content, $applied['message']->content, $failed['message']->content,
             ];
+            $texts[$locale] = [$held['message']->content, $applied['message']->content, $failed['message']->content];
         }
 
-        $this->assertSame($outcomes['en'], $outcomes['es'], 'Language changes no stored plan, no notice code and, until the catalog is translated, no application sentence.');
+        $this->assertSame($outcomes['en'], $outcomes['es'], 'Language changes no stored plan and no notice code; only the words of the notices.');
+        $this->assertStringContainsString('Do you want me to replace it', $texts['en'][0]);
+        $this->assertStringContainsString('¿Quieres que lo reemplace', $texts['es'][0]);
+        $this->assertStringStartsWith('Done. I replaced', $texts['en'][1]);
+        $this->assertStringStartsWith('Listo. Reemplacé', $texts['es'][1]);
+        $this->assertStringContainsString('I don\'t see a workout', $texts['en'][2]);
+        $this->assertStringContainsString('no veo un entrenamiento', $texts['es'][2]);
     }
 }

@@ -125,8 +125,8 @@ class NoUnapprovedLoadRaisesTest extends PerformanceEvalCase
         $this->fake->queue($this->weekly($this->day, 42.5));
         $result = $this->adapt()->json();
 
-        $this->assertStringContainsString('would raise its load', $result['error']);
-        $this->assertStringContainsString('approves a calculated suggestion', $result['error']);
+        $this->assertSays('would raise its load', $result['error']);
+        $this->assertSays('approves a calculated suggestion', $result['error']);
     }
 
     public function test_weekly_adaptation_may_keep_or_lower_a_load(): void
@@ -207,7 +207,7 @@ class NoUnapprovedLoadRaisesTest extends PerformanceEvalCase
 
         $turn = $this->chat('Please update my plan for next week: bench at 60 kg.', $this->create($this->d(-8), 60.0, 'Too far'), new AiResponse(text: 'Done.'));
         $this->assertSame(0, $this->titled('Too far'));
-        $this->assertStringContainsString('maximum permitted change', json_encode($turn->meta['tool_calls'][0]['result']));
+        $this->assertSays('maximum permitted change', json_encode($turn->meta['tool_calls'][0]['result']));
     }
 
     public function test_a_new_exercise_with_no_history_is_planned_without_a_model_chosen_load(): void

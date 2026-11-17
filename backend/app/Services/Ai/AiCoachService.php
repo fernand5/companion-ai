@@ -10,7 +10,6 @@ use App\Services\Ai\Authorization\PendingProposalStore;
 use App\Services\Ai\Authorization\PlanChangeIntentClassifier;
 use App\Services\Ai\Authorization\PlanChangeProposal;
 use App\Services\Ai\Authorization\PlanChangeProposalParser;
-use App\Services\Ai\Authorization\PlanReplacementProposal;
 use App\Services\Ai\Authorization\PlanReplacer;
 use App\Services\Ai\Authorization\ProposalMatcher;
 use App\Services\Ai\Authorization\SavedWorkoutReference;
@@ -27,6 +26,7 @@ use App\Services\Ai\Authorization\WeekSaveScope;
 use App\Services\Ai\Authorization\WorkoutReference;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\Notices\NoticeCode;
+use App\Services\Ai\Notices\NoticeText;
 use App\Services\Ai\Notices\PlanClaims;
 use App\Services\Ai\Notices\ReplyText;
 use App\Services\Fitness\WeeklyPlanService;
@@ -171,7 +171,9 @@ class AiCoachService
 
         // A save that cannot be pinned down (which workout? which day?) is asked about, not guessed at, and the
         // model is not asked to improvise around it.
-        if (($question = $this->saveQuestion($authorization)) !== null) {
+        $words = NoticeText::for($user);
+
+        if (($question = $this->saveQuestion($authorization, $words)) !== null) {
             return $this->answerWithoutModel($user, $conversation, $authorization, ReplyText::application(NoticeCode::SAVE_QUESTION_PREFIX.$authorization->followUp, $question['text']), ['save_clarification' => true, 'save_pending' => $question['pending']], $startedAt);
         }
 
@@ -281,25 +283,25 @@ class AiCoachService
             $meta['blocked_tool_calls'] = $turn->blocked();
         }
 
-        [$notice, $pending] = $this->followUp($user, $conversation, $userMessage, $authorization, $turn->confirmedChangeMade(), $history);
+        [$notice, $pending] = $this->followUp($user, $conversation, $userMessage, $authorization, $turn->confirmedChangeMade(), $history, $words);
 
         $reply = ReplyText::fromModel($finalText);
 
         // A change that needed the user's confirmation, and could not be asked for, is said not to have happened.
         if ($authorization->weekScope === null && array_filter($turn->blocked(), fn (array $b) => $b['reason'] === 'cannot_ask_for_confirmation') !== [] && $turn->pendingReplacement() === null) {
-            $reply->with(NoticeCode::CANNOT_ASK_CONFIRMATION, "I haven't changed your plan: that would replace a day that already has a plan, and I couldn't ask you to confirm it just now. Please try again.");
+            $reply->with(NoticeCode::CANNOT_ASK_CONFIRMATION, $words->cannotAskConfirmation());
         }
 
         // What happened to a requested save is the application's to say, not the model's.
         if ($authorization->saveScope !== null) {
-            $meta += $this->saveOutcome($reply, $turn, $authorization->saveScope);
+            $meta += $this->saveOutcome($reply, $turn, $authorization->saveScope, $words);
         } elseif ($authorization->weekScope !== null) {
-            [$reply, $savedMeta] = $this->weekOutcome($turn, $authorization->weekScope);
+            [$reply, $savedMeta] = $this->weekOutcome($turn, $authorization->weekScope, $words);
             $meta += $savedMeta;
         } elseif (($held = $turn->pendingReplacement()) !== null) {
             // Any other turn that ran into a day with a plan on it: the reply stays (it may be the workout the user
             // asked for), and the application adds what has NOT happened and what it needs to be told.
-            $reply->with(NoticeCode::REPLACEMENT_QUESTION, $this->replacementQuestion($held));
+            $reply->with(NoticeCode::REPLACEMENT_QUESTION, $words->replacementQuestion($held));
             $meta += $this->proposals->presentReplacement($held);
         }
 
@@ -308,12 +310,12 @@ class AiCoachService
         }
 
         // Loads the application would not accept from the model (nothing to base them on) are said so in its own words.
-        if (($unset = $turn->loadsLeftUnsetNotice()) !== null) {
+        if (($unset = $words->loadsLeftUnset($turn->loadsLeftUnsetNotice())) !== null) {
             $reply->with(NoticeCode::LOAD_LEFT_UNSET, $unset);
         }
 
         // Two things the application can check against what actually happened this turn, whatever the model wrote.
-        $this->correctClaims($reply, $authorization, $turn, $toolTrace);
+        $this->correctClaims($reply, $authorization, $turn, $toolTrace, $words);
 
         if ($pending !== null) {
             $meta += $this->proposals->present($pending);
@@ -493,39 +495,23 @@ class AiCoachService
      *
      * @return array{text: string, pending: array<string, mixed>}|null
      */
-    private function saveQuestion(ToolAuthorization $authorization): ?array
+    private function saveQuestion(ToolAuthorization $authorization, NoticeText $words): ?array
     {
-        $example = 'add this workout to my dashboard: squats 3x10, push-ups 3x12';
-
         return match ($authorization->followUp) {
-            ToolAuthorization::FOLLOW_UP_NO_WORKOUT_TO_SAVE => [
-                'text' => 'I haven\'t changed your plan: I don\'t see a workout in my last reply or in your message to add. Ask me for one (for example "give me a 30-minute workout"), or tell me what to add, like "'.$example.'". You can also just reply with the exercises and their sets and reps.',
-                'pending' => ['kind' => 'none'],
-            ],
-            ToolAuthorization::FOLLOW_UP_WHICH_WORKOUT => [
-                'text' => 'I haven\'t changed your plan: more than one workout could be meant and I don\'t want to guess which. Say which one (for example "add option 2 to my dashboard", or just "option 2"), or send the exercises in one message, like "'.$example.'".',
-                'pending' => ['kind' => 'which_workout'],
-            ],
-            ToolAuthorization::FOLLOW_UP_INCOMPLETE_WORKOUT => [
-                'text' => 'I haven\'t changed your plan: that workout looks unfinished (it is cut off, trails off, or lists fewer exercises than it announces). Send me the full list, like "'.$example.'", or ask me to write it out in full first.',
-                'pending' => ['kind' => 'incomplete'],
-            ],
-            ToolAuthorization::FOLLOW_UP_QUOTED_WORKOUT => [
-                'text' => 'I haven\'t changed your plan: that workout is quoted from someone else\'s words, and I want to be sure it is the one you want. Write the exercises in your own message, like "'.$example.'".',
-                'pending' => ['kind' => 'quoted'],
-            ],
-            ToolAuthorization::FOLLOW_UP_WEEK_PLAN => $this->weekPlanQuestion($authorization->followUpData),
+            ToolAuthorization::FOLLOW_UP_NO_WORKOUT_TO_SAVE => ['text' => $words->noWorkoutToSave(), 'pending' => ['kind' => 'none']],
+            ToolAuthorization::FOLLOW_UP_WHICH_WORKOUT => ['text' => $words->whichWorkout(), 'pending' => ['kind' => 'which_workout']],
+            ToolAuthorization::FOLLOW_UP_INCOMPLETE_WORKOUT => ['text' => $words->incompleteWorkout(), 'pending' => ['kind' => 'incomplete']],
+            ToolAuthorization::FOLLOW_UP_QUOTED_WORKOUT => ['text' => $words->quotedWorkout(), 'pending' => ['kind' => 'quoted']],
+            ToolAuthorization::FOLLOW_UP_WEEK_PLAN => $this->weekPlanQuestion($authorization->followUpData, $words),
             ToolAuthorization::FOLLOW_UP_RETRY_EXPIRED => [
                 'text' => ($authorization->followUpData['reason'] ?? null) === SaveRetry::NEW_DAY
-                    ? 'I haven\'t changed your plan: that request to add a workout was made on '.($authorization->followUpData['made_on'] ?? 'an earlier day').', and a new day has started, so I won\'t carry it over and guess which day you mean now. To add the workout, say "add this workout to my dashboard" (and the day, if you want one other than today).'
-                    : 'I haven\'t changed your plan: that request to add a workout is more than '.PlanReplacementProposal::TTL_MINUTES.' minutes old, and I only pick up a request while it is fresh, so nothing was saved. To add the workout, say "add this workout to my dashboard" (and the day, if you want one other than today).',
+                    ? $words->retryExpiredNewDay($authorization->followUpData['made_on'] ?? null)
+                    : $words->retryExpiredTooOld(),
                 'pending' => ['kind' => 'expired'],
             ],
-            ToolAuthorization::FOLLOW_UP_CHOOSE_EXERCISE => $this->exerciseChoiceQuestion($authorization->followUpData['choices'] ?? []),
+            ToolAuthorization::FOLLOW_UP_CHOOSE_EXERCISE => $this->exerciseChoiceQuestion($authorization->followUpData['choices'] ?? [], $words),
             ToolAuthorization::FOLLOW_UP_WHICH_DAY => [
-                'text' => ($authorization->followUpData['problem'] ?? null) === SaveWorkoutDay::PAST
-                    ? 'I haven\'t changed your plan: I\'m not sure which day you mean, because I can only add a workout to today or a later day (up to two months ahead). Which day should I use? Reply with just the day, for example "Friday" or "tomorrow".'
-                    : 'I haven\'t changed your plan: I\'m not sure which day you mean. I can add a workout to today or to a day in the next two months. Which day should I use? Reply with just the day, for example "Friday" or "tomorrow".',
+                'text' => $words->whichDay(($authorization->followUpData['problem'] ?? null) === SaveWorkoutDay::PAST),
                 'pending' => ['kind' => 'day'],
             ],
             default => null,
@@ -533,45 +519,26 @@ class AiCoachService
     }
 
     /**
-     * Why a plan of several days cannot be saved yet, said specifically, with the words that fix it.
+     * Why a plan of several days cannot be saved yet, said specifically, with the words that fix it. Which case it is
+     * (and what is stored with the question) is decided here from the closed problem code; the words come from NoticeText.
      *
      * @param  array<string, mixed>  $data
      * @return array{text: string, pending: array<string, mixed>}
      */
-    private function weekPlanQuestion(array $data): array
+    private function weekPlanQuestion(array $data, NoticeText $words): array
     {
-        $days = implode('; ', array_map(fn (string $d) => '"'.$d.'"', (array) ($data['problems'] ?? [])));
-        $none = 'Nothing was saved for any day.';
+        $problems = (array) ($data['problems'] ?? []);
+        $detail = (string) ($data['detail'] ?? '');
+        $ask = fn (string $case) => $words->weekQuestion($case, $problems, $detail, WeekPlanReference::MAX_DAYS);
 
         return match ($data['problem'] ?? null) {
-            WeekPlan::UNCLEAR_DAY => [
-                'text' => "I haven't changed your plan: I can't tell exactly what to save for {$days} ({$data['detail']}), and I don't want to guess or invent a workout. {$none} "
-                    .'Tell me what that day holds (for example "Sunday is a rest day", or list its exercises with sets and reps), or ask me to write the plan out in full, then say "add this plan to my dashboard" again.',
-                'pending' => ['kind' => 'week_plan'],
-            ],
-            WeekPlan::PAST_DAYS => [
-                'text' => "I haven't changed your plan: this plan includes days that have already passed ({$days}), and I can only add today or a later day. {$none} "
-                    .'Reply with just the days to add, for example "Saturday and Sunday".',
-                'pending' => ['kind' => 'week_days'],
-            ],
-            WeekPlan::DATES => $days !== '' && ($data['detail'] ?? '') === 'the plan has no such day'
-                ? [
-                    'text' => "I haven't changed your plan: that plan has no {$days}. {$none} Reply with just the days to add from the plan, for example \"Saturday and Sunday\".",
-                    'pending' => ['kind' => 'week_days'],
-                ]
-                : [
-                    'text' => "I haven't changed your plan: I can't tell which dates this plan is for".($days !== '' ? " ({$days}: {$data['detail']})" : " ({$data['detail']})").". {$none} "
-                        .'Ask me to write the plan with a date on each day (for example "Saturday, Oct 31"), then say "add this plan to my dashboard" again.',
-                    'pending' => ['kind' => 'week_plan'],
-                ],
-            WeekPlan::TOO_MANY => [
-                'text' => "I haven't changed your plan: that plan has more than ".WeekPlanReference::MAX_DAYS." days, which is more than I can add at once. {$none} Ask me to add it a week at a time.",
-                'pending' => ['kind' => 'week_plan'],
-            ],
-            default => [
-                'text' => "I haven't changed your plan: I couldn't read that plan day by day. {$none} Ask me to write it out with each day's exercises, then say \"add this plan to my dashboard\".",
-                'pending' => ['kind' => 'week_plan'],
-            ],
+            WeekPlan::UNCLEAR_DAY => ['text' => $ask('unclear_day'), 'pending' => ['kind' => 'week_plan']],
+            WeekPlan::PAST_DAYS => ['text' => $ask('past_days'), 'pending' => ['kind' => 'week_days']],
+            WeekPlan::DATES => $problems !== [] && $detail === 'the plan has no such day'
+                ? ['text' => $ask('no_such_day'), 'pending' => ['kind' => 'week_days']]
+                : ['text' => $ask('dates'), 'pending' => ['kind' => 'week_plan']],
+            WeekPlan::TOO_MANY => ['text' => $ask('too_many'), 'pending' => ['kind' => 'week_plan']],
+            default => ['text' => $ask('unreadable'), 'pending' => ['kind' => 'week_plan']],
         };
     }
 
@@ -582,15 +549,10 @@ class AiCoachService
      * @param  array<int, array{item: string, options: array<int, string>}>  $choices
      * @return array{text: string, pending: array<string, mixed>}
      */
-    private function exerciseChoiceQuestion(array $choices): array
+    private function exerciseChoiceQuestion(array $choices, NoticeText $words): array
     {
-        $lines = array_map(fn (array $c) => '"'.implode('" or "', $c['options']).'"'.(isset($c['day']) ? ' ('.$c['day'].')' : ''), $choices);
-        $first = $choices[0]['options'][0] ?? 'the first one';
-
         return [
-            'text' => 'I haven\'t changed your plan, and nothing is wrong with saving it: one thing in the workout is a choice. '
-                .(count($lines) === 1 ? 'It lists '.$lines[0].'.' : 'It lists '.implode('; ', $lines).'.')
-                .' Which should I add? Reply with just the name'.(count($lines) === 1 ? '' : 's').', for example "'.$first.'".',
+            'text' => $words->exerciseChoice($choices),
             'pending' => ['kind' => 'choice', 'options' => array_column($choices, 'options')],
         ];
     }
@@ -637,28 +599,21 @@ class AiCoachService
         }
 
         $proposal = $this->proposals->claimReplacement($conversation, $user, $previous);
+        $words = NoticeText::for($user);
 
         if ($proposal === null) {
-            $text = 'I haven\'t changed your plan: that confirmation is no longer valid (it expired, was already used, or is not for this conversation). If you still want the workout on your plan, ask me again.';
+            $text = $words->confirmationInvalid();
             $status = 'invalid';
             $code = NoticeCode::REPLACEMENT_INVALID;
         } else {
             $result = $this->planReplacer->apply($user, $proposal);
 
             if (is_string($result)) {
-                $text = "I haven't replaced it: {$result} Nothing was changed. If you still want the workout on your plan, ask me again.";
+                $text = $words->confirmationRefused($result);
                 $status = 'refused';
                 $code = NoticeCode::REPLACEMENT_REFUSED;
             } else {
-                $text = 'Done. '.implode(' ', array_map(
-                    fn (array $c) => match (true) {
-                        $c['action'] === PlanReplacementProposal::CREATE => 'I added '.PlanReplacementProposal::summarise($c['replacement'])." to {$c['date']}.",
-                        $c['action'] === PlanReplacementProposal::CLEAR && $c['existing_plan_id'] === 0 => "I marked {$c['date']} as a rest day.",
-                        $c['action'] === PlanReplacementProposal::CLEAR => "I turned {$c['date']} ({$c['existing_summary']}) into a rest day.",
-                        default => "I replaced {$c['existing_summary']} on {$c['date']} with ".PlanReplacementProposal::summarise($c['replacement']).'.',
-                    },
-                    $proposal->changes,
-                )).' I checked that it is saved.';
+                $text = $words->confirmationApplied($proposal);
                 $status = 'applied';
                 $code = NoticeCode::REPLACEMENT_APPLIED;
             }
@@ -694,7 +649,7 @@ class AiCoachService
      *
      * @param  array<int, array{name: string, arguments: array, result: mixed}>  $toolTrace
      */
-    private function correctClaims(ReplyText $reply, ToolAuthorization $authorization, ToolTurn $turn, array $toolTrace): void
+    private function correctClaims(ReplyText $reply, ToolAuthorization $authorization, ToolTurn $turn, array $toolTrace, NoticeText $words): void
     {
         // A plan of several days is reported by the application alone (weekOutcome()): nothing of the model's is left to correct.
         if ($authorization->weekScope !== null) {
@@ -711,21 +666,21 @@ class AiCoachService
         // Whether the application has already told the user, in a notice of its own, that nothing was changed.
         $saidNothingChanged = $reply->hasAny(NoticeCode::SAYS_NOTHING_CHANGED);
 
-        if (($language = PlanClaims::claimsNoAccess($claimed)) !== null) {
+        if (PlanClaims::claimsNoAccess($claimed) !== null) {
             // "I haven't changed anything" is only said when nothing at all was written (an activity that was logged is a change).
-            $reply->with(NoticeCode::CLAIM_ACCESS_CORRECTED, $this->noAccessCorrection($language, ! $outcomes['any'] && ! $saidNothingChanged));
+            $reply->with(NoticeCode::CLAIM_ACCESS_CORRECTED, $words->noAccessCorrection(! $outcomes['any'] && ! $saidNothingChanged));
 
             return;
         }
 
-        if ($saidNothingChanged || ($language = PlanClaims::claimsPlanWritten($claimed)) === null) {
+        if ($saidNothingChanged || PlanClaims::claimsPlanWritten($claimed) === null) {
             return;
         }
 
         // "It was saved" needs a plan to have been written: logging an activity, a weight, a preference or a profile
         // field is not the plan, and neither is a call that was refused, failed, skipped or is waiting for the user.
         if (! $outcomes['plan'] && $authorization->saveScope === null && $turn->pendingReplacement() === null && ! $turn->confirmedChangeMade()) {
-            $reply->with(NoticeCode::CLAIM_SAVED_CORRECTED, $this->notSavedCorrection($language));
+            $reply->with(NoticeCode::CLAIM_SAVED_CORRECTED, $words->notSavedCorrection());
 
             return;
         }
@@ -733,47 +688,8 @@ class AiCoachService
         // Something on the plan WAS written, but another plan change in the same turn was refused, failed or skipped
         // (and nothing later made it good): the model cannot be taken to mean only the part that worked.
         if ($outcomes['unfinished'] && $turn->pendingReplacement() === null) {
-            $reply->with(NoticeCode::CLAIM_PARTIAL_CORRECTED, $this->partialCorrection($language));
+            $reply->with(NoticeCode::CLAIM_PARTIAL_CORRECTED, $words->partialCorrection());
         }
-    }
-
-    /**
-     * The correction when the model says it cannot reach the plan. It is written in the language the claim was made in;
-     * the phrase it offers is the one the application understands (English) until the request parsers know Spanish.
-     */
-    private function noAccessCorrection(string $language, bool $addNothingChanged): string
-    {
-        if ($language === PlanClaims::SPANISH) {
-            return 'Para ser claro: eso no es un límite de la aplicación, puedo añadir y cambiar entrenamientos en tu plan cuando me lo pidas. '
-                .($addNothingChanged ? 'Esta vez no he cambiado nada. ' : '')
-                .'Para añadir un entrenamiento que acabo de mostrarte, escribe "add this workout to my dashboard" (por ahora, en inglés), o "try again" si ya lo habías pedido.';
-        }
-
-        return 'To be clear, that is not a limit of the app: I can add and change workouts on your plan whenever you ask. '
-            .($addNothingChanged ? "I haven't changed anything this time. " : '')
-            .'To add a workout I have just shown you, say "add this workout to my dashboard" (or "try again" if you have already asked).';
-    }
-
-    private function notSavedCorrection(string $language): string
-    {
-        if ($language === PlanClaims::SPANISH) {
-            return 'No he cambiado tu plan: esta vez no se guardó nada, diga lo que diga el mensaje de arriba. '
-                .'Para añadir un entrenamiento que acabo de mostrarte, escribe "add this workout to my dashboard" (por ahora, en inglés).';
-        }
-
-        return "I haven't changed your plan: nothing was saved this time, whatever the message above says. "
-            .'To add a workout I have just shown you, say "add this workout to my dashboard".';
-    }
-
-    private function partialCorrection(string $language): string
-    {
-        if ($language === PlanClaims::SPANISH) {
-            return 'Ojo: no todo lo que pediste se cambió. Al menos un cambio en tu plan fue rechazado, omitido o no se pudo completar, '
-                .'así que revisa tu plan antes de dar por hecho lo que dice el mensaje de arriba.';
-        }
-
-        return 'To be careful: not everything was changed. At least one plan change was refused, skipped or could not be completed, '
-            .'so check your plan before relying on what the message above says was done.';
     }
 
     /**
@@ -844,31 +760,6 @@ class AiCoachService
         return ['any' => $any, 'plan' => $plan, 'unfinished' => in_array(true, $unfinished, true)];
     }
 
-    /** The application's question for a held replacement, in its own words. */
-    private function replacementQuestion(PlanReplacementProposal $proposal): string
-    {
-        $minutes = PlanReplacementProposal::TTL_MINUTES;
-        $changes = $proposal->changes;
-
-        if (count($changes) === 1) {
-            $change = $changes[0];
-
-            return $change['action'] === PlanReplacementProposal::CLEAR
-                ? "I haven't changed your plan. {$change['date']} already has {$change['existing_summary']}. Do you want me to turn it into a rest day? Reply \"yes\" within {$minutes} minutes to do exactly that; anything else leaves it as it is."
-                : "I haven't changed your plan. {$change['date']} already has {$change['existing_summary']}. Do you want me to replace it with ".PlanReplacementProposal::summarise($change['replacement'])."? Reply \"yes\" within {$minutes} minutes to replace it with exactly that; anything else leaves it as it is.";
-        }
-
-        if (array_filter($changes, fn (array $c) => $c['action'] === PlanReplacementProposal::CREATE || $c['existing_plan_id'] === 0) !== []) {
-            return "I haven't changed your plan yet. Saving this plan would make these changes, and some of these days already have a plan that would be replaced:\n"
-                .implode("\n", array_map(fn (array $c) => '- '.PlanReplacementProposal::describeChange($c), $changes))
-                ."\nDo you want me to make all of these changes? Reply \"yes\" within {$minutes} minutes to make exactly these changes and nothing else; anything else leaves your plan as it is.";
-        }
-
-        return "I haven't changed your plan yet. These days already have a plan:\n"
-            .implode("\n", array_map(fn (array $c) => '- '.PlanReplacementProposal::describeChange($c), $changes))
-            ."\nDo you want me to make all of these changes? Reply \"yes\" within {$minutes} minutes to make exactly these changes and nothing else; anything else leaves your plan as it is.";
-    }
-
     /**
      * What the user is told about a plan of several days, whatever the model wrote: what was saved (after it was read
      * back), the changes waiting for their confirmation, the days that stopped it, or that nothing was saved and why.
@@ -876,21 +767,16 @@ class AiCoachService
      *
      * @return array{0: ReplyText, 1: array<string, mixed>}
      */
-    private function weekOutcome(ToolTurn $turn, WeekSaveScope $scope): array
+    private function weekOutcome(ToolTurn $turn, WeekSaveScope $scope, NoticeText $words): array
     {
         if (($pending = $turn->pendingReplacement()) !== null) {
-            return [ReplyText::application(NoticeCode::REPLACEMENT_QUESTION, $this->replacementQuestion($pending)), $this->proposals->presentReplacement($pending) + ['save_clarification' => true]];
+            return [ReplyText::application(NoticeCode::REPLACEMENT_QUESTION, $words->replacementQuestion($pending)), $this->proposals->presentReplacement($pending) + ['save_clarification' => true]];
         }
 
         if (($saved = $turn->weekSaved()) !== null) {
-            $lines = array_map(fn (array $c) => '- '.CarbonImmutable::parse($c['date'])->format('l, M j').': '.($c['action'] === PlanReplacementProposal::CLEAR ? 'rest day' : PlanReplacementProposal::summarise($c['replacement'])), $saved);
-            $already = $turn->weekAlready() === [] ? '' : ' '.implode(', ', $turn->weekAlready()).(count($turn->weekAlready()) === 1 ? ' was' : ' were').' already on your plan exactly like this, so I left '.(count($turn->weekAlready()) === 1 ? 'it' : 'them').' as '.(count($turn->weekAlready()) === 1 ? 'it is' : 'they are').'.';
+            $reply = ReplyText::application(NoticeCode::WEEK_SAVED, $words->weekSaved($saved, $turn->weekAlready(), $scope->omitted));
 
-            $omitted = $scope->omitted === [] ? '' : ' I left out '.implode(', ', $scope->omitted).' because you named only the days above; say "add this plan to my dashboard" again if you want the rest.';
-
-            $reply = ReplyText::application(NoticeCode::WEEK_SAVED, 'Done. I added this to your plan, all together, and checked that it is saved:'."\n".implode("\n", $lines).$already.$omitted);
-
-            if (($rangeNote = $turn->rangeNote()) !== null) {
+            if (($rangeNote = $words->rangeNote($turn->rangeNote())) !== null) {
                 $reply->with(NoticeCode::RANGE_NOTE, $rangeNote);
             }
 
@@ -898,26 +784,17 @@ class AiCoachService
         }
 
         if ($turn->weekBlocked() !== []) {
-            $list = implode(', ', array_map(fn (array $b) => $b['date'].' ('.$b['label'].': '.($b['reason'] === 'started' ? 'already started' : 'already has recorded workout performance').')', $turn->weekBlocked()));
-
             return [
-                ReplyText::application(NoticeCode::WEEK_BLOCKED, "I haven't changed your plan, and I didn't save any day of it: {$list} can't be replaced, and I save a plan whole or not at all so your week is never half done. "
-                    .'To add the other days, reply with just those days, for example "Sunday" (or "add this plan to my dashboard for Sunday").'),
+                ReplyText::application(NoticeCode::WEEK_BLOCKED, $words->weekBlocked($turn->weekBlocked())),
                 ['save_clarification' => true, 'save_pending' => ['kind' => 'week_days']],
             ];
         }
 
         if ($turn->weekAlready() !== []) {
-            return [ReplyText::application(NoticeCode::WEEK_ALREADY, 'Everything in that plan ('.implode(', ', $turn->weekAlready()).') is already on your plan exactly as shown, so there was nothing to change.'), ['save_clarification' => true]];
+            return [ReplyText::application(NoticeCode::WEEK_ALREADY, $words->weekAlready($turn->weekAlready())), ['save_clarification' => true]];
         }
 
-        $problem = $turn->weekProblem();
-
-        return [
-            ReplyText::application(NoticeCode::WEEK_NOT_SAVED, "I haven't changed your plan: ".($problem !== null ? rtrim($problem, '. ').'. Nothing was saved for any day.' : 'the plan was not saved, and nothing was saved for any day.')
-                .' Ask me again with "add this plan to my dashboard".'),
-            ['save_clarification' => true],
-        ];
+        return [ReplyText::application(NoticeCode::WEEK_NOT_SAVED, $words->weekNotSaved($turn->weekProblem())), ['save_clarification' => true]];
     }
 
     /**
@@ -927,18 +804,18 @@ class AiCoachService
      *
      * @return array<string, mixed>
      */
-    private function saveOutcome(ReplyText $reply, ToolTurn $turn, SaveWorkoutScope $scope): array
+    private function saveOutcome(ReplyText $reply, ToolTurn $turn, SaveWorkoutScope $scope, NoticeText $words): array
     {
         if (($pending = $turn->pendingReplacement()) !== null) {
-            $reply->replaceWith(NoticeCode::REPLACEMENT_QUESTION, $this->replacementQuestion($pending));
+            $reply->replaceWith(NoticeCode::REPLACEMENT_QUESTION, $words->replacementQuestion($pending));
 
             return $this->proposals->presentReplacement($pending) + ['save_clarification' => true];
         }
 
         if (($replaced = $turn->replaced()) !== null) {
-            $reply->with(NoticeCode::REPLACED_AS_ASKED, "As you asked, I replaced {$replaced['was']} on {$replaced['date']} with this workout.");
+            $reply->with(NoticeCode::REPLACED_AS_ASKED, $words->replacedAsAsked($replaced['was'], $replaced['date']));
 
-            if (($rangeNote = $turn->rangeNote()) !== null) {
+            if (($rangeNote = $words->rangeNote($turn->rangeNote())) !== null) {
                 $reply->with(NoticeCode::RANGE_NOTE, $rangeNote);
             }
 
@@ -948,7 +825,7 @@ class AiCoachService
         if ($turn->workoutSaved()) {
             $reply->trimEnd();
 
-            if (($rangeNote = $turn->rangeNote()) !== null) {
+            if (($rangeNote = $words->rangeNote($turn->rangeNote())) !== null) {
                 $reply->with(NoticeCode::RANGE_NOTE, $rangeNote);
             }
 
@@ -958,8 +835,8 @@ class AiCoachService
         $performed = array_filter($turn->blocked(), fn (array $b) => $b['reason'] === 'day_already_performed') !== [];
 
         $reply->with($performed ? NoticeCode::SAVE_DAY_PERFORMED : NoticeCode::SAVE_FAILED, $performed
-            ? "I haven't changed your plan: {$scope->date} already has recorded workout performance, so its plan can't be replaced. Pick another day, like \"add this workout to my dashboard for tomorrow\"."
-            : 'I haven\'t changed your plan: the workout was not saved. Ask me again with "add this workout to my dashboard", or send the exercises in one message.');
+            ? $words->saveDayPerformed($scope->date)
+            : $words->saveFailed());
 
         // The retry still points at the workout above this notice, not at the notice.
         return ['save_clarification' => true];
@@ -971,56 +848,42 @@ class AiCoachService
      * @param  Collection<int, Message>  $history
      * @return array{0: ?array{code: string, text: string}, 1: ?PlanChangeProposal}
      */
-    private function followUp(User $user, Conversation $conversation, string $userMessage, ToolAuthorization $authorization, bool $confirmedChangeMade, Collection $history): array
+    private function followUp(User $user, Conversation $conversation, string $userMessage, ToolAuthorization $authorization, bool $confirmedChangeMade, Collection $history, NoticeText $words): array
     {
-        $explicit = 'To change your plan, send an explicit request that names the exercise, the load in kg and the day, for example "update my bench press to 45 kg on 2026-10-17".';
-
         if ($authorization->scopedProposal() !== null) {
-            return [$confirmedChangeMade ? null : ['code' => NoticeCode::CONFIRMED_CHANGE_FAILED, 'text' => "I couldn't make the change exactly as you confirmed it, so nothing was changed. If you still want it, ask again."], null];
+            return [$confirmedChangeMade ? null : ['code' => NoticeCode::CONFIRMED_CHANGE_FAILED, 'text' => $words->confirmedChangeFailed()], null];
         }
 
         return match ($authorization->followUp) {
-            'proposal_no_longer_valid' => [['code' => NoticeCode::PROPOSAL_NO_LONGER_VALID, 'text' => "Your plan changed since I asked, so I didn't make that change. {$explicit}"], null],
+            'proposal_no_longer_valid' => [['code' => NoticeCode::PROPOSAL_NO_LONGER_VALID, 'text' => $words->proposalNoLongerValid()], null],
+            // A "yes" to a workout the coach described and offered to add confirms nothing: say what does.
             ToolAuthorization::FOLLOW_UP_NOTHING_PENDING => [
-                ['code' => NoticeCode::NOTHING_PENDING, 'text' => 'There is nothing waiting for your confirmation (it may have expired). '
-                // A "yes" to a workout the coach described and offered to add confirms nothing: say what does.
-                .($this->workoutReference->resolve($userMessage, $history)->origin === WorkoutReference::FROM_PREVIOUS_REPLY ? 'To put the workout we just discussed on your plan, say "add this workout to my dashboard". ' : '')
-                .$explicit],
+                ['code' => NoticeCode::NOTHING_PENDING, 'text' => $words->nothingPending($this->workoutReference->resolve($userMessage, $history)->origin === WorkoutReference::FROM_PREVIOUS_REPLY)],
                 null,
             ],
-            ToolAuthorization::FOLLOW_UP_EXPLICIT_REQUEST => [['code' => NoticeCode::EXPLICIT_REQUEST_NEEDED, 'text' => "I haven't changed your plan. {$explicit}"], null],
-            ToolAuthorization::FOLLOW_UP_PROPOSE => $this->propose($user, $conversation, $userMessage, $explicit),
+            ToolAuthorization::FOLLOW_UP_EXPLICIT_REQUEST => [['code' => NoticeCode::EXPLICIT_REQUEST_NEEDED, 'text' => $words->explicitRequestNeeded()], null],
+            ToolAuthorization::FOLLOW_UP_PROPOSE => $this->propose($user, $conversation, $userMessage, $words),
             default => [null, null],
         };
     }
 
     /** @return array{0: array{code: string, text: string}, 1: ?PlanChangeProposal} */
-    private function propose(User $user, Conversation $conversation, string $userMessage, string $explicit): array
+    private function propose(User $user, Conversation $conversation, string $userMessage, NoticeText $words): array
     {
         $result = $this->proposalParser->propose($user, $conversation, $userMessage);
 
         if ($result->proposal !== null) {
-            $minutes = PlanChangeProposal::TTL_MINUTES;
-
             return [
-                ['code' => NoticeCode::CHANGE_PROPOSED, 'text' => "I haven't changed your plan. Do you want me to {$result->proposal->describe()}? Reply \"yes\" within {$minutes} minutes to confirm exactly that, and nothing else. "
-                    .'The limit on how much one change may add only caps its size; it does not mean the load suits you.'],
+                ['code' => NoticeCode::CHANGE_PROPOSED, 'text' => $words->changeProposed($result->proposal)],
                 $result->proposal,
             ];
         }
 
         if ($result->failure === 'above_maximum_change') {
-            $d = $result->detail;
-            $fmt = fn (float $v) => rtrim(rtrim(number_format($v, 2, '.', ''), '0'), '.');
-
-            return [
-                ['code' => NoticeCode::ABOVE_MAXIMUM_CHANGE, 'text' => "I haven't changed your plan, and I can't offer {$fmt($d['requested_kg'])} kg: one change may add at most 10% to your heaviest recorded load ({$fmt($d['recorded_kg'])} kg), which is {$fmt($d['maximum_kg'])} kg. "
-                    .'That is a maximum, not a recommendation, and it is not a judgment that any load up to it suits you.'],
-                null,
-            ];
+            return [['code' => NoticeCode::ABOVE_MAXIMUM_CHANGE, 'text' => $words->aboveMaximumChange($result->detail)], null];
         }
 
-        return [['code' => NoticeCode::CHANGE_NOT_SPECIFIC, 'text' => "I haven't changed your plan, and I couldn't turn that into one specific change to confirm. {$explicit}"], null];
+        return [['code' => NoticeCode::CHANGE_NOT_SPECIFIC, 'text' => $words->changeNotSpecific()], null];
     }
 
     /**
@@ -1087,7 +950,7 @@ class AiCoachService
                 ['role' => 'user', 'content' => $this->dashboardRequest($preferences)],
             ]);
 
-            return $response->text ?? "Log today's activity and I'll tailor a recommendation.";
+            return $response->text ?? NoticeText::for($user)->dashboardFallback();
         });
     }
 

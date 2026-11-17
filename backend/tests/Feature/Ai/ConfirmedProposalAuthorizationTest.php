@@ -103,7 +103,7 @@ class ConfirmedProposalAuthorizationTest extends PerformanceEvalCase
         $turn = $this->say(null, $wish, new AiResponse(text: 'That is a modest step from 42.5 kg.'));
 
         $this->assertArrayHasKey('pending_plan_proposal', $turn['message']->meta ?? [], 'Precondition: a proposal was presented.');
-        $this->assertStringContainsString('Reply "yes"', $turn['message']->content);
+        $this->assertSays('Reply "yes"', $turn['message']->content);
 
         return $turn;
     }
@@ -151,8 +151,8 @@ class ConfirmedProposalAuthorizationTest extends PerformanceEvalCase
         $this->assertNull($p->plannedSets);
         $this->assertTrue($p->isAuthentic());
         $this->assertEquals(15, CarbonImmutable::parse($p->createdAt)->diffInMinutes(CarbonImmutable::parse($p->expiresAt)));
-        $this->assertStringContainsString("set Bench Press to 45 kg on {$this->day}", $offered['message']->content);
-        $this->assertStringContainsString('does not mean the load suits you', $offered['message']->content);
+        $this->assertSays("set Bench Press to 45 kg on {$this->day}", $offered['message']->content);
+        $this->assertSays('does not mean the load suits you', $offered['message']->content);
         $this->assertSame(42.5, $this->benchWeight($this->day), 'Offering changes nothing.');
     }
 
@@ -174,7 +174,7 @@ class ConfirmedProposalAuthorizationTest extends PerformanceEvalCase
         $this->assertSame('Keep this note', $plan->notes, 'The rest of the plan is not rewritten the way replacing it would.');
         $this->assertSame(50, $plan->duration_minutes);
         $this->assertSame($before[$plan->id]->title, $plan->title);
-        $this->assertStringNotContainsString("couldn't make the change", $turn['message']->content);
+        $this->assertSaysNot("couldn't make the change", $turn['message']->content);
     }
 
     public function test_a_confirmed_change_that_names_sets_and_reps_binds_them_too(): void
@@ -231,7 +231,7 @@ class ConfirmedProposalAuthorizationTest extends PerformanceEvalCase
 
         $this->assertSame($before, $this->snapshot(), "{$deviation}: nothing may change.");
         $this->assertSame('does_not_match_confirmed_change', $turn['message']->meta['blocked_tool_calls'][0]['reason'], $deviation);
-        $this->assertStringContainsString("couldn't make the change exactly as you confirmed it", $turn['message']->content);
+        $this->assertSays("couldn't make the change exactly as you confirmed it", $turn['message']->content);
         $this->assertSame(42.5, $this->benchWeight($this->day));
     }
 
@@ -284,7 +284,7 @@ class ConfirmedProposalAuthorizationTest extends PerformanceEvalCase
 
         $this->assertSame(42.5, $this->benchWeight($this->day));
         $this->assertSame('not_authorized', $turn['message']->meta['blocked_tool_calls'][0]['reason']);
-        $this->assertStringContainsString('may have expired', $turn['message']->content);
+        $this->assertSays('may have expired', $turn['message']->content);
     }
 
     public function test_a_confirmation_just_inside_the_window_still_works(): void
@@ -524,7 +524,7 @@ class ConfirmedProposalAuthorizationTest extends PerformanceEvalCase
         $turn = $this->say(null, $wish, new AiResponse(text: 'ok'));
 
         $this->assertArrayNotHasKey('pending_plan_proposal', $turn['message']->meta ?? [], $wish);
-        $this->assertStringNotContainsString('Reply "yes"', $turn['message']->content);
+        $this->assertSaysNot('Reply "yes"', $turn['message']->content);
         $this->assertSame(42.5, $this->benchWeight($this->day));
 
         $yes = $this->say($turn['conversation'], 'yes', $this->toolCall('create_workout_plan', $this->withText(['exercises' => [['exercise_name' => 'Bench Press', 'planned_sets' => 3, 'planned_reps' => 10, 'planned_weight_kg' => 45]], 'planned_date' => $this->day, 'activity_type' => 'strength'])), new AiResponse(text: 'ok'));
@@ -537,9 +537,9 @@ class ConfirmedProposalAuthorizationTest extends PerformanceEvalCase
         $turn = $this->say(null, 'I want to go up to 60 kg on bench next session', new AiResponse(text: 'That is a big jump.'));
 
         $this->assertArrayNotHasKey('pending_plan_proposal', $turn['message']->meta ?? []);
-        $this->assertStringContainsString('46.5 kg', $turn['message']->content);
-        $this->assertStringContainsString('maximum, not a recommendation', $turn['message']->content);
-        $this->assertStringNotContainsString('safe', mb_strtolower($turn['message']->content));
+        $this->assertSays('46.5 kg', $turn['message']->content);
+        $this->assertSays('maximum, not a recommendation', $turn['message']->content);
+        $this->assertSaysNot('safe', mb_strtolower($turn['message']->content));
     }
 
     // ---- 15-16: legitimate flows are intact -----------------------------------------------------------------------

@@ -7,6 +7,7 @@ use App\Services\Ai\Authorization\GuardedToolExecutor;
 use App\Services\Ai\Authorization\ToolAuthorization;
 use App\Services\Ai\Authorization\ToolCapability;
 use App\Services\Ai\Contracts\AiProvider;
+use App\Services\Ai\Notices\NoticeText;
 use App\Services\Fitness\WeeklyPlanService;
 use Illuminate\Support\Facades\Log;
 
@@ -112,6 +113,8 @@ class WeeklyPlanCoachService
         // script execution limit. Sized for the longer per-call timeout below.
         set_time_limit(300);
 
+        $words = NoticeText::for($user);
+
         $weekRange = $this->weeklyPlanService->weekRange($user);
         $context = $this->contextBuilder->build($user, $instruction, includeWeekPlan: true, weekRange: $weekRange);
         // The voice shapes only the wording of the explanation. The addendum below comes after it and
@@ -140,7 +143,7 @@ class WeeklyPlanCoachService
             if (! $response->hasToolCalls()) {
                 $text = $response->text !== null && trim($response->text) !== ''
                     ? $response->text
-                    : 'No change needed.';
+                    : $words->weeklyNoChange();
 
                 return ['applied' => false, 'explanation' => $text];
             }
@@ -159,7 +162,7 @@ class WeeklyPlanCoachService
                 }
 
                 if ($toolCall->name === self::DECISION_TOOL) {
-                    return $this->presentDecision($result, $turn->loadsLeftUnsetNotice());
+                    return $this->presentDecision($result, $words->loadsLeftUnset($turn->loadsLeftUnsetNotice()));
                 }
 
                 $messages[] = [
@@ -171,7 +174,7 @@ class WeeklyPlanCoachService
             }
         }
 
-        return ['applied' => false, 'explanation' => 'Could not determine a plan change from that — try rephrasing.'];
+        return ['applied' => false, 'explanation' => $words->weeklyNotDetermined()];
     }
 
     private function presentDecision(mixed $result, ?string $unsetLoadsNotice = null): array

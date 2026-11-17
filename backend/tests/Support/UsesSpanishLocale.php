@@ -12,6 +12,12 @@ use App\Models\User;
  */
 trait UsesSpanishLocale
 {
+    // The application's notices are in the user's language now: the suite asserts them in Spanish (see PerformanceEvalCase::assertSays).
+    protected function noticeLocale(): string
+    {
+        return 'es';
+    }
+
     public function newUser(): User
     {
         return User::factory()->create(['timezone' => 'America/Bogota', 'locale' => 'es']);

@@ -6,8 +6,10 @@ use App\Services\Ai\AiCoachService;
 use App\Services\Ai\Authorization\GuardedToolExecutor;
 use App\Services\Ai\Authorization\ToolAuthorization;
 use App\Services\Ai\Notices\NoticeCode;
+use App\Services\Ai\Notices\NoticeText;
 use App\Services\Ai\Notices\PlanClaims;
 use App\Services\Ai\Notices\ReplyText;
+use App\Support\AppLocale;
 use Tests\TestCase;
 
 /**
@@ -39,9 +41,12 @@ class ApplicationNoticeSafeguardsTest extends TestCase
             'Services/Ai/AiCoachService.php',
             'Services/Ai/Authorization/SavedWorkoutReference.php',
             'Services/Ai/Notices/ApplicationNotices.php',
+            'Services/Ai/Notices/EnglishCommands.php',
             'Services/Ai/Notices/NoticeCode.php',
+            'Services/Ai/Notices/NoticeText.php',
             'Services/Ai/Notices/PlanClaims.php',
             'Services/Ai/Notices/ReplyText.php',
+            'Services/Ai/WeeklyPlanCoachService.php',
         ], $this->files('/Services\\\\Ai\\\\Notices|namespace App\\\\Services\\\\Ai\\\\Notices/'));
     }
 
@@ -51,7 +56,12 @@ class ApplicationNoticeSafeguardsTest extends TestCase
             $source = (string) file_get_contents($file);
             preg_match_all('/^use ([^;]+);/m', $source, $uses);
 
-            $this->assertSame([], array_values(array_diff($uses[1], ['App\\Models\\Message'])), basename($file).' may import only the Message model.');
+            // NoticeText only reads the value types it describes (the user's language, a proposal's own fields, a date).
+            $allowed = basename($file) === 'NoticeText.php'
+                ? ['App\\Models\\User', 'App\\Services\\Ai\\Authorization\\PlanChangeProposal', 'App\\Services\\Ai\\Authorization\\PlanReplacementProposal', 'App\\Support\\AppLocale', 'Carbon\\CarbonImmutable']
+                : ['App\\Models\\Message'];
+
+            $this->assertSame([], array_values(array_diff($uses[1], $allowed)), basename($file).' imports only what it needs to read.');
             $this->assertDoesNotMatchRegularExpression('/\b(?:DB::|Cache::|Log::|->save\(|->update\(|->delete\(|->create\(|Http::|Auth::)/', $source, basename($file).' reads and writes nothing.');
         }
     }
@@ -73,7 +83,7 @@ class ApplicationNoticeSafeguardsTest extends TestCase
         $this->assertSame(['PlanClaims::claimsNoAccess(', 'PlanClaims::claimsPlanWritten('], $uses[0]);
 
         // Both calls sit inside correctClaims(), which only appends notices to the reply.
-        $body = substr($source, (int) strpos($source, 'private function correctClaims('), (int) strpos($source, 'private function noAccessCorrection(') - (int) strpos($source, 'private function correctClaims('));
+        $body = substr($source, (int) strpos($source, 'private function correctClaims('), (int) strpos($source, 'private function writeOutcomes(') - (int) strpos($source, 'private function correctClaims('));
         $this->assertStringContainsString('PlanClaims::claimsNoAccess', $body);
         $this->assertStringContainsString('PlanClaims::claimsPlanWritten', $body);
         $this->assertDoesNotMatchRegularExpression('/->(?:call|apply|create|update|replace|grant)\(|ReplacementGrant|ToolAuthorization::/', $body, 'A claim can add words under a reply; it cannot do or permit anything.');
@@ -99,7 +109,7 @@ class ApplicationNoticeSafeguardsTest extends TestCase
         $turn = app(GuardedToolExecutor::class)->begin($authorization, null);
         $service = app(AiCoachService::class);
 
-        (new \ReflectionMethod($service, 'correctClaims'))->invoke($service, $reply, $authorization, $turn, $toolTrace);
+        (new \ReflectionMethod($service, 'correctClaims'))->invoke($service, $reply, $authorization, $turn, $toolTrace, new NoticeText(AppLocale::English));
 
         return $reply;
     }
