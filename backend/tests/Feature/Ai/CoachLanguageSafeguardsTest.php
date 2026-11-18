@@ -115,6 +115,7 @@ class CoachLanguageSafeguardsTest extends PerformanceEvalCase
             'Models/User.php',
             'Services/Ai/AiCoachService.php',
             'Services/Ai/CoachingPreferences.php',
+            'Services/Ai/Notices/Commands.php', // which phrases the application's notices quote (presentation only)
             'Services/Ai/Notices/NoticeText.php', // the words of the application's own notices (presentation only)
             'Services/Ai/SystemPromptBuilder.php',
             'Services/Ai/WeeklySummaryService.php',

@@ -12,11 +12,11 @@ return [
     'nothing_planned' => 'nada planificado',
 
     'replacement' => [
-        'single_clear' => 'No he cambiado tu plan. El :date ya tiene :existing. ¿Quieres que lo convierta en día de descanso? Responde ":yes" en los próximos :minutes minutos para hacer exactamente eso; cualquier otra respuesta lo deja como está. :english_note',
-        'single_replace' => 'No he cambiado tu plan. El :date ya tiene :existing. ¿Quieres que lo reemplace por :replacement? Responde ":yes" en los próximos :minutes minutos para reemplazarlo exactamente por eso; cualquier otra respuesta lo deja como está. :english_note',
+        'single_clear' => 'No he cambiado tu plan. El :date ya tiene :existing. ¿Quieres que lo convierta en día de descanso? Responde ":yes" en los próximos :minutes minutos para hacer exactamente eso; cualquier otra respuesta lo deja como está.',
+        'single_replace' => 'No he cambiado tu plan. El :date ya tiene :existing. ¿Quieres que lo reemplace por :replacement? Responde ":yes" en los próximos :minutes minutos para reemplazarlo exactamente por eso; cualquier otra respuesta lo deja como está.',
         'several_with_new_days' => 'Todavía no he cambiado tu plan. Guardar este plan haría estos cambios, y algunos de estos días ya tienen un plan que se reemplazaría:',
         'several_existing' => 'Todavía no he cambiado tu plan. Estos días ya tienen un plan:',
-        'confirm_all' => '¿Quieres que haga todos estos cambios? Responde ":yes" en los próximos :minutes minutos para hacer exactamente estos cambios y nada más; cualquier otra respuesta deja tu plan como está. :english_note',
+        'confirm_all' => '¿Quieres que haga todos estos cambios? Responde ":yes" en los próximos :minutes minutos para hacer exactamente estos cambios y nada más; cualquier otra respuesta deja tu plan como está.',
     ],
 
     'change' => [
@@ -36,14 +36,14 @@ return [
         'day_line' => '- :day: :what',
         'already_one' => ':dates ya estaba en tu plan exactamente así, por lo que lo dejé como está.',
         'already_many' => ':dates ya estaban en tu plan exactamente así, por lo que los dejé como están.',
-        'omitted' => 'Dejé fuera :omitted porque solo nombraste los días de arriba; escribe ":save_plan" de nuevo si quieres el resto. :english_note',
-        'blocked' => 'No he cambiado tu plan y no guardé ningún día: :list no se puede reemplazar, y guardo un plan completo o nada, para que tu semana nunca quede a medias. Para añadir los demás días, responde solo con esos días, por ejemplo ":sunday" (o ":save_plan_sunday"). :english_note',
+        'omitted' => 'Dejé fuera :omitted porque solo nombraste los días de arriba; escribe ":save_plan" de nuevo si quieres el resto.',
+        'blocked' => 'No he cambiado tu plan y no guardé ningún día: :list no se puede reemplazar, y guardo un plan completo o nada, para que tu semana nunca quede a medias. Para añadir los demás días, responde solo con esos días, por ejemplo ":sunday" (o ":save_plan_sunday").',
         'blocked_item' => ':date (:label: :why)',
         'blocked_started' => 'ya empezó',
         'blocked_performed' => 'ya tiene un entrenamiento realizado y registrado',
         'already_everything' => 'Todo lo de ese plan (:dates) ya está en tu plan exactamente como se mostró, así que no había nada que cambiar.',
-        'not_saved_because' => 'No he cambiado tu plan: :problem. No se guardó nada de ningún día. Pídemelo de nuevo con ":save_plan". :english_note',
-        'not_saved' => 'No he cambiado tu plan: el plan no se guardó, y no se guardó nada de ningún día. Pídemelo de nuevo con ":save_plan". :english_note',
+        'not_saved_because' => 'No he cambiado tu plan: :problem. No se guardó nada de ningún día. Pídemelo de nuevo con ":save_plan".',
+        'not_saved' => 'No he cambiado tu plan: el plan no se guardó, y no se guardó nada de ningún día. Pídemelo de nuevo con ":save_plan".',
         'detail_days' => ' (:days: :detail)',
         'detail_only' => ' (:detail)',
     ],

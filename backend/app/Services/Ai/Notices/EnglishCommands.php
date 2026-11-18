@@ -3,16 +3,11 @@
 namespace App\Services\Ai\Notices;
 
 /**
- * The phrases the application tells the user to TYPE, exactly as the request parsers understand them today.
+ * The phrases the application tells an English-language user to TYPE, exactly as the request parsers understand them.
  *
- * The parsers (what counts as "add this workout to my dashboard", as a bare "yes", as a day such as "Friday") only
- * know English until Phase 7 / M4. So a Spanish message must still tell the user the English phrase, and say so: a
- * Spanish instruction the parser cannot read would send the user into a refusal.
- *
- * This is the ONE place those phrases live. Every message that names one takes it from here by placeholder
- * (":save_workout"), never by a literal in a sentence, and every Spanish message that names one also carries
- * ":english_note" (empty in English). When M4 teaches the parsers Spanish: give the phrases a Spanish form per locale
- * here and empty `english_note` in lang/es/coach.php. Nothing else in the notices has to change.
+ * With Phase 7 / M4 the parsers read Spanish too (see SpanishCommands, and Commands::for() which picks the set for the
+ * language of the message). This is the ONE place the English phrases live. Every message that names one takes it by
+ * placeholder (":save_workout"), never by a literal in a sentence.
  *
  * A phrase is a presentation string only. Nothing reads one back: what the user types is parsed by the classifiers,
  * which are not touched by the wording of any message.

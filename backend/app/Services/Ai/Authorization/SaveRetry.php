@@ -62,6 +62,11 @@ final class SaveRetry
             return false;
         }
 
+        // "inténtalo de nuevo", "vuelve a intentarlo", "agrégalos otra vez": the same request in Spanish (see SpanishIntent).
+        if (SpanishIntent::retryPhrase(Lexicon::fold($text))) {
+            return true;
+        }
+
         // A denial, or a question about what happened, is not a request: "don't try again", "why didn't you try again".
         if (preg_match("/\b(?:don't|do not|dont|never|stop|no need|why|how come|didn't|did not|haven't|have not|wouldn't|won't)\b/u", $text)) {
             return false;

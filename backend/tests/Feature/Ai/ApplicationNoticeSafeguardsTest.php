@@ -41,11 +41,13 @@ class ApplicationNoticeSafeguardsTest extends TestCase
             'Services/Ai/AiCoachService.php',
             'Services/Ai/Authorization/SavedWorkoutReference.php',
             'Services/Ai/Notices/ApplicationNotices.php',
+            'Services/Ai/Notices/Commands.php',
             'Services/Ai/Notices/EnglishCommands.php',
             'Services/Ai/Notices/NoticeCode.php',
             'Services/Ai/Notices/NoticeText.php',
             'Services/Ai/Notices/PlanClaims.php',
             'Services/Ai/Notices/ReplyText.php',
+            'Services/Ai/Notices/SpanishCommands.php',
             'Services/Ai/WeeklyPlanCoachService.php',
             'Support/WeeklyPlanMessages.php', // M3c: says a weekly-plan error in the user's language, through NoticeText
         ], $this->files('/Services\\\\Ai\\\\Notices|namespace App\\\\Services\\\\Ai\\\\Notices/'));
@@ -58,9 +60,12 @@ class ApplicationNoticeSafeguardsTest extends TestCase
             preg_match_all('/^use ([^;]+);/m', $source, $uses);
 
             // NoticeText only reads the value types it describes (the user's language, a proposal's own fields, a date).
-            $allowed = basename($file) === 'NoticeText.php'
+            // Commands picks the phrase set of a language: it reads the language, nothing else.
+            $allowed = basename($file) === 'Commands.php'
+                ? ['App\\Support\\AppLocale']
+                : (basename($file) === 'NoticeText.php'
                 ? ['App\\Models\\User', 'App\\Services\\Ai\\Authorization\\PlanChangeProposal', 'App\\Services\\Ai\\Authorization\\PlanReplacementProposal', 'App\\Support\\AppLocale', 'Carbon\\CarbonImmutable']
-                : ['App\\Models\\Message'];
+                : ['App\\Models\\Message']);
 
             $this->assertSame([], array_values(array_diff($uses[1], $allowed)), basename($file).' imports only what it needs to read.');
             $this->assertDoesNotMatchRegularExpression('/\b(?:DB::|Cache::|Log::|->save\(|->update\(|->delete\(|->create\(|Http::|Auth::)/', $source, basename($file).' reads and writes nothing.');

@@ -51,6 +51,7 @@ return [
 
     // The answers to a "yes" to a held replacement.
     'confirmation' => [
+        'unclear' => 'I haven\'t changed your plan: I wasn\'t sure that was a yes. To confirm exactly what I showed you, reply ":yes"; to leave your plan as it is, reply "no". The question is still open.',
         'invalid' => 'I haven\'t changed your plan: that confirmation is no longer valid (it expired, was already used, or is not for this conversation). If you still want the workout on your plan, ask me again.',
         'refused' => 'I haven\'t replaced it: :reason Nothing was changed. If you still want the workout on your plan, ask me again.',
         'done' => 'Done.',

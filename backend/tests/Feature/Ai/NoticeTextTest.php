@@ -9,6 +9,7 @@ use App\Services\Ai\Authorization\PlanReplacementProposal;
 use App\Services\Ai\Authorization\SaveWorkoutScope;
 use App\Services\Ai\Notices\EnglishCommands;
 use App\Services\Ai\Notices\NoticeText;
+use App\Services\Ai\Notices\SpanishCommands;
 use App\Support\AppLocale;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -96,7 +97,8 @@ class NoticeTextTest extends TestCase
     {
         foreach (['en', 'es'] as $locale) {
             foreach ($this->catalog($locale, $group) as $key => $text) {
-                if (! ($key === 'english_note' && $locale === 'en')) {
+                // `english_note` is empty in both languages since Phase 7 / M4: nothing is left to warn about.
+                if ($key !== 'english_note') {
                     $this->assertNotSame('', trim($text), "{$locale} {$group}.{$key} is empty.");
                 }
 
@@ -294,7 +296,7 @@ class NoticeTextTest extends TestCase
         $w = $this->es();
 
         $this->assertSame(
-            'No he cambiado tu plan. El 2026-11-12 ya tiene “Old plan” (Squats 3×10). ¿Quieres que lo reemplace por “Upper body” (Push-ups 3×12, Plank 30 s)? Responde "yes" en los próximos 15 minutos para reemplazarlo exactamente por eso; cualquier otra respuesta lo deja como está. Por ahora, las frases entre comillas deben escribirse en inglés.',
+            'No he cambiado tu plan. El 2026-11-12 ya tiene “Old plan” (Squats 3×10). ¿Quieres que lo reemplace por “Upper body” (Push-ups 3×12, Plank 30 s)? Responde "sí" en los próximos 15 minutos para reemplazarlo exactamente por eso; cualquier otra respuesta lo deja como está.',
             $w->replacementQuestion($this->proposal([$this->change('replace')])),
         );
         $this->assertStringContainsString('El 2026-11-12 ya tiene un día de descanso. ¿Quieres que lo convierta en día de descanso?', $w->replacementQuestion($this->proposal([$this->change('clear', '2026-11-12', 5, 'a rest day')])));
@@ -340,27 +342,34 @@ class NoticeTextTest extends TestCase
 
         $this->assertTrue(PlanChangeIntentClassifier::isBareAffirmation(EnglishCommands::phrase('yes')));
         $this->assertTrue(PlanChangeIntentClassifier::isBareAffirmation('Yes'));
-        // ... and a Spanish "sí" is NOT understood, so no Spanish message may ever tell the user to say it.
-        $this->assertFalse(PlanChangeIntentClassifier::isBareAffirmation('sí'));
+        // Spanish is read since Phase 7 / M4: "sí" and "dale" are a yes, but a bare "si" (no accent: it may be "if") is not.
+        $this->assertTrue(PlanChangeIntentClassifier::isBareAffirmation('sí'));
+        $this->assertTrue(PlanChangeIntentClassifier::isBareAffirmation('dale'));
         $this->assertFalse(PlanChangeIntentClassifier::isBareAffirmation('si'));
-        $this->assertFalse(PlanChangeIntentClassifier::isBareAffirmation('dale'));
     }
 
-    public function test_a_spanish_message_that_names_a_phrase_to_type_gives_the_english_phrase_and_says_it_is_english(): void
+    public function test_a_spanish_message_that_names_a_phrase_to_type_gives_a_spanish_phrase_the_parsers_read(): void
     {
-        $note = trans('coach.english_note', [], 'es');
-        $this->assertSame('Por ahora, las frases entre comillas deben escribirse en inglés.', $note);
+        // Phase 7 / M4: the parsers read Spanish, so there is no English-only warning and no English phrase in a Spanish message.
+        $this->assertSame('', trans('coach.english_note', [], 'es'));
+
+        $spanish = collect(SpanishCommands::all());
+        $english = collect(EnglishCommands::all());
+        $quoted = 0;
 
         foreach ($this->everyMessage($this->es()) as $name => $text) {
-            $quotesAnEnglishPhrase = collect(EnglishCommands::all())->contains(fn (string $phrase) => str_contains($text, '"'.$phrase.'"'));
+            $this->assertStringNotContainsString('Por ahora', $text, $name);
 
-            if ($quotesAnEnglishPhrase) {
-                $this->assertStringContainsString($note, $text, "{$name} tells the user to type English and must say so.");
+            foreach ($english as $phrase) {
+                if ($phrase !== 'Friday' && $phrase !== 'tomorrow' && $phrase !== 'Sunday' && ! in_array($phrase, ['yes', 'option 2'], true)) {
+                    $this->assertStringNotContainsString('"'.$phrase.'"', $text, "{$name} tells a Spanish reader to type English.");
+                }
             }
 
-            // No Spanish message tells the user to answer in Spanish: the parsers cannot read it yet.
-            $this->assertDoesNotMatchRegularExpression('/["«](?:sí|si|dale|claro|vale|confirmo|de acuerdo|añade este entrenamiento|agrega este entrenamiento|guarda este entrenamiento)["»]/iu', $text, "{$name} invents a Spanish command.");
+            $quoted += $spanish->filter(fn (string $phrase) => str_contains($text, '"'.$phrase.'"'))->count();
         }
+
+        $this->assertGreaterThan(10, $quoted, 'The Spanish messages do name Spanish phrases.');
     }
 
     public function test_english_messages_never_carry_the_spanish_note(): void

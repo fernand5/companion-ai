@@ -21,8 +21,9 @@ use Carbon\CarbonImmutable;
  *  - Every key is a literal in this class. A string the user or the model wrote is only ever a VALUE substituted into
  *    a sentence (an exercise name, a title), never a key, and substituted values are not scanned again.
  *  - English is the source wording and the fallback (a missing Spanish key shows the English sentence).
- *  - Names the user types are in EnglishCommands (the parsers only read English until M4), each Spanish sentence that
- *    contains one says so (":english_note").
+ *  - Phrases the user is told to type come from Commands (EnglishCommands / SpanishCommands): the parsers read both
+ *    languages for everyone, so a message names the phrase of the language it is written in. (`english_note` is kept,
+ *    empty in both languages, so a language that is ever added without parser support can say so again.)
  *  - A few sentences are written by the protected authorization modules in English (the range note, the unset-load
  *    note, why a confirmed change could not be made). For English they pass through byte for byte. For another language
  *    they are rebuilt, for DISPLAY, from the exact English template they were made from; a sentence that does not match
@@ -54,7 +55,7 @@ final class NoticeText
     {
         $locale = $this->locale->value;
 
-        return trans($key, $replace + ['english_note' => trans('coach.english_note', [], $locale)] + EnglishCommands::all(), $locale);
+        return trans($key, $replace + ['english_note' => trans('coach.english_note', [], $locale)] + Commands::for($this->locale), $locale);
     }
 
     /** Joins sentences with one space, skipping any that are empty (the English note is empty in English). */
@@ -255,6 +256,12 @@ final class NoticeText
     }
 
     // ---- the answer to a "yes" to a held replacement ------------------------------------------------------------------------
+
+    /** A reply to a question that is not clearly a yes (see Confirmation): nothing happened and the question is still open. */
+    public function confirmationUnclear(): string
+    {
+        return $this->t('coach.confirmation.unclear');
+    }
 
     public function confirmationInvalid(): string
     {

@@ -5,6 +5,7 @@ namespace App\Services\Ai;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\Ai\Authorization\Confirmation;
 use App\Services\Ai\Authorization\GuardedToolExecutor;
 use App\Services\Ai\Authorization\PendingProposalStore;
 use App\Services\Ai\Authorization\PlanChangeIntentClassifier;
@@ -125,6 +126,12 @@ class AiCoachService
         // exactly that replacement (or says why it could not) and the model is not asked to do or to describe it.
         if (($confirmed = $this->confirmReplacement($user, $conversation, $userMessage, $startedAt)) !== null) {
             return $confirmed;
+        }
+
+        // A short answer that is not clearly a yes ("si" with no accent, "maybe") confirms nothing: the application asks
+        // again, in its own words, and the question it asked stays open for a clear answer.
+        if (($clarified = $this->clarifyConfirmation($user, $conversation, $userMessage, $startedAt)) !== null) {
+            return $clarified;
         }
 
         // Ordinary chat needs to see the whole week (not just today) so it can
@@ -378,7 +385,7 @@ class AiCoachService
      */
     private function authorize(User $user, Conversation $conversation, string $userMessage, Collection $history): ToolAuthorization
     {
-        $previous = $history->slice(0, -1)->last();
+        $previous = $this->presenterOf($history->slice(0, -1)->last(), $conversation);
 
         if (PlanChangeIntentClassifier::isBareAffirmation($userMessage) && $previous?->role === Message::ROLE_ASSISTANT) {
             $proposal = $this->proposals->claim($conversation, $user, $previous);
@@ -583,6 +590,60 @@ class AiCoachService
     }
 
     /**
+     * The message that presents the proposal an answer is about: the one just before it, or, when that is the
+     * application's own clarification, the question it points back to. Only a message of THIS conversation is followed,
+     * and the proposal stays on the message that holds it (one holder, so one use): nothing is copied.
+     */
+    private function presenterOf(?Message $previous, Conversation $conversation): ?Message
+    {
+        $target = $previous?->role === Message::ROLE_ASSISTANT ? ($previous->meta['confirms_message_id'] ?? null) : null;
+
+        if (! is_int($target)) {
+            return $previous;
+        }
+
+        return $conversation->messages()->whereKey($target)->where('role', Message::ROLE_ASSISTANT)->first() ?? $previous;
+    }
+
+    /** A reply that is not clearly a yes, to a question that is still open: the application says nothing was confirmed. */
+    private function clarifyConfirmation(User $user, Conversation $conversation, string $userMessage, float $startedAt): ?Message
+    {
+        if (! Confirmation::isUnclear($userMessage)) {
+            return null;
+        }
+
+        $previous = $conversation->messages()->reorder('created_at', 'desc')->orderByDesc('id')->limit(2)->get()->get(1);
+        $presenter = $this->presenterOf($previous, $conversation);
+
+        $open = static fn (?Message $m, string $key) => $m?->role === Message::ROLE_ASSISTANT
+            && is_array($m->meta[$key] ?? null)
+            && ! array_key_exists('consumed_at', $m->meta[$key]);
+
+        if (! $open($presenter, PendingProposalStore::REPLACEMENT_META_KEY) && ! $open($presenter, PendingProposalStore::META_KEY)) {
+            return null;
+        }
+
+        $text = NoticeText::for($user)->confirmationUnclear();
+        $message = $conversation->messages()->create([
+            'role' => Message::ROLE_ASSISTANT,
+            'content' => $text,
+            'meta' => ['confirms_message_id' => $presenter->id] + ReplyText::application(NoticeCode::CONFIRMATION_UNCLEAR, $text)->meta(),
+        ]);
+
+        Log::info('ai_coach.turn', [
+            'user_id' => $user->id,
+            'conversation_id' => $conversation->id,
+            'assistant_message_id' => $message->id,
+            'provider_calls' => 0,
+            'plan_authorization' => 'confirmation_unclear',
+            'response_type' => 'application',
+            'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ]);
+
+        return $message;
+    }
+
+    /**
      * A "yes" to a whole-day replacement: make exactly the replacement that was shown, if the day is still as it was
      * shown, and say what happened in the application's own words. Returns null when the message is not that.
      */
@@ -592,8 +653,8 @@ class AiCoachService
             return null;
         }
 
-        // Newest first: this "yes" (just stored), then the message it answers.
-        $previous = $conversation->messages()->reorder('created_at', 'desc')->orderByDesc('id')->limit(2)->get()->get(1);
+        // Newest first: this "yes" (just stored), then the message it answers (or the question a clarification pointed back to).
+        $previous = $this->presenterOf($conversation->messages()->reorder('created_at', 'desc')->orderByDesc('id')->limit(2)->get()->get(1), $conversation);
 
         if (! $this->proposals->presentsReplacement($previous)) {
             return null;

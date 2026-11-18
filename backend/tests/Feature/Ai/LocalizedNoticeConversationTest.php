@@ -140,8 +140,7 @@ class LocalizedNoticeConversationTest extends PerformanceEvalCase
         $this->assertStringStartsWith("I haven't changed your plan. ", $outcomes['en_text']);
         $this->assertStringContainsString('Reply "yes" within 15 minutes to replace it with exactly that', $outcomes['en_text']);
         $this->assertStringStartsWith('No he cambiado tu plan. El ', $outcomes['es_text']);
-        $this->assertStringContainsString('Responde "yes" en los próximos 15 minutos para reemplazarlo exactamente por eso', $outcomes['es_text']);
-        $this->assertStringContainsString('Por ahora, las frases entre comillas deben escribirse en inglés.', $outcomes['es_text']);
+        $this->assertStringContainsString('Responde "sí" en los próximos 15 minutos para reemplazarlo exactamente por eso', $outcomes['es_text']);
     }
 
     public function test_the_english_yes_the_spanish_question_asks_for_confirms_exactly_what_was_shown(): void
@@ -159,20 +158,35 @@ class LocalizedNoticeConversationTest extends PerformanceEvalCase
         $this->assertSame('', ApplicationNotices::modelText($done));
     }
 
-    public function test_a_spanish_si_confirms_nothing_and_leaves_the_question_unanswered(): void
+    public function test_a_bare_si_without_an_accent_confirms_nothing_but_the_question_stays_open_for_a_clear_answer(): void
+    {
+        $user = $this->userWho('es');
+        [$conversation, $question] = $this->held($user);
+
+        // A bare "si" with no accent may be "if": it is not consent. The application says so and the question stays open.
+        $callsBefore = count($this->fake->calls);
+        $unclear = $this->say($user, 'si', $conversation, new AiResponse(text: 'No debería usarse.'));
+        $this->assertSame('Old plan', WorkoutPlan::where('user_id', $user->id)->first()->title, 'Only a clear yes confirms.');
+        $this->assertSame([NoticeCode::CONFIRMATION_UNCLEAR], $this->codes($unclear));
+        $this->assertSame($question->id, $unclear->meta['confirms_message_id']);
+        $this->assertStringContainsString('responde "sí" (con tilde)', $unclear->content);
+        $this->assertCount($callsBefore, $this->fake->calls, 'No model call: the application asked, in its own words.');
+
+        // A clear "sí" afterwards redeems exactly the proposal the question held, once.
+        $done = $this->say($user, 'sí', $conversation);
+        $this->assertSame('Upper body', WorkoutPlan::where('user_id', $user->id)->first()->title);
+        $this->assertSame([NoticeCode::REPLACEMENT_APPLIED], $this->codes($done));
+    }
+
+    public function test_a_clear_si_with_an_accent_confirms_the_held_replacement(): void
     {
         $user = $this->userWho('es');
         [$conversation] = $this->held($user);
 
-        $this->say($user, 'sí', $conversation, new AiResponse(text: 'Entendido.'));
-        $this->assertSame('Old plan', WorkoutPlan::where('user_id', $user->id)->first()->title, 'Only what the parsers read confirms, and the notice said what that is.');
+        $done = $this->say($user, 'Sí, reemplázalo.', $conversation);
 
-        // The question is no longer the message just before: a later "yes" confirms nothing, and says so in Spanish.
-        $later = $this->say($user, 'yes', $conversation);
-
-        $this->assertSame('Old plan', WorkoutPlan::where('user_id', $user->id)->first()->title);
-        $this->assertStringContainsString('No hay nada esperando tu confirmación', $later->content);
-        $this->assertSame([NoticeCode::NOTHING_PENDING], $this->codes($later));
+        $this->assertSame('Upper body', WorkoutPlan::where('user_id', $user->id)->first()->title);
+        $this->assertSame([NoticeCode::REPLACEMENT_APPLIED], $this->codes($done));
     }
 
     public function test_the_application_does_not_treat_its_own_spanish_notice_as_the_users_authorization(): void
@@ -262,8 +276,7 @@ class LocalizedNoticeConversationTest extends PerformanceEvalCase
 
         $this->assertSame(0, WorkoutPlan::where('user_id', $user->id)->count());
         $this->assertSame([NoticeCode::SAVE_FAILED], $this->codes($failed), 'The false claim is not corrected a second time: the notice already says nothing changed.');
-        $this->assertStringContainsString('No he cambiado tu plan: el entrenamiento no se guardó. Pídemelo de nuevo con "add this workout to my dashboard"', $failed->content);
-        $this->assertStringContainsString('Por ahora, las frases entre comillas deben escribirse en inglés.', $failed->content);
+        $this->assertStringContainsString('No he cambiado tu plan: el entrenamiento no se guardó. Pídemelo de nuevo con "agrega este entrenamiento a mi plan"', $failed->content);
 
         $before = count($this->fake->calls);
         $this->say($user, 'try again', $conversation, $this->saveCall(), new AiResponse(text: 'Listo.'));

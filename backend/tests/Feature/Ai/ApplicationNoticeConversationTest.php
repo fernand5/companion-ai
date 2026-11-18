@@ -481,8 +481,7 @@ class ApplicationNoticeConversationTest extends PerformanceEvalCase
 
         $this->assertStringStartsWith('¡Genial! Ya lo agregué a tu plan.', $turn['message']->content);
         $this->assertStringContainsString('No he cambiado tu plan: esta vez no se guardó nada', $turn['message']->content);
-        $this->assertStringContainsString('"add this workout to my dashboard"', $turn['message']->content, 'The phrase it offers is the one the application understands today.');
-        $this->assertStringContainsString('Por ahora, las frases entre comillas deben escribirse en inglés.', $turn['message']->content, 'It says so.');
+        $this->assertStringContainsString('"agrega este entrenamiento a mi plan"', $turn['message']->content, 'The phrase it offers is a Spanish one, and the application reads it (SpanishCommands).');
         $this->assertSame([NoticeCode::CLAIM_SAVED_CORRECTED], $this->codes($turn['message']));
         $this->assertSame('¡Genial! Ya lo agregué a tu plan.', ApplicationNotices::modelText($turn['message']));
         $this->assertSame(0, $this->plans($user));

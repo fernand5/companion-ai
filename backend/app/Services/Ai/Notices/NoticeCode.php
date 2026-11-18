@@ -48,6 +48,9 @@ final class NoticeCode
 
     public const REPLACEMENT_INVALID = 'replacement_invalid';
 
+    /** A short answer that is not clearly a yes (a bare "si" with no accent, "maybe"): nothing was confirmed, and the question stands. */
+    public const CONFIRMATION_UNCLEAR = 'confirmation_unclear';
+
     public const WEEK_SAVED = 'week_saved';
 
     public const WEEK_BLOCKED = 'week_blocked';
@@ -78,6 +81,7 @@ final class NoticeCode
         self::REPLACEMENT_QUESTION,
         self::CLAIM_ACCESS_CORRECTED,
         self::CLAIM_SAVED_CORRECTED,
+        self::CONFIRMATION_UNCLEAR,
     ];
 
     /** A code as it may be stored and read back: lower case, digits, underscores, bounded. */
