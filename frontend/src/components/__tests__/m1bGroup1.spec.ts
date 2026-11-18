@@ -417,7 +417,7 @@ describe('DashboardView', () => {
     expect(wrapper.text()).toContain('72.5 kg')
     expect(wrapper.text()).toContain('-2.5 kg')
     expect(wrapper.text()).toContain('Pasos promedio')
-    expect(wrapper.text()).toContain('Football') // a schedule entry is shown as saved
+    expect(wrapper.text()).toContain('Fútbol') // the canonical suggestion is shown in the language on screen (stored value unchanged)
   })
 
   it.each([

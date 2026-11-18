@@ -11,7 +11,7 @@ import { ICON_SIZE, icons } from '@/constants/icons'
 import { formatMeasure } from '@/i18n/format'
 import { useDashboardStore } from '@/stores/dashboard'
 import { useWorkoutPlanStore } from '@/stores/workoutPlan'
-import { activityIcon, activityLabel, activitySummary, dayName, formatTime } from '@/utils/format'
+import { activityIcon, activityLabel, activitySummary, dayName, formatTime, sportLabel } from '@/utils/format'
 
 const { t } = useI18n()
 const store = useDashboardStore()
@@ -120,7 +120,7 @@ const recommendationUnavailableMessage = computed(() => {
             class="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3 text-sm"
           >
             <div>
-              <span class="font-medium text-slate-800">{{ item.activity_type }}</span>
+              <span class="font-medium text-slate-800">{{ sportLabel(item.activity_type) }}</span>
               <span class="ml-2 text-slate-500">{{ formatTime(item.start_time) }}</span>
             </div>
             <span class="text-xs text-slate-400">{{
