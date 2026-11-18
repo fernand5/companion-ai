@@ -1,0 +1,108 @@
+{
+    "ids": [
+        1,
+        1,
+        1
+    ],
+    "content": "I haven't changed your plan. 2026-11-04 already has \u201cOld plan\u201d (Squats 3\u00d710). Do you want me to replace it with \u201cUpper body\u201d (Push-ups 3\u00d712, Dumbbell rows 3\u00d710, Plank 30 s)? Reply \"yes\" within 15 minutes to replace it with exactly that; anything else leaves it as it is.",
+    "meta": {
+        "tool_calls": [
+            {
+                "name": "create_workout_plan",
+                "arguments": {
+                    "activity_type": "strength",
+                    "title": "Upper body",
+                    "decision_summary": "Saved as asked.",
+                    "reasoning_factors": [
+                        "You asked to add it"
+                    ],
+                    "exercises": [
+                        {
+                            "exercise_name": "Push-ups",
+                            "planned_sets": 3,
+                            "planned_reps": 12
+                        },
+                        {
+                            "exercise_name": "Dumbbell rows",
+                            "planned_sets": 3,
+                            "planned_reps": 10
+                        },
+                        {
+                            "exercise_name": "Plank",
+                            "planned_sets": 3,
+                            "planned_duration_seconds": 30
+                        }
+                    ]
+                },
+                "result": {
+                    "error": "Nothing was changed yet: 2026-11-04 already has a planned workout (\u201cOld plan\u201d (Squats 3\u00d710)). The application is now asking the user to confirm replacing it. Do not say it was saved or replaced; say that nothing has changed until the user confirms.",
+                    "pending_confirmation": true
+                }
+            }
+        ],
+        "pending_plan_replacement": {
+            "version": 2,
+            "user_id": 1,
+            "conversation_id": 1,
+            "operation": "replace_day_plans",
+            "changes": [
+                {
+                    "date": "2026-11-04",
+                    "existing_plan_id": 1,
+                    "existing_revision": "21fb4974d77b06ef667bace8b44b66bc9e6cbf2e4ff501c3e22f65c3981646f4",
+                    "existing_summary": "\u201cOld plan\u201d (Squats 3\u00d710)",
+                    "action": "replace",
+                    "reason": "",
+                    "replacement": {
+                        "activity_type": "strength",
+                        "title": "Upper body",
+                        "duration_minutes": null,
+                        "reasoning": "Saved as asked.",
+                        "reasoning_factors": [
+                            "You asked to add it"
+                        ],
+                        "exercises": [
+                            {
+                                "exercise_name": "Push-ups",
+                                "planned_sets": 3,
+                                "planned_reps": 12,
+                                "planned_weight_kg": null,
+                                "planned_duration_seconds": null
+                            },
+                            {
+                                "exercise_name": "Dumbbell rows",
+                                "planned_sets": 3,
+                                "planned_reps": 10,
+                                "planned_weight_kg": null,
+                                "planned_duration_seconds": null
+                            },
+                            {
+                                "exercise_name": "Plank",
+                                "planned_sets": 3,
+                                "planned_reps": null,
+                                "planned_weight_kg": null,
+                                "planned_duration_seconds": 30
+                            }
+                        ]
+                    }
+                }
+            ],
+            "created_at": "2026-11-04T17:00:00+00:00",
+            "expires_at": "2026-11-04T17:15:00+00:00",
+            "signature": "de31daa54e90bc73f38c4cc6c2c6fd9f31411e6bf2a34447004907121dd38a21"
+        },
+        "save_clarification": true,
+        "application_notices": {
+            "v": 1,
+            "length": 270,
+            "sha256": "c784e5fd507c52c7fd66e672e1bbb5932370ad3e1beae9ded27078e461b0d143",
+            "segments": [
+                {
+                    "code": "replacement_question",
+                    "start": 0,
+                    "end": 270
+                }
+            ]
+        }
+    }
+}

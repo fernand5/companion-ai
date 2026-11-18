@@ -200,6 +200,36 @@ class ProgressionLocalizationTest extends PerformanceEvalCase
         }
     }
 
+    public function test_a_proposal_issued_in_one_language_is_approved_after_the_account_switches(): void
+    {
+        foreach ([['en', 'es'], ['es', 'en']] as [$issuedIn, $approvedIn]) {
+            $user = $this->newUser();
+            foreach ([9, 5, 2] as $daysAgo) {
+                $this->logSets($user, $daysAgo, 'Bench Press', [3, 10, 40], array_fill(0, 3, ['reps' => 10, 'weight_kg' => 40]));
+            }
+            app(WorkoutPlanService::class)->createOrReplace($user, [
+                'planned_date' => $this->d($issuedIn === 'en' ? -2 : -3), 'activity_type' => 'strength', 'title' => 'Strength', 'duration_minutes' => 50,
+                'reasoning' => 'Because.', 'reasoning_factors' => ['Fresh'],
+                'exercises' => [['exercise_name' => 'Bench Press', 'planned_sets' => 3, 'planned_reps' => 10, 'planned_weight_kg' => 40]],
+            ]);
+
+            $user->update(['locale' => $issuedIn]);
+            $this->app['auth']->forgetGuards();
+            $item = collect($this->actingAs($user->fresh(), 'sanctum')->getJson('/api/progression/recommendations')->assertOk()->json('data'))->firstWhere('exercise.name', 'Bench Press');
+            $this->assertNotNull($item['proposal'], 'Precondition: there is a proposal.');
+
+            $user->update(['locale' => $approvedIn]);
+            $this->app['auth']->forgetGuards();
+            $this->actingAs($user->fresh(), 'sanctum')->postJson('/api/progression/approvals', ['proposal' => $item['proposal']['id']])
+                ->assertOk()->assertJsonPath('applied', true)->assertJsonPath('from_kg', 40)->assertJsonPath('to_kg', 42.5);
+
+            // A replay is refused (the plan has moved on, so `stale`) with the same code and status in either language.
+            $this->app['auth']->forgetGuards();
+            $this->actingAs($user->fresh(), 'sanctum')->postJson('/api/progression/approvals', ['proposal' => $item['proposal']['id']])
+                ->assertStatus(409)->assertJsonPath('code', 'stale');
+        }
+    }
+
     // ---- approval refusals --------------------------------------------------------------------------------
 
     public static function refusals(): array
