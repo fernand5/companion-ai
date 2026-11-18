@@ -21,6 +21,26 @@ const MIGRATED = [
   '/src/stores/auth.ts',
   '/src/stores/locale.ts',
   '/src/utils/errors.ts',
+  '/src/views/DashboardView.vue',
+  '/src/views/ActivityView.vue',
+  '/src/components/TodaysPlanCard.vue',
+  '/src/components/RecoveryCheckinForm.vue',
+  '/src/components/StatCard.vue',
+  '/src/components/ActivityQuickLogForm.vue',
+  '/src/components/WeightLogForm.vue',
+  '/src/components/WorkoutLogForm.vue',
+  '/src/components/WorkoutSessionSummary.vue',
+  '/src/components/ExercisePerformanceEditor.vue',
+  '/src/components/ExerciseDemo.vue',
+  '/src/utils/format.ts',
+  '/src/utils/weekDay.ts',
+  '/src/stores/dashboard.ts',
+  '/src/stores/activity.ts',
+  '/src/stores/workoutPlan.ts',
+  '/src/stores/recovery.ts',
+  '/src/stores/exerciseImages.ts',
+  '/src/constants/activity.ts',
+  '/src/constants/schedule.ts',
 ]
 
 const sources = import.meta.glob(['/src/App.vue', '/src/components/*.vue', '/src/views/*.vue', '/src/composables/*.ts', '/src/constants/*.ts', '/src/stores/*.ts', '/src/utils/*.ts'], {
@@ -34,7 +54,10 @@ const script = (source: string) => source.replace(/<template>[\s\S]*<\/template>
 
 /** Text between tags, outside {{ }} and outside attributes. Symbols and punctuation alone are fine (— · …). */
 function textNodes(markup: string): string[] {
-  return [...markup.replace(/\{\{[\s\S]*?\}\}/g, ' ').matchAll(/>([^<>]+)</g)].map((m) => m[1].trim()).filter((t) => /[A-Za-zÁ-ú]{2,}/.test(t))
+  // A unit symbol (kg, km) is not a translated word.
+  const withoutUnits = (text: string) => text.replace(/\b(kg|km|km\/h)\b/g, '')
+
+  return [...markup.replace(/\{\{[\s\S]*?\}\}/g, ' ').matchAll(/>([^<>]+)</g)].map((m) => m[1].trim()).filter((t) => /[A-Za-zÁ-ú]{2,}/.test(withoutUnits(t)))
 }
 
 /** Literal text in attributes a person (or a screen reader) reads. A bound one (":aria-label") is a translated expression. */

@@ -1,3 +1,5 @@
+import { computed, ref } from 'vue'
+
 import { i18n } from '@/i18n'
 import type { MessageSchema } from '@/i18n/messages/en'
 
@@ -35,4 +37,22 @@ export function errorState(error: unknown, key: FallbackErrorKey): ErrorState {
 /** The words for a failure in the current language. Reading it in a computed or render re-runs it on a language change. */
 export function describeError(state: ErrorState): string {
   return state.server ?? i18n.global.t(`errors.${state.key}`)
+}
+
+/**
+ * A store's failure, kept as the failure it is (see ErrorState). `message` is what the screen shows, worded when it is
+ * read; `fail` records a failure (the server's own message wins over the fallback); `clear` removes it.
+ */
+export function errorRef() {
+  const state = ref<ErrorState | null>(null)
+
+  return {
+    message: computed(() => (state.value ? describeError(state.value) : null)),
+    fail(error: unknown, key: FallbackErrorKey) {
+      state.value = errorState(error, key)
+    },
+    clear() {
+      state.value = null
+    },
+  }
 }

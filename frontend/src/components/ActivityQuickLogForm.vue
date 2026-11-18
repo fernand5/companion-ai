@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
+import { DEFAULT_SPORT } from '@/constants/activity'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { formatDecimal } from '@/i18n/format'
 import { useActivityStore } from '@/stores/activity'
-import { formatPace } from '@/utils/format'
+import { activityLabel, formatPace } from '@/utils/format'
 
 const TYPE_ICON = {
   steps: icons.activityType.steps,
@@ -13,6 +15,7 @@ const TYPE_ICON = {
   sport: icons.activityType.sport,
 } as const
 
+const { t } = useI18n()
 const activityStore = useActivityStore()
 
 const form = reactive({
@@ -21,8 +24,15 @@ const form = reactive({
   duration_minutes: 20,
   distance_km: null as number | null,
   intensity: 'moderate' as 'low' | 'moderate' | 'high',
-  sport: 'Football',
   notes: '',
+})
+
+// The suggested sport is SHOWN in the language on screen, but accepting it unchanged stores the canonical value
+// (DEFAULT_SPORT). Once the person types, the text is theirs and is stored exactly as typed.
+const typedSport = ref<string | null>(null)
+const sport = computed({
+  get: () => typedSport.value ?? t('activity.quickLog.defaultSport'),
+  set: (value: string) => (typedSport.value = value),
 })
 
 const submitting = computed(() => activityStore.loading)
@@ -41,7 +51,7 @@ async function submit() {
   const metadata: Record<string, unknown> = {}
 
   if (form.type === 'steps') metadata.steps = form.steps
-  if (form.type === 'sport') metadata.sport = form.sport
+  if (form.type === 'sport') metadata.sport = typedSport.value ?? DEFAULT_SPORT
 
   await activityStore.log({
     type: form.type,
@@ -73,12 +83,12 @@ async function submit() {
         @click="form.type = option"
       >
         <FontAwesomeIcon :icon="TYPE_ICON[option]" :class="ICON_SIZE.xs" />
-        {{ option }}
+        {{ activityLabel(option) }}
       </button>
     </div>
 
     <div v-if="form.type === 'steps'" class="flex items-center gap-2">
-      <label class="text-sm text-slate-600" for="steps">Steps</label>
+      <label class="text-sm text-slate-600" for="steps">{{ t('activity.quickLog.steps') }}</label>
       <input
         id="steps"
         v-model.number="form.steps"
@@ -90,7 +100,7 @@ async function submit() {
 
     <div v-if="form.type === 'treadmill'" class="flex flex-wrap items-center gap-3">
       <label class="text-sm text-slate-600">
-        Minutes
+        {{ t('activity.quickLog.minutes') }}
         <input
           v-model.number="form.duration_minutes"
           type="number"
@@ -99,23 +109,23 @@ async function submit() {
         />
       </label>
       <label class="text-sm text-slate-600">
-        Distance (km)
+        {{ t('activity.quickLog.distance') }}
         <input
           v-model.number="form.distance_km"
           type="number"
           inputmode="decimal"
           min="0"
           step="0.1"
-          placeholder="optional"
+          :placeholder="t('activity.quickLog.optional')"
           class="ml-1 w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
         />
       </label>
       <label class="text-sm text-slate-600">
-        Intensity
+        {{ t('activity.quickLog.intensity') }}
         <select v-model="form.intensity" class="ml-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
-          <option value="low">Low</option>
-          <option value="moderate">Moderate</option>
-          <option value="high">High</option>
+          <option value="low">{{ t('enums.intensity.low') }}</option>
+          <option value="moderate">{{ t('enums.intensity.moderate') }}</option>
+          <option value="high">{{ t('enums.intensity.high') }}</option>
         </select>
       </label>
       <p v-if="cardioPreview" class="w-full text-xs text-slate-500" data-testid="cardio-preview">{{ cardioPreview }}</p>
@@ -123,15 +133,15 @@ async function submit() {
 
     <div v-if="form.type === 'sport'" class="flex flex-wrap items-center gap-3">
       <label class="text-sm text-slate-600">
-        Sport
+        {{ t('activity.quickLog.sport') }}
         <input
-          v-model="form.sport"
+          v-model="sport"
           type="text"
           class="ml-1 w-32 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
         />
       </label>
       <label class="text-sm text-slate-600">
-        Minutes
+        {{ t('activity.quickLog.minutes') }}
         <input
           v-model.number="form.duration_minutes"
           type="number"
@@ -140,11 +150,11 @@ async function submit() {
         />
       </label>
       <label class="text-sm text-slate-600">
-        Intensity
+        {{ t('activity.quickLog.intensity') }}
         <select v-model="form.intensity" class="ml-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
-          <option value="low">Low</option>
-          <option value="moderate">Moderate</option>
-          <option value="high">High</option>
+          <option value="low">{{ t('enums.intensity.low') }}</option>
+          <option value="moderate">{{ t('enums.intensity.moderate') }}</option>
+          <option value="high">{{ t('enums.intensity.high') }}</option>
         </select>
       </label>
     </div>
@@ -152,7 +162,7 @@ async function submit() {
     <input
       v-model="form.notes"
       type="text"
-      placeholder="Notes (optional)"
+      :placeholder="t('activity.quickLog.notes')"
       class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
     />
 
@@ -162,7 +172,7 @@ async function submit() {
       class="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
     >
       <FontAwesomeIcon :icon="submitting ? icons.loading : icons.action.add" :class="ICON_SIZE.sm" :spin="submitting" />
-      Log it
+      {{ t('activity.quickLog.submit') }}
     </button>
   </form>
 </template>

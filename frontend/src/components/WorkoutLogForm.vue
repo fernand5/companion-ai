@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { reactive } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useActivityStore } from '@/stores/activity'
 
+const { t } = useI18n()
 const activityStore = useActivityStore()
 
 interface ExerciseDraft {
@@ -46,7 +48,7 @@ async function submit() {
   <form class="space-y-3 rounded-xl border border-slate-200 bg-white p-4" @submit.prevent="submit">
     <p class="flex items-center gap-1.5 text-sm font-medium text-slate-700">
       <FontAwesomeIcon :icon="icons.activityType.strength" :class="[ICON_SIZE.sm, 'text-slate-400']" />
-      Log a strength workout
+      {{ t('activity.workout.title') }}
     </p>
 
     <div
@@ -57,32 +59,32 @@ async function submit() {
       <input
         v-model="exercise.exercise_name"
         type="text"
-        placeholder="Exercise"
+        :placeholder="t('activity.workout.exercise')"
         class="min-w-0 flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
       />
       <input
         v-model.number="exercise.sets"
         type="number"
-        placeholder="Sets"
+        :placeholder="t('activity.workout.sets')"
         class="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
       />
       <input
         v-model.number="exercise.reps"
         type="number"
-        placeholder="Reps"
+        :placeholder="t('activity.workout.reps')"
         class="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
       />
       <input
         v-model.number="exercise.weight_kg"
         type="number"
-        placeholder="kg"
+        :placeholder="t('activity.workout.kg')"
         class="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
       />
       <button
         v-if="form.exercises.length > 1"
         type="button"
         class="text-slate-400 hover:text-red-500"
-        aria-label="Remove exercise"
+        :aria-label="t('a11y.removeExercise')"
         @click="removeExercise(index)"
       >
         <FontAwesomeIcon :icon="icons.action.delete" :class="ICON_SIZE.xs" />
@@ -95,25 +97,25 @@ async function submit() {
       @click="addExercise"
     >
       <FontAwesomeIcon :icon="icons.action.add" :class="ICON_SIZE.xs" />
-      Add exercise
+      {{ t('activity.workout.add') }}
     </button>
 
     <div class="flex items-center gap-3">
       <label class="text-sm text-slate-600">
-        Duration
+        {{ t('activity.workout.duration') }}
         <input
           v-model.number="form.duration_minutes"
           type="number"
           class="ml-1 w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
         />
-        min
+        {{ t('activity.workout.minutes') }}
       </label>
     </div>
 
     <input
       v-model="form.notes"
       type="text"
-      placeholder="Notes (optional)"
+      :placeholder="t('activity.workout.notes')"
       class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
     />
 
@@ -122,7 +124,7 @@ async function submit() {
       class="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
     >
       <FontAwesomeIcon :icon="icons.action.add" :class="ICON_SIZE.sm" />
-      Log workout
+      {{ t('activity.workout.submit') }}
     </button>
   </form>
 </template>

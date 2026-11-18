@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { formatMeasure } from '@/i18n/format'
@@ -19,6 +20,7 @@ interface Row {
 
 const MAX_PREFILLED_SETS = 10
 
+const { t } = useI18n()
 const store = useWorkoutPlanStore()
 
 function initialRows(): Row[] {
@@ -114,20 +116,22 @@ async function save() {
 
 <template>
   <div class="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid="performance-editor">
-    <p v-if="target" class="text-xs text-slate-500">
-      Target <span class="font-medium text-slate-700">{{ target }}</span> — change only what differed.
-    </p>
+    <i18n-t v-if="target" keypath="activity.performance.target" tag="p" class="text-xs text-slate-500">
+      <template #target>
+        <span class="font-medium text-slate-700">{{ target }}</span>
+      </template>
+    </i18n-t>
 
     <div v-for="(row, index) in rows" :key="index" class="flex flex-wrap items-center gap-2">
-      <span class="w-10 shrink-0 text-xs text-slate-400">Set {{ index + 1 }}</span>
+      <span class="w-10 shrink-0 text-xs text-slate-400">{{ t('activity.performance.set', { n: index + 1 }) }}</span>
       <input
         :value="row.reps ?? ''"
         type="number"
         inputmode="numeric"
         min="0"
         max="200"
-        placeholder="reps"
-        :aria-label="`Set ${index + 1} reps`"
+        :placeholder="t('activity.performance.reps')"
+        :aria-label="t('a11y.setReps', { n: index + 1 })"
         class="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
         @input="row.reps = numberFrom($event)"
       />
@@ -139,8 +143,8 @@ async function save() {
         min="0"
         max="500"
         step="0.5"
-        placeholder="kg"
-        :aria-label="`Set ${index + 1} weight in kilograms`"
+        :placeholder="t('activity.performance.kg')"
+        :aria-label="t('a11y.setWeight', { n: index + 1 })"
         class="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
         @input="row.weight_kg = numberFrom($event)"
       />
@@ -150,20 +154,20 @@ async function save() {
         type="number"
         inputmode="numeric"
         min="0"
-        placeholder="sec"
-        :aria-label="`Set ${index + 1} duration in seconds`"
+        :placeholder="t('activity.performance.seconds')"
+        :aria-label="t('a11y.setDuration', { n: index + 1 })"
         class="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
         @input="row.duration_seconds = numberFrom($event)"
       />
       <label class="flex items-center gap-1 text-xs text-slate-500">
-        <input v-model="row.completed" type="checkbox" :aria-label="`Set ${index + 1} completed`" />
-        done
+        <input v-model="row.completed" type="checkbox" :aria-label="t('a11y.setCompleted', { n: index + 1 })" />
+        {{ t('activity.performance.done') }}
       </label>
       <button
         v-if="rows.length > 1"
         type="button"
         class="text-slate-300 hover:text-red-500"
-        :aria-label="`Remove set ${index + 1}`"
+        :aria-label="t('a11y.removeSet', { n: index + 1 })"
         @click="removeSet(index)"
       >
         <FontAwesomeIcon :icon="icons.action.delete" :class="ICON_SIZE.xs" />
@@ -176,7 +180,7 @@ async function save() {
       @click="addSet"
     >
       <FontAwesomeIcon :icon="icons.action.add" :class="ICON_SIZE.xs" />
-      Add set
+      {{ t('activity.performance.addSet') }}
     </button>
 
     <p v-if="store.performanceError" class="flex items-center gap-1.5 text-xs text-red-600">
@@ -196,10 +200,10 @@ async function save() {
           :class="ICON_SIZE.xs"
           :spin="saving"
         />
-        Save sets
+        {{ t('activity.performance.save') }}
       </button>
       <button type="button" class="text-xs text-slate-400 hover:text-slate-600" @click="emit('close')">
-        Cancel
+        {{ t('activity.performance.cancel') }}
       </button>
     </div>
   </div>

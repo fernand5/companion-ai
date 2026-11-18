@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import RecoveryCheckinForm from '@/components/RecoveryCheckinForm.vue'
@@ -12,6 +13,7 @@ import { useDashboardStore } from '@/stores/dashboard'
 import { useWorkoutPlanStore } from '@/stores/workoutPlan'
 import { activityIcon, activityLabel, activitySummary, dayName, formatTime } from '@/utils/format'
 
+const { t } = useI18n()
 const store = useDashboardStore()
 const workoutPlanStore = useWorkoutPlanStore()
 
@@ -26,18 +28,19 @@ const weightChangeLabel = computed(() => {
   const change = data.value?.progress.weight_change_kg
   if (change === null || change === undefined) return '—'
 
-  return `${change > 0 ? '+' : ''}${change} kg`
+  return `${change > 0 ? '+' : ''}${formatMeasure(Number(change))} kg`
 })
 
+// Chosen by the server's stable reason code; the words come from the catalog when drawn.
 const recommendationUnavailableMessage = computed(() => {
   switch (data.value?.coach_recommendation_unavailable_reason) {
     case 'rate_limited':
-      return "Your coach is at its request limit for now — check back in a bit, or ask directly on the Coach tab."
+      return t('dashboard.unavailable.rate_limited')
     case 'unavailable':
-      return "Your coach is temporarily unavailable — try again shortly, or ask directly on the Coach tab."
+      return t('dashboard.unavailable.unavailable')
     case 'not_configured':
     default:
-      return 'Set your AI_API_KEY to get a live recommendation, or ask your coach directly on the Coach tab.'
+      return t('dashboard.unavailable.not_configured')
   }
 })
 </script>
@@ -46,7 +49,7 @@ const recommendationUnavailableMessage = computed(() => {
   <div class="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
     <div v-if="store.loading" class="flex items-center justify-center gap-2 py-12 text-center text-slate-400">
       <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.md" spin />
-      Loading dashboard…
+      {{ t('dashboard.loading') }}
     </div>
 
     <div v-else-if="store.error" class="rounded-xl border border-slate-200 bg-white p-4">
@@ -59,7 +62,7 @@ const recommendationUnavailableMessage = computed(() => {
       >
         <h2 class="flex items-center gap-1.5 text-sm font-medium uppercase tracking-wide text-brand-100">
           <FontAwesomeIcon :icon="icons.ai" :class="ICON_SIZE.sm" />
-          Today's recommendation
+          {{ t('dashboard.recommendation') }}
         </h2>
         <p v-if="data.coach_recommendation" class="mt-2 text-lg leading-snug">
           {{ data.coach_recommendation }}
@@ -72,7 +75,7 @@ const recommendationUnavailableMessage = computed(() => {
           :to="{ name: 'coach' }"
           class="mt-3 inline-flex items-center gap-1 text-sm font-semibold underline decoration-brand-200 underline-offset-4"
         >
-          Ask your coach
+          {{ t('dashboard.askCoach') }}
           <FontAwesomeIcon :icon="icons.action.next" :class="ICON_SIZE.xs" />
         </RouterLink>
       </section>
@@ -84,12 +87,12 @@ const recommendationUnavailableMessage = computed(() => {
       <section>
         <h2 class="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
           <FontAwesomeIcon :icon="icons.calendarDay" :class="[ICON_SIZE.sm, 'text-slate-400']" />
-          Today
+          {{ t('dashboard.today') }}
         </h2>
         <div class="rounded-xl border border-slate-200 bg-white p-4">
           <p v-if="data.today_activity.length === 0" class="flex items-center gap-1.5 text-sm text-slate-500">
             <FontAwesomeIcon :icon="icons.activityFallback" :class="[ICON_SIZE.sm, 'text-slate-300']" />
-            Nothing logged yet today.
+            {{ t('dashboard.nothingToday') }}
           </p>
           <ul v-else class="space-y-2">
             <li
@@ -108,7 +111,7 @@ const recommendationUnavailableMessage = computed(() => {
       <section v-if="data.upcoming_schedule.length > 0">
         <h2 class="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
           <FontAwesomeIcon :icon="icons.calendar" :class="[ICON_SIZE.sm, 'text-slate-400']" />
-          Upcoming
+          {{ t('dashboard.upcoming') }}
         </h2>
         <div class="space-y-2">
           <div
@@ -130,22 +133,22 @@ const recommendationUnavailableMessage = computed(() => {
       <section>
         <h2 class="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
           <FontAwesomeIcon :icon="icons.nav.progress" :class="[ICON_SIZE.sm, 'text-slate-400']" />
-          Progress
+          {{ t('dashboard.progress') }}
         </h2>
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard
-            label="Current weight"
+            :label="t('dashboard.stats.currentWeight')"
             :icon="icons.activityType.weight"
             :value="data.progress.current_weight_kg ? `${formatMeasure(Number(data.progress.current_weight_kg))} kg` : '—'"
           />
-          <StatCard label="Change" :icon="icons.nav.progress" :value="weightChangeLabel" />
+          <StatCard :label="t('dashboard.stats.change')" :icon="icons.nav.progress" :value="weightChangeLabel" />
           <StatCard
-            label="Workouts this week"
+            :label="t('dashboard.stats.workoutsWeek')"
             :icon="icons.activityType.strength"
             :value="String(data.progress.workouts_this_week)"
           />
           <StatCard
-            label="Avg steps"
+            :label="t('dashboard.stats.avgSteps')"
             :icon="icons.activityType.steps"
             :value="String(data.progress.average_steps)"
           />

@@ -1,15 +1,13 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 import { formatMeasure } from '@/i18n/format'
 import type { WorkoutSession } from '@/types'
 import { formatPerformedSets } from '@/utils/format'
 
 defineProps<{ session: WorkoutSession }>()
 
-const LABEL = {
-  as_planned: 'as planned',
-  migrated: 'earlier log',
-  entered: null,
-} as const
+const { t } = useI18n()
 </script>
 
 <template>
@@ -27,10 +25,10 @@ const LABEL = {
         }}<template v-if="exercise.weight_kg !== null"> @ {{ formatMeasure(exercise.weight_kg) }} kg</template>
       </template>
       <span
-        v-if="LABEL[exercise.recorded_as]"
+        v-if="exercise.recorded_as !== 'entered'"
         class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400"
       >
-        {{ LABEL[exercise.recorded_as] }}
+        {{ t(`enums.recordedAs.${exercise.recorded_as}`) }}
       </span>
     </li>
   </ul>

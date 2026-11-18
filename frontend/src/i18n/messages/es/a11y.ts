@@ -7,4 +7,12 @@ export const a11y: A11y = {
   scheduleStartTime: 'Hora de inicio',
   scheduleDuration: 'Duración en minutos',
   scheduleIntensity: 'Intensidad',
+  resetPending: 'Restablecer a pendiente',
+  deleteActivityLog: 'Eliminar el registro de actividad',
+  removeExercise: 'Quitar ejercicio',
+  setReps: 'Repeticiones de la serie {n}',
+  setWeight: 'Peso de la serie {n} en kilogramos',
+  setDuration: 'Duración de la serie {n} en segundos',
+  setCompleted: 'Serie {n} completada',
+  removeSet: 'Quitar la serie {n}',
 }

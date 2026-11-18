@@ -6,17 +6,18 @@ import * as workoutService from '@/services/workouts'
 import type { ActivityLog, WorkoutSession } from '@/types'
 import type { LogActivityPayload } from '@/services/activity'
 import type { LogWorkoutPayload } from '@/services/workouts'
-import { extractErrorMessage } from '@/utils/errors'
+import { errorRef } from '@/utils/errors'
 
 export const useActivityStore = defineStore('activity', () => {
   const logs = ref<ActivityLog[]>([])
   const workouts = ref<WorkoutSession[]>([])
   const loading = ref(false)
-  const error = ref<string | null>(null)
+  const failure = errorRef()
+  const error = failure.message
 
   async function load() {
     loading.value = true
-    error.value = null
+    failure.clear()
 
     try {
       const [logsResult, workoutsResult] = await Promise.all([
@@ -26,7 +27,7 @@ export const useActivityStore = defineStore('activity', () => {
       logs.value = logsResult
       workouts.value = workoutsResult
     } catch (e: unknown) {
-      error.value = extractErrorMessage(e, "Couldn't load your activity history.")
+      failure.fail(e, 'activityLoad')
     } finally {
       loading.value = false
     }

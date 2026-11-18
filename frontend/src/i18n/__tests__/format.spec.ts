@@ -139,7 +139,7 @@ describe('numbers', () => {
     for (const locale of ['en', 'es'] as const) {
       applyLocale(locale)
       // Kilograms stay kilograms; nothing is converted to pounds or rescaled.
-      expect(formatPerformedSets(sets)).toBe('10×42.5, 8×45 (not completed) kg')
+      expect(formatPerformedSets(sets)).toBe(locale === 'es' ? '10×42.5, 8×45 (no completada) kg' : '10×42.5, 8×45 (not completed) kg')
       expect(formatTarget({ sets: 3, reps: 10, weight_kg: 42.5, duration_seconds: null })).toBe('3×10 @ 42.5 kg')
     }
 

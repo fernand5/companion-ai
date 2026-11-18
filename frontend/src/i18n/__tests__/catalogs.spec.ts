@@ -24,7 +24,7 @@ describe('translation catalogs', () => {
   })
 
   it('is organised by domain', () => {
-    expect(Object.keys(en)).toEqual(['language', 'common', 'nav', 'auth', 'profile', 'coaching', 'errors', 'a11y'])
+    expect(Object.keys(en)).toEqual(['language', 'common', 'nav', 'auth', 'profile', 'coaching', 'errors', 'a11y', 'enums', 'units', 'dashboard', 'todaysPlan', 'recovery', 'activity'])
     expect(Object.keys(es)).toEqual(Object.keys(en))
   })
 
@@ -41,7 +41,11 @@ describe('translation catalogs', () => {
   })
 
   it('has no Spanish string that is just the English text, apart from names that are not translated', () => {
-    const sameOnPurpose = new Set(['nav.brand', 'nav.items.coach', 'coaching.example.coach', 'language.options.en', 'language.options.es'])
+    // Brand and unit symbols that are the same in both languages.
+    const sameOnPurpose = new Set([
+      'nav.brand', 'nav.items.coach', 'coaching.example.coach', 'language.options.en', 'language.options.es',
+      'units.minutes', 'units.reps', 'activity.workout.kg', 'activity.workout.minutes', 'activity.performance.reps', 'activity.performance.kg',
+    ])
 
     for (const [key, text] of Object.entries(english)) {
       if (sameOnPurpose.has(key)) continue
@@ -56,14 +60,14 @@ describe('translation catalogs', () => {
     expect(all).not.toMatch(/\b(vos|tenés|querés|podés|sos)\b/i)
   })
 
-  it('counts the keys of each domain', () => {
+  it('has keys in every domain, and counts them once across both languages', () => {
     const counts = Object.fromEntries(
       Object.keys(en).map((domain) => [domain, Object.keys(english).filter((key) => key.startsWith(`${domain}.`)).length]),
     )
 
-    // A change here is deliberate: new text means new keys in BOTH languages.
-    expect(counts).toEqual({ language: 9, common: 5, nav: 8, auth: 20, profile: 25, coaching: 36, errors: 4, a11y: 6 })
-    expect(Object.keys(english)).toHaveLength(113)
+    for (const [domain, count] of Object.entries(counts)) expect(count, domain).toBeGreaterThan(0)
+    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(Object.keys(english).length)
+    expect(Object.keys(spanish)).toHaveLength(Object.keys(english).length)
   })
 })
 

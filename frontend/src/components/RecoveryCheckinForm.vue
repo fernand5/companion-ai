@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useRecoveryStore } from '@/stores/recovery'
 
 const store = useRecoveryStore()
+const { t } = useI18n()
 
 onMounted(() => {
   store.loadToday()
@@ -52,7 +54,7 @@ function startEditing() {
       <div>
         <p class="flex items-center gap-1.5 font-medium text-slate-800">
           <FontAwesomeIcon :icon="icons.planStatus.completed" :class="[ICON_SIZE.sm, 'text-brand-600']" />
-          Checked in today
+          {{ t('recovery.checkedIn') }}
         </p>
         <p class="mt-0.5 flex items-center gap-3 text-slate-500">
           <span class="flex items-center gap-1">
@@ -75,21 +77,21 @@ function startEditing() {
         @click="startEditing"
       >
         <FontAwesomeIcon :icon="icons.action.edit" :class="ICON_SIZE.xs" />
-        Edit
+        {{ t('recovery.edit') }}
       </button>
     </div>
 
     <form v-else class="space-y-3" @submit.prevent="submit">
       <p class="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
         <FontAwesomeIcon :icon="icons.activityType.recovery" :class="[ICON_SIZE.sm, 'text-slate-400']" />
-        How are you feeling today?
+        {{ t('recovery.question') }}
       </p>
 
       <div class="grid grid-cols-3 gap-3">
         <label class="text-sm text-slate-600">
           <span class="flex items-center gap-1">
             <FontAwesomeIcon :icon="icons.recoveryMetric.energy" :class="ICON_SIZE.xs" />
-            Energy
+            {{ t('recovery.energy') }}
           </span>
           <input
             v-model.number="form.energy"
@@ -103,7 +105,7 @@ function startEditing() {
         <label class="text-sm text-slate-600">
           <span class="flex items-center gap-1">
             <FontAwesomeIcon :icon="icons.recoveryMetric.soreness" :class="ICON_SIZE.xs" />
-            Soreness
+            {{ t('recovery.soreness') }}
           </span>
           <input
             v-model.number="form.soreness"
@@ -117,7 +119,7 @@ function startEditing() {
         <label class="text-sm text-slate-600">
           <span class="flex items-center gap-1">
             <FontAwesomeIcon :icon="icons.recoveryMetric.motivation" :class="ICON_SIZE.xs" />
-            Motivation
+            {{ t('recovery.motivation') }}
           </span>
           <input
             v-model.number="form.motivation"
@@ -133,7 +135,7 @@ function startEditing() {
       <input
         v-model="form.pain_notes"
         type="text"
-        placeholder="Any pain or discomfort? (optional)"
+        :placeholder="t('recovery.painPlaceholder')"
         class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
       />
 
@@ -142,7 +144,7 @@ function startEditing() {
         class="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
       >
         <FontAwesomeIcon :icon="icons.action.save" :class="ICON_SIZE.sm" />
-        Save check-in
+        {{ t('recovery.save') }}
       </button>
     </form>
   </div>

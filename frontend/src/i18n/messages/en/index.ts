@@ -1,3 +1,9 @@
+import { activity } from '@/i18n/messages/en/activity'
+import { dashboard } from '@/i18n/messages/en/dashboard'
+import { enums } from '@/i18n/messages/en/enums'
+import { recovery } from '@/i18n/messages/en/recovery'
+import { todaysPlan } from '@/i18n/messages/en/todaysPlan'
+import { units } from '@/i18n/messages/en/units'
 import { a11y } from '@/i18n/messages/en/a11y'
 import { auth } from '@/i18n/messages/en/auth'
 import { coaching } from '@/i18n/messages/en/coaching'
@@ -13,6 +19,6 @@ import { profile } from '@/i18n/messages/en/profile'
  *
  * Organised by domain; each domain is one file here and one in ../es.
  */
-export const en = { language, common, nav, auth, profile, coaching, errors, a11y }
+export const en = { language, common, nav, auth, profile, coaching, errors, a11y, enums, units, dashboard, todaysPlan, recovery, activity }
 
 export type MessageSchema = typeof en
