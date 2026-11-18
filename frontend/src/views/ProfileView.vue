@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { onMounted, reactive, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import CoachingStyleSettings from '@/components/CoachingStyleSettings.vue'
 import ErrorNotice from '@/components/ErrorNotice.vue'
@@ -10,6 +11,7 @@ import { ICON_SIZE, icons } from '@/constants/icons'
 import { useProfileStore } from '@/stores/profile'
 
 const store = useProfileStore()
+const { t } = useI18n()
 
 const form = reactive({
   height_cm: null as number | null,
@@ -67,7 +69,7 @@ async function submit() {
   <div class="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
     <h1 class="flex items-center gap-2 text-lg font-semibold text-slate-900">
       <FontAwesomeIcon :icon="icons.nav.profile" :class="ICON_SIZE.md" />
-      Profile
+      {{ t('profile.title') }}
     </h1>
 
     <!-- Outside the profile loading/error states: the language works even before a profile exists. -->
@@ -77,7 +79,7 @@ async function submit() {
 
     <div v-if="store.loading" class="flex items-center justify-center gap-2 py-12 text-center text-slate-400">
       <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.md" spin />
-      Loading profile…
+      {{ t('profile.loading') }}
     </div>
 
     <div v-else-if="store.error" class="rounded-xl border border-slate-200 bg-white p-4">
@@ -87,7 +89,7 @@ async function submit() {
     <form v-else class="space-y-4 rounded-xl border border-slate-200 bg-white p-4" @submit.prevent="submit">
       <div class="grid grid-cols-2 gap-3">
         <label class="text-sm text-slate-600">
-          Height (cm)
+          {{ t('profile.height') }}
           <input
             v-model.number="form.height_cm"
             type="number"
@@ -95,7 +97,7 @@ async function submit() {
           />
         </label>
         <label class="text-sm text-slate-600">
-          Weight (kg)
+          {{ t('profile.weight') }}
           <input
             v-model.number="form.weight_kg"
             type="number"
@@ -104,7 +106,7 @@ async function submit() {
           />
         </label>
         <label class="text-sm text-slate-600">
-          Age
+          {{ t('profile.age') }}
           <input
             v-model.number="form.age"
             type="number"
@@ -112,31 +114,31 @@ async function submit() {
           />
         </label>
         <label class="text-sm text-slate-600">
-          Fitness level
+          {{ t('profile.fitnessLevel') }}
           <select
             v-model="form.fitness_level"
             class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
           >
             <option value="">—</option>
-            <option value="beginner">Beginner</option>
-            <option value="intermediate">Intermediate</option>
-            <option value="advanced">Advanced</option>
+            <option value="beginner">{{ t('profile.levels.beginner') }}</option>
+            <option value="intermediate">{{ t('profile.levels.intermediate') }}</option>
+            <option value="advanced">{{ t('profile.levels.advanced') }}</option>
           </select>
         </label>
       </div>
 
       <label class="block text-sm text-slate-600">
-        Primary goal
+        {{ t('profile.primaryGoal') }}
         <input
           v-model="form.primary_goal"
           type="text"
-          placeholder="e.g. Lose body fat while maintaining muscle"
+          :placeholder="t('profile.primaryGoalPlaceholder')"
           class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
         />
       </label>
 
       <label class="block text-sm text-slate-600">
-        Secondary goal
+        {{ t('profile.secondaryGoal') }}
         <input
           v-model="form.secondary_goal"
           type="text"
@@ -145,17 +147,17 @@ async function submit() {
       </label>
 
       <label class="block text-sm text-slate-600">
-        Equipment (comma separated)
+        {{ t('profile.equipment') }}
         <input
           v-model="form.equipment"
           type="text"
-          placeholder="dumbbells, exercise mat, treadmill"
+          :placeholder="t('profile.equipmentPlaceholder')"
           class="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
         />
       </label>
 
       <label class="block text-sm text-slate-600">
-        Preferred session length (minutes)
+        {{ t('profile.sessionLength') }}
         <input
           v-model.number="form.preferred_training_duration_minutes"
           type="number"
@@ -168,11 +170,11 @@ async function submit() {
         class="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
       >
         <FontAwesomeIcon :icon="icons.action.save" :class="ICON_SIZE.sm" />
-        Save profile
+        {{ t('profile.save') }}
       </button>
       <p v-if="saved.show" class="flex items-center justify-center gap-1.5 text-center text-sm text-brand-600">
         <FontAwesomeIcon :icon="icons.planStatus.completed" :class="ICON_SIZE.sm" />
-        Saved.
+        {{ t('profile.saved') }}
       </p>
     </form>
 

@@ -1,27 +1,31 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 import * as profileService from '@/services/profile'
 import * as scheduleService from '@/services/schedule'
 import { DEFAULT_COACHING } from '@/constants/coaching'
 import type { CoachingPreferences, FitnessProfile, TrainingSchedule } from '@/types'
-import { extractErrorMessage } from '@/utils/errors'
+import { describeError, errorState, type ErrorState } from '@/utils/errors'
 
 export const useProfileStore = defineStore('profile', () => {
   const profile = ref<FitnessProfile | null>(null)
   const schedule = ref<TrainingSchedule[]>([])
   const loading = ref(false)
-  const error = ref<string | null>(null)
+  // A failure is kept as the failure it is, and worded when read: a fallback follows the language on screen,
+  // and a server message is shown as it came. Nothing here ever turns a failure into a success.
+  const failure = ref<ErrorState | null>(null)
+  const error = computed(() => (failure.value ? describeError(failure.value) : null))
 
   // How the AI coach sounds. Kept apart from `profile` on purpose: saving it must not replace the
   // profile object, because the profile form re-fills itself from that and would drop unsaved edits.
   const coaching = ref<CoachingPreferences>({ ...DEFAULT_COACHING })
   const savingCoaching = ref(false)
-  const coachingError = ref<string | null>(null)
+  const coachingFailure = ref<ErrorState | null>(null)
+  const coachingError = computed(() => (coachingFailure.value ? describeError(coachingFailure.value) : null))
 
   async function load() {
     loading.value = true
-    error.value = null
+    failure.value = null
 
     try {
       const [profileResult, scheduleResult] = await Promise.all([
@@ -35,7 +39,7 @@ export const useProfileStore = defineStore('profile', () => {
         response_detail: profileResult?.response_detail ?? DEFAULT_COACHING.response_detail,
       }
     } catch (e: unknown) {
-      error.value = extractErrorMessage(e, "Couldn't load your profile.")
+      failure.value = errorState(e, 'profileLoad')
     } finally {
       loading.value = false
     }
@@ -48,7 +52,7 @@ export const useProfileStore = defineStore('profile', () => {
   /** Saves only the two coaching settings, so no other profile value can be touched. */
   async function saveCoaching(next: CoachingPreferences): Promise<boolean> {
     savingCoaching.value = true
-    coachingError.value = null
+    coachingFailure.value = null
 
     try {
       const saved = await profileService.updateProfile({
@@ -59,7 +63,7 @@ export const useProfileStore = defineStore('profile', () => {
 
       return true
     } catch (e: unknown) {
-      coachingError.value = extractErrorMessage(e, "Couldn't save your coaching style. Please try again.")
+      coachingFailure.value = errorState(e, 'coachingSave')
 
       return false
     } finally {
