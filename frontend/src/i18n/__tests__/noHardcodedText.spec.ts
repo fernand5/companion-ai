@@ -1,64 +1,32 @@
 import { describe, expect, it } from 'vitest'
 
 /**
- * Phase 7 / M1a: the application shell, sign-in, sign-up, profile and coaching settings keep no user-visible
- * English in their templates or code. Every word comes from the message catalog, so it follows the language.
- * The list below grows as later milestones migrate more screens; a file on it may not slip back.
+ * Phase 7 / M1: no application-authored, user-visible English is left in the front end. Every word comes from the
+ * message catalog, so it follows the language. This scans EVERY source file (components, views, stores, utilities,
+ * constants) except the few that hold no wording by nature: the API services (URLs), the types, the router, the
+ * message catalogs themselves, the Markdown parser, the icon table and the test setup.
  */
-const MIGRATED = [
-  '/src/App.vue',
-  '/src/components/AppShell.vue',
-  '/src/components/ErrorNotice.vue',
-  '/src/components/LanguageSelector.vue',
-  '/src/components/CoachingStyleSettings.vue',
-  '/src/components/ScheduleEditor.vue',
-  '/src/views/LoginView.vue',
-  '/src/views/RegisterView.vue',
-  '/src/views/ProfileView.vue',
-  '/src/composables/useDocumentTitle.ts',
-  '/src/constants/coaching.ts',
-  '/src/stores/profile.ts',
-  '/src/stores/auth.ts',
-  '/src/stores/locale.ts',
-  '/src/utils/errors.ts',
-  '/src/views/DashboardView.vue',
-  '/src/views/ActivityView.vue',
-  '/src/components/TodaysPlanCard.vue',
-  '/src/components/RecoveryCheckinForm.vue',
-  '/src/components/StatCard.vue',
-  '/src/components/ActivityQuickLogForm.vue',
-  '/src/components/WeightLogForm.vue',
-  '/src/components/WorkoutLogForm.vue',
-  '/src/components/WorkoutSessionSummary.vue',
-  '/src/components/ExercisePerformanceEditor.vue',
-  '/src/components/ExerciseDemo.vue',
-  '/src/utils/format.ts',
-  '/src/utils/weekDay.ts',
-  '/src/stores/dashboard.ts',
-  '/src/stores/activity.ts',
-  '/src/stores/workoutPlan.ts',
-  '/src/stores/recovery.ts',
-  '/src/stores/exerciseImages.ts',
-  '/src/constants/activity.ts',
-  '/src/constants/schedule.ts',
-  '/src/views/WeeklyPlanView.vue',
-  '/src/views/ProgressView.vue',
-  '/src/components/WeekDayCard.vue',
-  '/src/components/WeekStrip.vue',
-  '/src/components/WhyThisChangedCard.vue',
-  '/src/components/WeeklySummaryCard.vue',
-  '/src/components/ProgressChart.vue',
-  '/src/components/ProgressionCard.vue',
-  '/src/components/ProgressionRecommendations.vue',
-  '/src/stores/progression.ts',
-  '/src/stores/weeklyPlan.ts',
+const NOT_WORDING = [
+  /^\/src\/services\//,
+  /^\/src\/types\//,
+  /^\/src\/i18n\/(index|format)\.ts$/,
+  /^\/src\/router\//,
+  /^\/src\/main\.ts$/,
+  /^\/src\/test\//,
+  /^\/src\/constants\/icons\.ts$/,
+  /^\/src\/utils\/(markdown|week)\.ts$/,
+  /^\/src\/components\/MarkdownText\.vue$/, // draws the coach's own text; its only strings are HTML attributes
+  /^\/src\/composables\/useAutoScroll\.ts$/,
 ]
 
-const sources = import.meta.glob(['/src/App.vue', '/src/components/*.vue', '/src/views/*.vue', '/src/composables/*.ts', '/src/constants/*.ts', '/src/stores/*.ts', '/src/utils/*.ts'], {
+const everything = import.meta.glob(['/src/**/*.vue', '/src/**/*.ts', '!/src/**/__tests__/**', '!/src/**/*.spec.ts', '!/src/i18n/messages/**', '!/src/**/*.d.ts'], {
   query: '?raw',
   import: 'default',
   eager: true,
 }) as Record<string, string>
+
+const sources = Object.fromEntries(Object.entries(everything).filter(([file]) => !NOT_WORDING.some((pattern) => pattern.test(file))))
+const MIGRATED = Object.keys(sources).sort()
 
 const template = (source: string) => /<template>([\s\S]*)<\/template>/.exec(source)?.[1] ?? ''
 const script = (source: string) => source.replace(/<template>[\s\S]*<\/template>/, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
@@ -85,8 +53,9 @@ function sentences(code: string): string[] {
 }
 
 describe('no hardcoded user-visible text in the migrated files', () => {
-  it('finds the files it is meant to check', () => {
-    for (const file of MIGRATED) expect(sources, file).toHaveProperty([file])
+  it('checks every wording-bearing file, including the ones migrated in M1a, M1b and M1c', () => {
+    expect(MIGRATED.length).toBeGreaterThan(45)
+    for (const file of ['/src/App.vue', '/src/views/CoachView.vue', '/src/components/ChatBubble.vue', '/src/utils/format.ts', '/src/stores/chat.ts']) expect(MIGRATED).toContain(file)
   })
 
   it.each(MIGRATED)('%s', (file) => {

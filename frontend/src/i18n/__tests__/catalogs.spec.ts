@@ -25,7 +25,7 @@ describe('translation catalogs', () => {
   })
 
   it('is organised by domain', () => {
-    expect(Object.keys(en)).toEqual(['language', 'common', 'nav', 'auth', 'profile', 'coaching', 'errors', 'a11y', 'enums', 'units', 'dashboard', 'todaysPlan', 'recovery', 'activity', 'weeklyPlan', 'progress', 'progression'])
+    expect(Object.keys(en)).toEqual(['language', 'common', 'nav', 'auth', 'profile', 'coaching', 'errors', 'a11y', 'enums', 'units', 'dashboard', 'todaysPlan', 'recovery', 'activity', 'weeklyPlan', 'progress', 'progression', 'coach'])
     expect(Object.keys(es)).toEqual(Object.keys(en))
   })
 
@@ -44,7 +44,7 @@ describe('translation catalogs', () => {
   it('has no Spanish string that is just the English text, apart from names that are not translated', () => {
     // Brand and unit symbols that are the same in both languages.
     const sameOnPurpose = new Set([
-      'nav.brand', 'nav.items.coach', 'coaching.example.coach', 'language.options.en', 'language.options.es',
+      'nav.brand', 'nav.items.coach', 'coach.title', 'coaching.example.coach', 'language.options.en', 'language.options.es',
       'units.minutes', 'units.reps', 'progress.stats.avgSteps', 'activity.workout.kg', 'activity.workout.minutes', 'activity.performance.reps', 'activity.performance.kg',
     ])
 

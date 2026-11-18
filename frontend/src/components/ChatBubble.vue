@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import MarkdownText from '@/components/MarkdownText.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import type { Message } from '@/types'
 
+const { t } = useI18n()
 const props = defineProps<{ message: Message }>()
 
 const isUser = computed(() => props.message.role === 'user')
@@ -34,7 +36,7 @@ const toolCalls = computed(() => props.message.meta?.tool_calls ?? [])
             :icon="icons.chevronDown"
             :class="[ICON_SIZE.xs, 'transition-transform group-open:rotate-180']"
           />
-          Checked {{ toolCalls.length }} thing{{ toolCalls.length > 1 ? 's' : '' }}
+          {{ t('coach.checked', { count: toolCalls.length }, toolCalls.length) }}
         </summary>
         <ul class="mt-1 space-y-0.5 pl-3">
           <li v-for="(call, idx) in toolCalls" :key="idx">{{ call.name }}</li>
