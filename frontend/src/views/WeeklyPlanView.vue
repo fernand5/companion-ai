@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import ErrorNotice from '@/components/ErrorNotice.vue'
@@ -10,8 +11,10 @@ import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useProgressionStore } from '@/stores/progression'
 import { useWeeklyPlanStore } from '@/stores/weeklyPlan'
+import { formatDateOnly } from '@/i18n/format'
 import { formatWeekRange } from '@/utils/weekDay'
 
+const { t } = useI18n()
 const store = useWeeklyPlanStore()
 const input = ref('')
 const router = useRouter()
@@ -129,10 +132,10 @@ function submit() {
 <template>
   <div class="mx-auto max-w-2xl space-y-5 p-4 sm:p-6">
     <header class="space-y-0.5">
-      <h1 class="text-lg font-semibold text-slate-900">Weekly Plan</h1>
+      <h1 class="text-lg font-semibold text-slate-900">{{ t('weeklyPlan.title') }}</h1>
       <p v-if="range" class="flex items-center gap-2 text-sm text-slate-500" data-testid="week-range">
         {{ range }}
-        <span class="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">This week</span>
+        <span class="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">{{ t('weeklyPlan.thisWeek') }}</span>
       </p>
     </header>
 
@@ -141,7 +144,7 @@ function submit() {
       class="flex items-center justify-center gap-1.5 pt-8 text-center text-sm text-slate-400"
     >
       <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.sm" spin />
-      Loading your week…
+      {{ t('weeklyPlan.loading') }}
     </p>
 
     <div v-else-if="showEmptyState" class="rounded-xl border border-slate-200 bg-white p-4">
@@ -159,16 +162,16 @@ function submit() {
           data-testid="toggle-full-week"
           @click="toggleFullWeek"
         >
-          {{ showFullWeek ? 'Show selected day only' : 'Show full week' }}
+          {{ showFullWeek ? t('weeklyPlan.showSelected') : t('weeklyPlan.showFull') }}
         </button>
       </div>
 
       <p v-if="store.generating" class="flex items-center gap-1.5 text-sm text-slate-500">
         <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.sm" spin />
-        Filling in the rest of your week — this can take a minute…
+        {{ t('weeklyPlan.filling') }}
       </p>
 
-      <div v-if="!showFullWeek && selectedDay" id="selected-day" role="region" aria-live="polite" :aria-label="`Details for ${selectedDay.weekday}`" data-testid="selected-day">
+      <div v-if="!showFullWeek && selectedDay" id="selected-day" role="region" aria-live="polite" :aria-label="t('weeklyPlan.details', { day: formatDateOnly(selectedDay.date, { weekday: 'long' }) })" data-testid="selected-day">
         <WeekDayCard
           :key="selectedDay.date"
           :day="selectedDay"
@@ -218,7 +221,7 @@ function submit() {
         <textarea
           v-model="input"
           rows="2"
-          placeholder='Tell your coach something that might change your week — e.g. "I have soccer on Wednesday"'
+          :placeholder="t('weeklyPlan.placeholder')"
           class="max-h-32 min-w-0 flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
         />
         <button
@@ -231,7 +234,7 @@ function submit() {
             :class="ICON_SIZE.sm"
             :spin="store.sending"
           />
-          {{ store.sending ? 'Thinking…' : 'Send' }}
+          {{ store.sending ? t('weeklyPlan.thinking') : t('weeklyPlan.send') }}
         </button>
       </form>
 

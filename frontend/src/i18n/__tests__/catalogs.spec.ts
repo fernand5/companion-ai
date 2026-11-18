@@ -13,7 +13,8 @@ function flatten(value: unknown, prefix = ''): Record<string, string> {
   )
 }
 
-const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort()
+// Unique names: a plural message repeats its placeholder in each form.
+const placeholders = (text: string) => [...new Set([...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].sort()
 
 const english = flatten(en)
 const spanish = flatten(es)
@@ -24,7 +25,7 @@ describe('translation catalogs', () => {
   })
 
   it('is organised by domain', () => {
-    expect(Object.keys(en)).toEqual(['language', 'common', 'nav', 'auth', 'profile', 'coaching', 'errors', 'a11y', 'enums', 'units', 'dashboard', 'todaysPlan', 'recovery', 'activity'])
+    expect(Object.keys(en)).toEqual(['language', 'common', 'nav', 'auth', 'profile', 'coaching', 'errors', 'a11y', 'enums', 'units', 'dashboard', 'todaysPlan', 'recovery', 'activity', 'weeklyPlan', 'progress', 'progression'])
     expect(Object.keys(es)).toEqual(Object.keys(en))
   })
 
@@ -44,7 +45,7 @@ describe('translation catalogs', () => {
     // Brand and unit symbols that are the same in both languages.
     const sameOnPurpose = new Set([
       'nav.brand', 'nav.items.coach', 'coaching.example.coach', 'language.options.en', 'language.options.es',
-      'units.minutes', 'units.reps', 'activity.workout.kg', 'activity.workout.minutes', 'activity.performance.reps', 'activity.performance.kg',
+      'units.minutes', 'units.reps', 'progress.stats.avgSteps', 'activity.workout.kg', 'activity.workout.minutes', 'activity.performance.reps', 'activity.performance.kg',
     ])
 
     for (const [key, text] of Object.entries(english)) {

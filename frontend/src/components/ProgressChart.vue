@@ -7,7 +7,10 @@ import {
   LineElement,
   PointElement,
 } from 'chart.js'
+import { computed } from 'vue'
 import { Bar, Line } from 'vue-chartjs'
+
+import { intlTag } from '@/i18n/format'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement)
 
@@ -19,12 +22,14 @@ const props = defineProps<{
   color?: string
 }>()
 
-const options = {
+// A computed so the chart is redrawn when the language changes: the axis and tooltip numbers follow it.
+const options = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  locale: intlTag(),
   plugins: { legend: { display: false } },
   scales: { y: { beginAtZero: true } },
-} as const
+}))
 
 function chartData() {
   const color = props.color ?? '#16a350'

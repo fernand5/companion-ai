@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
 import type { ProgressionActionState } from '@/stores/progression'
-import type { ProgressionDecision, ProgressionEvidenceQuality, ProgressionItem } from '@/types'
+import type { ProgressionDecision, ProgressionItem } from '@/types'
 import { formatDate, formatTarget } from '@/utils/format'
 
 const props = defineProps<{
@@ -20,28 +21,18 @@ const emit = defineEmits<{
   refresh: []
 }>()
 
-const DECISION: Record<ProgressionDecision, { label: string; classes: string }> = {
-  INCREASE: { label: 'Increase', classes: 'bg-brand-100 text-brand-700' },
-  DECREASE: { label: 'Decrease', classes: 'bg-amber-100 text-amber-700' },
-  MAINTAIN: { label: 'Keep as is', classes: 'bg-slate-100 text-slate-600' },
-  INSUFFICIENT_DATA: { label: 'Not enough data', classes: 'bg-slate-100 text-slate-600' },
-  MANUAL_REVIEW: { label: 'Needs your review', classes: 'bg-amber-100 text-amber-700' },
+const { t } = useI18n()
+
+/** Only the colours live here: the words come from the catalog, keyed by the server's decision, when drawn. */
+const DECISION_CLASSES: Record<ProgressionDecision, string> = {
+  INCREASE: 'bg-brand-100 text-brand-700',
+  DECREASE: 'bg-amber-100 text-amber-700',
+  MAINTAIN: 'bg-slate-100 text-slate-600',
+  INSUFFICIENT_DATA: 'bg-slate-100 text-slate-600',
+  MANUAL_REVIEW: 'bg-amber-100 text-amber-700',
 }
 
-const EVIDENCE: Record<ProgressionEvidenceQuality, string> = {
-  strong: 'Strong evidence',
-  limited: 'Limited evidence',
-  insufficient: 'Not enough evidence',
-  none: 'No recorded sets',
-}
-
-const NOT_ACTIONABLE: Record<string, string> = {
-  no_upcoming_session: 'There is no upcoming session to apply this to.',
-  workout_already_started: "That session has already been started, so its target can't be changed.",
-  no_load_in_plan: 'The upcoming session has no load set to change.',
-}
-
-const decision = computed(() => DECISION[props.item.decision])
+const decision = computed(() => ({ label: t(`progression.decision.${props.item.decision}`), classes: DECISION_CLASSES[props.item.decision] }))
 const proposed = computed(() => props.item.proposed_target)
 const proposesChange = computed(() => props.item.decision === 'INCREASE' || props.item.decision === 'DECREASE')
 const working = computed(() => props.state.status === 'working')
@@ -54,7 +45,11 @@ const canAct = computed(
 const unavailableReason = computed(() => {
   if (!proposesChange.value || props.item.actionable) return null
 
-  return NOT_ACTIONABLE[props.item.not_actionable_reason ?? ''] ?? "This can't be applied right now."
+  const reason = props.item.not_actionable_reason
+
+  return reason === 'no_upcoming_session' || reason === 'workout_already_started' || reason === 'no_load_in_plan'
+    ? t(`progression.notActionable.${reason}`)
+    : t('progression.cannotApply')
 })
 
 const finished = computed(() => props.state.status === 'applied' || props.state.status === 'kept')
@@ -65,7 +60,7 @@ const kept = computed(() => props.item.dismissed !== null || props.state.status 
 const keptMessage = computed(() =>
   props.state.status === 'kept' && props.state.message
     ? props.state.message
-    : 'You kept your current target. A new recommendation appears if you log new sets or change your plan.',
+    : t('progression.keptNote'),
 )
 </script>
 
@@ -75,11 +70,11 @@ const keptMessage = computed(() =>
     <header class="flex flex-wrap items-start justify-between gap-2">
       <h4 class="min-w-0 break-words font-semibold text-slate-900">{{ item.exercise.name }}</h4>
       <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600" data-testid="decision">
-        Kept current target
+        {{ t('progression.keptTitle') }}
       </span>
     </header>
     <p class="text-sm text-slate-900">
-      <span class="text-xs font-medium tracking-wide text-slate-400 uppercase">Current target</span>
+      <span class="text-xs font-medium tracking-wide text-slate-400 uppercase">{{ t('progression.currentTarget') }}</span>
       <span class="ml-2" data-testid="current">{{ formatTarget(item.current_target) }}</span>
     </p>
     <p class="text-sm text-slate-600" role="status" data-testid="status-note">{{ keptMessage }}</p>
@@ -95,7 +90,7 @@ const keptMessage = computed(() =>
       <span class="min-w-0">
         <h4 class="break-words font-semibold text-slate-900">{{ item.exercise.name }}</h4>
         <span v-if="collapsible" class="block text-xs font-normal text-slate-500" data-testid="collapsed-target">
-          Current target: {{ formatTarget(item.current_target) }}
+          {{ t('progression.currentTargetLine', { target: formatTarget(item.current_target) }) }}
         </span>
       </span>
       <span class="flex shrink-0 items-center gap-2">
@@ -108,11 +103,11 @@ const keptMessage = computed(() =>
 
     <dl class="grid grid-cols-2 gap-3 text-sm">
       <div>
-        <dt class="text-xs font-medium tracking-wide text-slate-400 uppercase">Current target</dt>
+        <dt class="text-xs font-medium tracking-wide text-slate-400 uppercase">{{ t('progression.currentTarget') }}</dt>
         <dd class="text-slate-900" data-testid="current">{{ formatTarget(item.current_target) }}</dd>
       </div>
       <div v-if="proposed">
-        <dt class="text-xs font-medium tracking-wide text-slate-400 uppercase">Proposed</dt>
+        <dt class="text-xs font-medium tracking-wide text-slate-400 uppercase">{{ t('progression.proposed') }}</dt>
         <dd class="font-semibold text-slate-900" data-testid="proposed">
           {{ formatTarget(proposed) }}
           <span class="text-xs font-normal text-slate-500">
@@ -123,10 +118,10 @@ const keptMessage = computed(() =>
     </dl>
 
     <p v-if="item.applies_to && proposesChange" class="text-xs text-slate-500" data-testid="applies-to">
-      Applies to your next session on {{ formatDate(item.applies_to.date) }} only.
+      {{ t('progression.appliesTo', { date: formatDate(item.applies_to.date) }) }}
       <template v-if="item.later_sessions.length > 0">
         <span data-testid="later-sessions">
-          Later sessions ({{ item.later_sessions.map((s) => formatDate(s.date)).join(', ') }}) stay as they are and are reviewed after this one.
+          {{ t('progression.laterSessions', { dates: item.later_sessions.map((s) => formatDate(s.date)).join(', ') }) }}
         </span>
       </template>
     </p>
@@ -136,15 +131,15 @@ const keptMessage = computed(() =>
     </ul>
 
     <div v-if="item.supporting_sessions.length > 0" class="space-y-1">
-      <p class="text-xs font-medium tracking-wide text-slate-400 uppercase">Recent sessions</p>
+      <p class="text-xs font-medium tracking-wide text-slate-400 uppercase">{{ t('progression.recentSessions') }}</p>
       <ul class="space-y-1 text-sm text-slate-600" data-testid="sessions">
         <li v-for="session in item.supporting_sessions" :key="`${session.date}-${session.performed}`" class="flex flex-wrap gap-x-2">
-          <span class="text-slate-400">{{ session.date ? formatDate(session.date) : 'Undated' }}</span>
-          <span class="break-words">{{ session.performed || 'not recorded' }}</span>
-          <span v-if="session.target_reached === true" class="text-brand-700">target reached</span>
+          <span class="text-slate-400">{{ session.date ? formatDate(session.date) : t('progression.undated') }}</span>
+          <span class="break-words">{{ session.performed || t('progression.notRecorded') }}</span>
+          <span v-if="session.target_reached === true" class="text-brand-700">{{ t('progression.targetReached') }}</span>
           <span v-else-if="session.target_reached === false" class="text-amber-700">
-            target missed<template v-if="session.sets_reaching_target !== null && session.planned_sets !== null">
-              ({{ session.sets_reaching_target }} of {{ session.planned_sets }} sets)
+            {{ t('progression.targetMissed') }}<template v-if="session.sets_reaching_target !== null && session.planned_sets !== null">
+              {{ t('progression.setsOf', { n: session.sets_reaching_target, total: session.planned_sets }) }}
             </template>
           </span>
         </li>
@@ -152,7 +147,7 @@ const keptMessage = computed(() =>
     </div>
 
     <div class="space-y-1 text-xs text-slate-500">
-      <p data-testid="evidence">{{ EVIDENCE[item.evidence_quality] }}</p>
+      <p data-testid="evidence">{{ t(`progression.evidence.${item.evidence_quality}`) }}</p>
       <ul v-if="item.safety_caveats.length > 0" class="list-disc space-y-0.5 pl-5" data-testid="caveats">
         <li v-for="caveat in item.safety_caveats" :key="caveat">{{ caveat }}</li>
       </ul>
@@ -168,7 +163,7 @@ const keptMessage = computed(() =>
       class="text-sm text-slate-500"
       data-testid="no-change"
     >
-      No change will be made to your plan.
+      {{ t('progression.noChange') }}
     </p>
 
     <!-- Feedback for what just happened to this recommendation. -->
@@ -192,7 +187,7 @@ const keptMessage = computed(() =>
         data-testid="refresh"
         @click="emit('refresh')"
       >
-        Get a fresh recommendation
+        {{ t('progression.refreshCard') }}
       </button>
     </div>
     <p v-else-if="state.status === 'failed'" class="flex items-start gap-1.5 text-sm text-red-600" role="alert" data-testid="status-note">
@@ -210,7 +205,7 @@ const keptMessage = computed(() =>
         @click="emit('accept')"
       >
         <FontAwesomeIcon v-if="working" :icon="icons.loading" :class="ICON_SIZE.sm" spin />
-        Accept recommendation
+        {{ t('progression.accept') }}
       </button>
       <button
         type="button"
@@ -219,10 +214,10 @@ const keptMessage = computed(() =>
         data-testid="keep"
         @click="emit('keep')"
       >
-        Keep current target
+        {{ t('progression.keep') }}
       </button>
     </div>
-    <p v-if="canAct && !finished" class="text-xs text-slate-400">Nothing changes until you accept.</p>
+    <p v-if="canAct && !finished" class="text-xs text-slate-400">{{ t('progression.nothingChanges') }}</p>
     </component>
   </article>
 </template>

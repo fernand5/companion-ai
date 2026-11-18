@@ -41,6 +41,17 @@ const MIGRATED = [
   '/src/stores/exerciseImages.ts',
   '/src/constants/activity.ts',
   '/src/constants/schedule.ts',
+  '/src/views/WeeklyPlanView.vue',
+  '/src/views/ProgressView.vue',
+  '/src/components/WeekDayCard.vue',
+  '/src/components/WeekStrip.vue',
+  '/src/components/WhyThisChangedCard.vue',
+  '/src/components/WeeklySummaryCard.vue',
+  '/src/components/ProgressChart.vue',
+  '/src/components/ProgressionCard.vue',
+  '/src/components/ProgressionRecommendations.vue',
+  '/src/stores/progression.ts',
+  '/src/stores/weeklyPlan.ts',
 ]
 
 const sources = import.meta.glob(['/src/App.vue', '/src/components/*.vue', '/src/views/*.vue', '/src/composables/*.ts', '/src/constants/*.ts', '/src/stores/*.ts', '/src/utils/*.ts'], {

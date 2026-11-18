@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 import { formatDateOnly } from '@/i18n/format'
 import type { WeeklyPlanDay } from '@/types'
 import { DAY_STATE, stripLabels } from '@/utils/weekDay'
@@ -11,18 +13,19 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{ select: [date: string] }>()
+const { t } = useI18n()
 
 function describe(day: WeeklyPlanDay): string {
   const long = formatDateOnly(day.date, { weekday: 'long', month: 'long', day: 'numeric' })
 
-  const steps = day.steps?.length ? ', steps logged' : ''
+  const steps = day.steps?.length ? t('weeklyPlan.stepsSuffix') : ''
 
-  return `${long}${day.is_today ? ', today' : ''}: ${DAY_STATE[day.state].label}${steps}`
+  return `${long}${day.is_today ? t('weeklyPlan.todaySuffix') : ''}: ${DAY_STATE[day.state].label}${steps}`
 }
 </script>
 
 <template>
-  <nav aria-label="Days of this week">
+  <nav :aria-label="t('weeklyPlan.daysOfWeek')">
     <ul class="grid grid-cols-7 gap-1" data-testid="week-strip">
       <li v-for="day in days" :key="day.date" class="min-w-0">
         <button
