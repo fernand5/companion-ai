@@ -7,6 +7,7 @@ use App\Models\ExerciseImage;
 use App\Models\WorkoutPlan;
 use App\Models\WorkoutPlanExercise;
 use App\Services\Fitness\ExerciseImageService;
+use App\Support\ApiMessages;
 use Illuminate\Http\Request;
 
 class ExerciseImageController extends Controller
@@ -26,7 +27,7 @@ class ExerciseImageController extends Controller
 
         if ($exercise->exercise_slug === null) {
             return response()->json([
-                'message' => 'No demonstration is available for this exercise.',
+                'message' => ApiMessages::demonstrationUnavailable(),
                 'image_url' => null,
                 'status' => 'unavailable',
             ], 422);
@@ -37,7 +38,7 @@ class ExerciseImageController extends Controller
         return match (true) {
             $image->isReady() => response()->json(['image_url' => $image->image_url, 'status' => 'ready']),
             $image->status === ExerciseImage::STATUS_FAILED => response()->json([
-                'message' => 'The exercise demonstration is unavailable right now.',
+                'message' => ApiMessages::demonstrationFailed(),
                 'image_url' => null,
                 'status' => 'failed',
             ], 503),

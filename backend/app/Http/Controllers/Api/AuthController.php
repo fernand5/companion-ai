@@ -8,6 +8,7 @@ use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Requests\UpdateLocaleRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Support\ApiMessages;
 use App\Support\AppLocale;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -39,7 +40,7 @@ class AuthController extends Controller
 
         if (! $user || ! Hash::check($request->string('password'), $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['These credentials do not match our records.'],
+                'email' => [ApiMessages::loginFailed()],
             ]);
         }
 
@@ -62,7 +63,7 @@ class AuthController extends Controller
     {
         $request->user()->currentAccessToken()->delete();
 
-        return response()->json(['message' => 'Logged out.']);
+        return response()->json(['message' => ApiMessages::loggedOut()]);
     }
 
     public function me(Request $request)

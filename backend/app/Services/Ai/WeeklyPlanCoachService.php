@@ -9,6 +9,7 @@ use App\Services\Ai\Authorization\ToolCapability;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\Notices\NoticeText;
 use App\Services\Fitness\WeeklyPlanService;
+use App\Support\ModelFacingLocale;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -158,7 +159,7 @@ class WeeklyPlanCoachService
                 if (! in_array($toolCall->name, $allowedNames, true)) {
                     $result = ['error' => "Tool {$toolCall->name} is not available in this flow."];
                 } else {
-                    $result = $turn->call($toolCall->name, $toolCall->arguments, $user);
+                    $result = ModelFacingLocale::english(fn () => $turn->call($toolCall->name, $toolCall->arguments, $user));
                 }
 
                 if ($toolCall->name === self::DECISION_TOOL) {

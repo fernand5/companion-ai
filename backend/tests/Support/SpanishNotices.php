@@ -12,6 +12,9 @@ final class SpanishNotices
 {
     /** @var array<string, string> */
     private const NEEDLES = [
+        // the weekly-plan API's refusal, said to a Spanish user (the load guard's wording, localized at the API boundary)
+        'would raise its load' => 'superaría',
+        'approves a calculated suggestion' => 'apruebas una sugerencia calculada',
         // questions and refusals around a save
         "I haven't changed your plan: the workout was not saved" => 'No he cambiado tu plan: el entrenamiento no se guardó',
         "I haven't changed your plan: nothing was saved this time" => 'No he cambiado tu plan: esta vez no se guardó nada',
@@ -63,6 +66,7 @@ final class SpanishNotices
         "couldn't make the change exactly as you confirmed it" => 'No pude hacer el cambio exactamente como lo confirmaste',
         'may have expired' => 'puede que haya vencido',
         'Choose a weight you can lift comfortably' => 'Elige un peso que puedas levantar con comodidad',
+        'explicit request' => 'solicitud explícita',
         'send an explicit request' => 'envía una solicitud explícita',
         'Reply "yes" within 15 minutes' => 'Responde "yes" en los próximos 15 minutos',
         'Reply with just the day' => 'Responde solo con el día',

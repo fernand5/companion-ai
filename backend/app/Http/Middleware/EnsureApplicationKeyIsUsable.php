@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\ApiMessages;
 use App\Support\ApplicationKey;
 use Closure;
 use Illuminate\Http\JsonResponse;
@@ -30,7 +31,7 @@ class EnsureApplicationKeyIsUsable
     {
         return response()->json([
             'code' => 'progression_unavailable',
-            'message' => 'Progression suggestions are temporarily unavailable. Please try again later.',
+            'message' => ApiMessages::progressionUnavailable(),
         ], 503);
     }
 }

@@ -502,6 +502,12 @@ final class NoticeText
         return $this->loadReasons($english) ?? $this->t('plan.reason.unknown');
     }
 
+    /** For the weekly-plan API: the load guard's refusals said in this language, or null (English, or any not a known wording). */
+    public function recognisedLoadRefusal(string $english): ?string
+    {
+        return $this->isEnglish() ? null : $this->loadReasons($english);
+    }
+
     /** The load guard's refusals (one or several, in English) as plain sentences; null if any is not a known one. */
     private function loadReasons(string $english): ?string
     {

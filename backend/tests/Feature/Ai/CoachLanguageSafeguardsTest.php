@@ -12,6 +12,7 @@ use App\Services\Ai\DTOs\ToolCallRequest;
 use App\Services\Fitness\WorkoutPlanService;
 use App\Support\ExerciseSlug;
 use Carbon\Carbon;
+use Illuminate\Support\Arr;
 use Tests\Support\FakeAiProvider;
 use Tests\Support\PerformanceEval\PerformanceEvalCase;
 
@@ -117,7 +118,11 @@ class CoachLanguageSafeguardsTest extends PerformanceEvalCase
             'Services/Ai/Notices/NoticeText.php', // the words of the application's own notices (presentation only)
             'Services/Ai/SystemPromptBuilder.php',
             'Services/Ai/WeeklySummaryService.php',
+            'Support/ApiErrorLocalizer.php', // M3c: the wording of an error response, by exception kind (presentation only)
             'Support/AppLocale.php',
+            'Support/ModelFacingLocale.php', // M3c: pins English around a tool call (the one place that sets a language)
+            'Support/ProgressionMessages.php', // M3c: the wording of progression reasons and refusals
+            'Support/WeeklyPlanMessages.php', // M3c: the wording of a weekly-plan error
         ], $readers, 'A new reader of the language must be a deliberate, reviewed change: tool access, authorization, load limits and plan writing must never depend on it.');
     }
 
@@ -153,7 +158,12 @@ class CoachLanguageSafeguardsTest extends PerformanceEvalCase
 
         $this->assertSame($this->plans($english), $this->plans($spanish), 'Same rows, same slugs, same loads.');
         $this->assertSame($before[0], $this->plans($english), 'And nothing was written: a raised load and an unasked plan are both refused.');
-        $this->assertSame($outEnglish['adapt'], $outSpanish['adapt'], 'The application\'s own answer is identical.');
+        // The outcome is identical; only the words of the refusal are the user's language (a Spanish user is not shown English).
+        $this->assertSame(Arr::except($outEnglish['adapt'], ['error']), Arr::except($outSpanish['adapt'], ['error']), 'The application\'s own answer is identical.');
+        $this->assertArrayHasKey('error', $outEnglish['adapt']);
+        $this->assertArrayHasKey('error', $outSpanish['adapt']);
+        $this->assertStringContainsString('would raise its load', $outEnglish['adapt']['error']);
+        $this->assertStringContainsString('superaría', $outSpanish['adapt']['error']);
         $this->assertFalse($outEnglish['adapt']['applied']);
         $this->assertSame($outEnglish['chat']['tools'], $outSpanish['chat']['tools']);
         $this->assertSame($outEnglish['chat']['error'], $outSpanish['chat']['error']);

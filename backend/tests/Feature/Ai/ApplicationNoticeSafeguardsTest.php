@@ -47,6 +47,7 @@ class ApplicationNoticeSafeguardsTest extends TestCase
             'Services/Ai/Notices/PlanClaims.php',
             'Services/Ai/Notices/ReplyText.php',
             'Services/Ai/WeeklyPlanCoachService.php',
+            'Support/WeeklyPlanMessages.php', // M3c: says a weekly-plan error in the user's language, through NoticeText
         ], $this->files('/Services\\\\Ai\\\\Notices|namespace App\\\\Services\\\\Ai\\\\Notices/'));
     }
 

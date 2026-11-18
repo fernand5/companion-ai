@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\Ai\AiProviderException;
 use App\Services\Ai\WeeklySummaryService;
+use App\Support\ApiMessages;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 
@@ -17,7 +18,7 @@ class CoachController extends Controller
         try {
             $summary = $this->weeklySummaryService->getForCurrentWeek($request->user());
         } catch (AiProviderException $e) {
-            return response()->json(['message' => $e->userFacingMessage()], 503);
+            return ApiMessages::providerFailure($e);
         }
 
         return response()->json([

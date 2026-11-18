@@ -10,6 +10,7 @@ use App\Services\Fitness\Progression\ProgressionApprovalException;
 use App\Services\Fitness\Progression\ProgressionApprovalService;
 use App\Services\Fitness\Progression\ProgressionUnavailableException;
 use App\Support\ApplicationKey;
+use App\Support\ProgressionMessages;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -27,7 +28,7 @@ class ProgressionController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            return response()->json($this->planning->prepare($request->user()));
+            return response()->json(ProgressionMessages::present($this->planning->prepare($request->user())));
         } catch (ProgressionUnavailableException) {
             return $this->unavailable($request);
         }
@@ -39,7 +40,7 @@ class ProgressionController extends Controller
         try {
             return response()->json($this->approvals->approve($request->user(), $request->validated('proposal')));
         } catch (ProgressionApprovalException $e) {
-            return response()->json(['code' => $e->reason, 'message' => $e->getMessage()], $e->status);
+            return response()->json(['code' => $e->reason, 'message' => ProgressionMessages::approval($e)], $e->status);
         } catch (ProgressionUnavailableException) {
             return $this->unavailable($request);
         }
@@ -51,7 +52,7 @@ class ProgressionController extends Controller
         try {
             $this->approvals->decline($request->user(), $request->validated('proposal'));
         } catch (ProgressionApprovalException $e) {
-            return response()->json(['code' => $e->reason, 'message' => $e->getMessage()], $e->status);
+            return response()->json(['code' => $e->reason, 'message' => ProgressionMessages::approval($e)], $e->status);
         } catch (ProgressionUnavailableException) {
             return $this->unavailable($request);
         }

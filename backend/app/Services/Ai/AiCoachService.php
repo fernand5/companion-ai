@@ -31,6 +31,7 @@ use App\Services\Ai\Notices\PlanClaims;
 use App\Services\Ai\Notices\ReplyText;
 use App\Services\Fitness\WeeklyPlanService;
 use App\Support\AppLocale;
+use App\Support\ModelFacingLocale;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -248,7 +249,7 @@ class AiCoachService
             ];
 
             foreach ($response->toolCalls as $toolCall) {
-                $result = $turn->call($toolCall->name, $toolCall->arguments, $user);
+                $result = ModelFacingLocale::english(fn () => $turn->call($toolCall->name, $toolCall->arguments, $user));
 
                 $llmMessages[] = [
                     'role' => 'tool',
@@ -606,7 +607,7 @@ class AiCoachService
             $status = 'invalid';
             $code = NoticeCode::REPLACEMENT_INVALID;
         } else {
-            $result = $this->planReplacer->apply($user, $proposal);
+            $result = ModelFacingLocale::english(fn () => $this->planReplacer->apply($user, $proposal));
 
             if (is_string($result)) {
                 $text = $words->confirmationRefused($result);

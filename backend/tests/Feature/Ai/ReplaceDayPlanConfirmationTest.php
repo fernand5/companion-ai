@@ -7,11 +7,13 @@ use App\Models\Message;
 use App\Models\User;
 use App\Models\WorkoutPlan;
 use App\Services\Ai\Authorization\PendingProposalStore;
+use App\Services\Ai\Authorization\PlanLoadGuard;
 use App\Services\Ai\Authorization\PlanReplacementProposal;
 use App\Services\Ai\Authorization\PlanReplacer;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\DTOs\AiResponse;
 use App\Services\Ai\DTOs\ToolCallRequest;
+use App\Services\Fitness\WeeklyPlanService;
 use App\Services\Fitness\WorkoutPlanService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -341,6 +343,34 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         $this->assertSame(['Squats'], $this->planOn($this->today)->exercises->pluck('exercise_name')->all());
         $this->assertSame('refused', $this->lastAssistant($conversation)->meta['plan_replacement']);
         $this->assertSays('changed after I asked', $this->lastAssistant($conversation)->content);
+    }
+
+    public function test_a_confirmed_replacement_is_applied_in_english_whatever_language_the_user_chose(): void
+    {
+        // Phase 7 / M3c: the replacer's refusals are English wording the notices are rebuilt from, and its validation
+        // is what the application decides on, so it runs in English for a Spanish user too (and the language is back after).
+        $seen = new \ArrayObject;
+        $this->app->extend(PlanReplacer::class, fn (PlanReplacer $real) => new class($seen) extends PlanReplacer
+        {
+            public function __construct(private \ArrayObject $seen)
+            {
+                parent::__construct(app(WorkoutPlanService::class), app(WeeklyPlanService::class), app(PlanLoadGuard::class));
+            }
+
+            public function apply(User $user, PlanReplacementProposal $proposal): array|string
+            {
+                $this->seen[] = app()->getLocale();
+
+                return parent::apply($user, $proposal);
+            }
+        });
+
+        $conversation = $this->askedToReplace();
+        $this->say('yes', $conversation);
+
+        $this->assertSame(['en'], $seen->getArrayCopy(), 'The replacement ran in English.');
+        $this->assertSame('applied', $this->lastAssistant($conversation)->meta['plan_replacement']);
+        $this->assertSame('en', app()->getLocale());
     }
 
     public function test_the_application_itself_refuses_to_replace_a_performed_day_even_if_everything_else_matches(): void

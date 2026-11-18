@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\ApiMessages;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -32,7 +33,7 @@ class RecordExercisePerformanceRequest extends FormRequest
                     $set = (array) $set;
 
                     if (($set['reps'] ?? null) === null && ($set['weight_kg'] ?? null) === null && ($set['duration_seconds'] ?? null) === null) {
-                        $validator->errors()->add("sets.$i", 'Each set needs reps, weight or duration.');
+                        $validator->errors()->add("sets.$i", ApiMessages::setNeedsAValue());
                     }
                 }
             },
