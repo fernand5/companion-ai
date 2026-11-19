@@ -68,6 +68,7 @@ return [
         'rest_or_else' => 'it says rest or something else',
         'no_exercises_no_rest' => 'it lists no exercises and does not say it is a rest day',
         'rest_but_exercises' => 'it is called a rest day but also lists exercises',
+        'stray_day_line' => 'a line under it names another day without being a heading of its own',
         'unknown' => 'I could not read it with confidence',
         'line_without_numbers' => 'the line ":line" gives no sets, reps or time, so I would have to leave it out',
     ],

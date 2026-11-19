@@ -62,6 +62,7 @@ return [
         'rest_or_else' => 'dice descanso u otra cosa',
         'no_exercises_no_rest' => 'no enumera ejercicios y no dice que sea un día de descanso',
         'rest_but_exercises' => 'se llama día de descanso pero también enumera ejercicios',
+        'stray_day_line' => 'una línea debajo nombra otro día sin ser un título propio',
         'unknown' => 'no pude leerlo con seguridad',
         'line_without_numbers' => 'la línea ":line" no indica series, repeticiones ni tiempo, así que tendría que dejarla fuera',
     ],

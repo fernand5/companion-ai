@@ -2,10 +2,12 @@
 
 namespace Tests\Feature\Localization;
 
+use App\Models\Message;
 use App\Models\User;
 use App\Models\WorkoutExercise;
 use App\Models\WorkoutPlan;
 use App\Models\WorkoutPlanExercise;
+use App\Services\Ai\Authorization\SavedWorkoutReference;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\DTOs\AiResponse;
 use App\Services\Ai\DTOs\ToolCallRequest;
@@ -18,6 +20,7 @@ use App\Support\ApiMessages;
 use App\Support\ProgressionMessages;
 use Carbon\Carbon;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionMethod;
@@ -381,14 +384,24 @@ class LocalizationBoundaryGuardTest extends PerformanceEvalCase
         );
     }
 
-    // ---- the documented M4 case --------------------------------------------------------------------------------------
+    // ---- the former M4 case, now fixed --------------------------------------------------------------------------------
 
-    public function test_the_spanish_heading_parser_case_is_a_documented_m4_item_not_fixed_here(): void
+    public function test_a_spanish_coach_heading_is_not_read_as_an_exercise(): void
     {
-        $this->markTestSkipped(
-            'M4 backlog (deliberately not fixed in Phase 7 / M3d): a Spanish coach heading such as "Aquí tienes una sesión de 30 minutos:" '
-            .'is read by the English-only workout parser as an exercise, so a save fails closed with "the workout also has: …". '
-            .'M4 must tell headings, workout lines, durations, repetitions, dates and rest days apart in both languages and keep failing closed.'
-        );
+        $reply = "Aquí tienes una sesión de 30 minutos:\n\n* Sentadillas: 3 series de 10 repeticiones\n* Plancha: 3 series de 30 segundos\n\nDescansa 60 segundos entre series.";
+
+        $items = SavedWorkoutReference::items($reply);
+
+        $this->assertSame(['Sentadillas: 3 series de 10 repeticiones', 'Plancha: 3 series de 30 segundos'], $items, 'The heading and the rest note are not exercises, and no real line is dropped.');
+
+        $history = new Collection([
+            new Message(['role' => 'user', 'content' => 'dame una sesión']),
+            new Message(['role' => 'assistant', 'content' => $reply]),
+            new Message(['role' => 'user', 'content' => 'Agrega este entrenamiento a mi plan']),
+        ]);
+        $found = (new SavedWorkoutReference)->resolve('Agrega este entrenamiento a mi plan', $history);
+
+        $this->assertTrue($found->isFound(), 'The workout is identified (it used to fail with "the workout also has: …").');
+        $this->assertSame($items, $found->items);
     }
 }

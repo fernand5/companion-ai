@@ -37,6 +37,19 @@ final class Lexicon
         ]);
     }
 
+    /**
+     * Like fold(), but every character maps to exactly one character, so a position found in the folded text is the
+     * same position in the original. The opening ¿ ¡ marks stay.
+     */
+    public static function foldKeepingLength(string $text): string
+    {
+        return strtr(mb_strtolower(str_replace(['’', '‘', '`'], "'", $text)), [
+            'á' => 'a', 'à' => 'a', 'ä' => 'a', 'â' => 'a', 'é' => 'e', 'è' => 'e', 'ë' => 'e', 'ê' => 'e',
+            'í' => 'i', 'ì' => 'i', 'ï' => 'i', 'î' => 'i', 'ó' => 'o', 'ò' => 'o', 'ö' => 'o', 'ô' => 'o',
+            'ú' => 'u', 'ù' => 'u', 'ü' => 'u', 'û' => 'u', 'ñ' => 'n',
+        ]);
+    }
+
     /** The Spanish weekday words as a regex alternation (folded). */
     public static function weekdaysEs(): string
     {

@@ -162,6 +162,7 @@ final class NoticeText
             'it says rest or something else' => 'rest_or_else',
             'it lists no exercises and does not say it is a rest day' => 'no_exercises_no_rest',
             'it is called a rest day but also lists exercises' => 'rest_but_exercises',
+            'a line under it names another day without being a heading of its own' => 'stray_day_line',
         ];
 
         if (isset($known[$english])) {
