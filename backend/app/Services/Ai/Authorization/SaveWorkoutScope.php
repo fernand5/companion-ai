@@ -15,7 +15,9 @@ use Carbon\CarbonImmutable;
 final class SaveWorkoutScope
 {
     /** Words that are not part of an exercise's name. */
-    private const FILLER = ['the', 'a', 'an', 'of', 'with', 'and', 'or', 'on', 'in', 'to', 'per', 'each', 'side', 'hold', 'for', 'x', 'set', 'sets', 'rep', 'reps'];
+    private const FILLER = ['the', 'a', 'an', 'of', 'with', 'and', 'or', 'on', 'in', 'to', 'per', 'each', 'side', 'hold', 'for', 'x', 'set', 'sets', 'rep', 'reps',
+        // Spanish (stemmed like the rest: a trailing "s" is dropped): articles, "de", "con", "por lado", series, repeticiones.
+        'de', 'del', 'la', 'el', 'lo', 'un', 'una', 'con', 'y', 'o', 'en', 'por', 'cada', 'lado', 'al', 'para', 'serie', 'repeticione', 'repeticion'];
 
     /** @param array<int, string> $items the exercise lines of the referenced workout */
     public function __construct(
@@ -107,7 +109,7 @@ final class SaveWorkoutScope
         }
 
         $lineStems = array_map([self::class, 'stem'], $this->words($line));
-        $squashed = (string) preg_replace('/[^\p{L}]+/u', '', mb_strtolower($line));
+        $squashed = (string) preg_replace('/[^\p{L}]+/u', '', SpanishSaveIntent::fold($line));
 
         foreach ($tokens as $token) {
             if (! in_array($token, $lineStems, true) && (mb_strlen($token) < 4 || ! str_contains($squashed, $token))) {
@@ -129,7 +131,7 @@ final class SaveWorkoutScope
 
         preg_match_all('/\d+/u', $line, $m);
         $numbers = array_map('intval', $m[0]);
-        $minutes = (bool) preg_match('/\bmin(?:ute)?s?\b/iu', $line);
+        $minutes = (bool) preg_match('/\bmin(?:ute)?s?\b|\bminutos?\b/iu', $line);
 
         foreach (['planned_sets' => ['sets', 'sets'], 'planned_reps' => ['reps', 'reps'], 'planned_duration_seconds' => ['seconds', 'duration']] as $field => [$key, $label]) {
             $value = $exercise[$field] ?? null;
@@ -205,7 +207,7 @@ final class SaveWorkoutScope
      *
      * @return array<int, string>
      */
-    public function rangeParts(array $arguments): array
+    public function rangeParts(array $arguments, bool $spanish = false): array
     {
         $exercises = $arguments['exercises'] ?? null;
         $parts = [];
@@ -222,7 +224,8 @@ final class SaveWorkoutScope
                 $range = $prescribed[$part];
 
                 if ($range !== null && $range[0] !== $range[1] && isset($exercises[$index][$field])) {
-                    $said[] = "{$range[0]} {$unit} (written {$range[0]}-{$range[1]})";
+                    $unit = $spanish ? ['sets' => 'series', 'reps' => 'repeticiones', 'seconds' => 'segundos'][$unit] : $unit;
+                    $said[] = "{$range[0]} {$unit} (".($spanish ? 'escrito' : 'written')." {$range[0]}-{$range[1]})";
                 }
             }
 
@@ -243,19 +246,20 @@ final class SaveWorkoutScope
      */
     public static function prescription(string $line): array
     {
-        $text = ' '.mb_strtolower(str_replace(['–', '—', '−', '×', '✕', '*'], ['-', '-', '-', 'x', 'x', ''], $line)).' ';
+        // Accents are folded so "repetición" and "repeticion" are one word; a Spanish decimal comma is a point.
+        $text = ' '.SpanishSaveIntent::fold(str_replace(['–', '—', '−', '×', '✕', '*'], ['-', '-', '-', 'x', 'x', ''], $line)).' ';
         $found = ['sets' => null, 'reps' => null, 'seconds' => null];
         $range = static fn (string $low, string $high = '', int $scale = 1): array => [
             min((int) $low, (int) ($high === '' ? $low : $high)) * $scale,
             max((int) $low, (int) ($high === '' ? $low : $high)) * $scale,
         ];
-        $number = '(\d+)(?:\s*(?:-|to)\s*(\d+))?';
-        $seconds = 'seconds?|secs?|s';
-        $minutes = 'minutes?|mins?';
+        $number = '(\d+)(?:\s*(?:-|to|a)\s*(\d+))?';
+        $seconds = 'seconds?|secs?|s|segundos?|segs?';
+        $minutes = 'minutes?|mins?|minutos?';
         $isMinutes = static fn (string $unit): bool => (bool) preg_match("/^(?:{$minutes})$/u", $unit);
 
         // 3 x 8-12 (reps), 3 x 45 seconds, 3 x 2 minutes
-        $text = (string) preg_replace_callback("/(?<![\d.]){$number}\s*x\s*{$number}(?:[\s-]*({$seconds}|{$minutes})\b)?/u", function (array $m) use (&$found, $range, $isMinutes) {
+        $text = (string) preg_replace_callback("/(?<![\d.]|\d,){$number}\s*x\s*{$number}(?:[\s-]*({$seconds}|{$minutes})\b)?/u", function (array $m) use (&$found, $range, $isMinutes) {
             $found['sets'] = $range($m[1], $m[2] ?? '');
             $unit = $m[5] ?? '';
 
@@ -269,7 +273,7 @@ final class SaveWorkoutScope
         }, $text, 1);
 
         if ($found['seconds'] === null) {
-            $text = (string) preg_replace_callback("/(?<![\d.]){$number}[\s-]*({$seconds}|{$minutes})\b/u", function (array $m) use (&$found, $range, $isMinutes) {
+            $text = (string) preg_replace_callback("/(?<![\d.]|\d,){$number}[\s-]*({$seconds}|{$minutes})\b/u", function (array $m) use (&$found, $range, $isMinutes) {
                 $found['seconds'] = $range($m[1], $m[2] ?? '', $isMinutes($m[3]) ? 60 : 1);
 
                 return ' ';
@@ -277,7 +281,7 @@ final class SaveWorkoutScope
         }
 
         if ($found['reps'] === null) {
-            $text = (string) preg_replace_callback("/(?<![\d.]){$number}\s*(?:reps?|repetitions?)\b/u", function (array $m) use (&$found, $range) {
+            $text = (string) preg_replace_callback("/(?<![\d.]|\d,){$number}\s*(?:reps?|repetitions?|repeticiones|repeticion)\b/u", function (array $m) use (&$found, $range) {
                 $found['reps'] = $range($m[1], $m[2] ?? '');
 
                 return ' ';
@@ -286,7 +290,7 @@ final class SaveWorkoutScope
 
         if ($found['sets'] === null) {
             // "3 sets", "3 sets of 10 squats" (the number after "of" is the reps, when nothing else said so)
-            preg_replace_callback("/(?<![\d.]){$number}\s*sets?\b(?:\s*of\s*{$number}\b)?/u", function (array $m) use (&$found, $range) {
+            preg_replace_callback("/(?<![\d.]|\d,){$number}\s*(?:sets?|series)\b(?:\s*(?:of|de)\s*{$number}\b)?/u", function (array $m) use (&$found, $range) {
                 $found['sets'] = $range($m[1], $m[2] ?? '');
 
                 if (isset($m[3]) && $m[3] !== '' && $found['reps'] === null) {
@@ -335,7 +339,7 @@ final class SaveWorkoutScope
     /** @return array<int, string> */
     private function words(string $text): array
     {
-        return preg_split('/[^\p{L}]+/u', mb_strtolower($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        return preg_split('/[^\p{L}]+/u', SpanishSaveIntent::fold($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
     }
 
     private static function stem(string $word): string

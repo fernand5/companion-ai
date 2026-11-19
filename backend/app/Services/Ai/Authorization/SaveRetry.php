@@ -54,6 +54,10 @@ final class SaveRetry
     /** "try again", "could you try to add them again?", "add them to my dashboard again", "give it another try". */
     public static function isRetryPhrase(string $message): bool
     {
+        if (SpanishSaveIntent::retryPhrase($message)) {
+            return true;
+        }
+
         $text = mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $message)));
         $text = trim(str_replace(['’', '‘'], "'", $text), " \t.!?,;:");
         $text = trim((string) preg_replace('/\s+(?:please|pls|thanks|thank you)$/u', '', $text), " \t.!?,;:");
