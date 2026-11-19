@@ -86,7 +86,7 @@ final class PlanChangeIntentClassifier
         // attributes an instruction to someone or something else, and any message too long to
         // be a direct instruction, grants nothing.
         $pasted = mb_strlen($message) > self::MAX_INSTRUCTION_CHARS;
-        $negated = $this->negated($text);
+        $negated = $this->negated($text) || SpanishSaveIntent::negated(SpanishSaveIntent::fold($text));
 
         $explicit = false;
         $request = false;
@@ -99,18 +99,20 @@ final class PlanChangeIntentClassifier
         $anyQuestion = false;
 
         foreach ($this->sentences($text) as $sentence) {
-            $question = $this->isQuestion($sentence);
+            $es = SpanishSaveIntent::fold($sentence);
+            $question = $this->isQuestion($sentence) || SpanishSaveIntent::isQuestion($es);
             $anyQuestion = $anyQuestion || $question;
 
             // Someone else's words, or a denial that anything was done: neither is an instruction.
-            if ($this->attributedToSomeoneElse($sentence) || $this->negated($sentence)) {
+            if ($this->attributedToSomeoneElse($sentence) || $this->negated($sentence) || SpanishSaveIntent::attributedToSomeoneElse($es) || SpanishSaveIntent::negated($es)) {
                 continue;
             }
 
-            $directRequest = ! $pasted && ($question ? $this->politeRequest($sentence) : true);
+            $directRequest = ! $pasted && ($question ? ($this->politeRequest($sentence) || SpanishSaveIntent::politeRequest($es)) : true);
 
             // "Can you add this workout to my dashboard?" is a question in form and a request in fact.
-            $savesWorkout = $directRequest && $this->saveWorkoutRequest($sentence);
+            // (Spanish: "Agrega este entrenamiento a mi dashboard", read by the same path, see SpanishSaveIntent.)
+            $savesWorkout = $directRequest && ($this->saveWorkoutRequest($sentence) || SpanishSaveIntent::saveWorkoutRequest($es));
             $addsWorkout = $directRequest && $this->addWorkoutRequest($sentence);
             $save = $save || $savesWorkout;
             $add = $add || $addsWorkout;
@@ -205,6 +207,10 @@ final class PlanChangeIntentClassifier
     {
         $text = (new self)->normalize($message);
 
+        if (SpanishSaveIntent::statesReplacement(SpanishSaveIntent::fold($text))) {
+            return true;
+        }
+
         if ($text === '' || (new self)->negated($text) || preg_match('/\b(?:don\'?t|do not|without|not|never|keep|leave)\b/u', $text)) {
             return false;
         }
@@ -222,6 +228,10 @@ final class PlanChangeIntentClassifier
     /** "yes", "ok do it", "go ahead", "sure": no content of its own. */
     public static function isBareAffirmation(string $message): bool
     {
+        if (SpanishSaveIntent::isBareYes($message)) {
+            return true;
+        }
+
         $text = mb_strtolower(trim($message));
         $text = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[.!,]+/u', ' ', $text)));
 

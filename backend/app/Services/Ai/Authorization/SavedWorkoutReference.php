@@ -27,20 +27,48 @@ use Illuminate\Support\Collection;
  */
 final class SavedWorkoutReference
 {
-    private const AMOUNT = '(?:\d+\s*(?:x|×)\s*\d+|\d+\s*(?:-|–|to)\s*\d+\s*(?:reps?|sets?|min(?:ute)?s?|seconds?|secs?)|\d+\s*(?:sets?|reps?|rounds?|min(?:ute)?s?|seconds?|secs?|km|miles?|laps?)|(?:sets?|reps?) of \d+)';
+    private const AMOUNT = '(?:\d+\s*(?:x|×)\s*\d+|\d+\s*(?:-|–|to)\s*\d+\s*(?:reps?|sets?|min(?:ute)?s?|seconds?|secs?)|\d+\s*(?:sets?|reps?|rounds?|min(?:ute)?s?|seconds?|secs?|km|miles?|laps?)|(?:sets?|reps?) of \d+'.self::AMOUNT_ES.')';
+
+    /** The same amounts in Spanish ("3 series de 10 repeticiones", "30 segundos", "5,5 km", "8-12 repeticiones", "series de 10"). */
+    private const AMOUNT_ES = '|\d+\s*(?:-|–|a)\s*\d+\s*(?:repeticion(?:es)?|reps?|series?|minutos?|mins?|segundos?|segs?)\b|\d+(?:[.,]\d+)?\s*(?:series?|repeticion(?:es)?|reps?|rondas?|vueltas?|minutos?|mins?|segundos?|segs?|km|kil[oó]metros?|millas?|metros?)\b|(?:series?|repeticion(?:es)?|reps?) de \d+';
 
     /** Specific movements and activities. Generic words (workout, session, routine) are deliberately not here. */
-    private const EXERCISE = '(?:squats?|presses|press|rows?|curls?|deadlifts?|lunges?|planks?|push-?ups?|pull-?ups?|chin-?ups?|sit-?ups?|step-?ups?|crunch\w*|dips?|burpees?|jacks?|swings?|thrusts?|bridges?|climbers?|raises?|pulldowns?|carr(?:y|ies)|bench|run|running|jog|jogging|walk|walking|treadmill|cycl\w+|bike|biking|swim\w*|rowing|skipping|jump\w*|stretch\w*|mobility|yoga|pilates|cardio|intervals?|sprints?|hike|hiking)';
+    private const EXERCISE = '(?:squats?|presses|press|rows?|curls?|deadlifts?|lunges?|planks?|push-?ups?|pull-?ups?|chin-?ups?|sit-?ups?|step-?ups?|crunch\w*|dips?|burpees?|jacks?|swings?|thrusts?|bridges?|climbers?|raises?|pulldowns?|carr(?:y|ies)|bench|run|running|jog|jogging|walk|walking|treadmill|cycl\w+|bike|biking|swim\w*|rowing|skipping|jump\w*|stretch\w*|mobility|yoga|pilates|cardio|intervals?|sprints?|hike|hiking|'.self::EXERCISE_ES.')';
+
+    /** Specific movements and activities in Spanish (accents optional). Generic words (entrenamiento, sesión, rutina) are deliberately not here. */
+    private const EXERCISE_ES = 'sentadillas?|prensa|remos?|curl(?:es)?|peso muerto|zancadas?|estocadas?|planchas?|flexiones|flexi[oó]n|dominadas?|abdominales|fondos|saltos?|saltar|saltando|escaladores|elevaciones|elevaci[oó]n|jalones|jal[oó]n|aperturas|vuelos|encogimientos|extensi[oó]n|extensiones|puentes?|tijeras|patadas|b[ií]ceps|tr[ií]ceps|banca|corr(?:er|e|iendo)|carreras?|trot(?:ar|a|e|ando)|camin(?:ar|a|ata|ando)|bicicleta|ciclismo|pedale(?:ar|a)|nadar|nadando|nataci[oó]n|cuerda|estiramientos?|movilidad|cardio|intervalos?|senderismo|excursi[oó]n|gemelos|pantorrillas|bird-?dog|dead bug|mountain climbers?|hollow|superman|glute bridge|clamshell';
 
     /** Not an exercise name even when it sits in front of an amount. */
     private const NOT_AN_EXERCISE = ['workout', 'session', 'routine', 'exercise', 'exercises', 'total', 'duration', 'time', 'rest', 'warm-up', 'warm up', 'warmup', 'cool-down', 'cool down', 'cooldown', 'set', 'sets', 'rep', 'reps', 'round', 'rounds', 'week', 'day', 'note', 'notes', 'tip', 'tips', 'goal', 'focus', 'today', 'tomorrow', 'repeat', 'circuit', 'main set', 'intensity', 'target', 'about', 'around', 'aim for', 'aim', 'do', 'perform', 'complete', 'try', 'for', 'then', 'finish', 'up to', 'at least', 'in total', 'overall', 'add', 'save', 'put', 'push', 'send', 'pin', 'apply', 'use', 'schedule', 'please', 'can', 'could', 'would', 'i', 'we', 'my', 'this', 'that', 'it', 'these', 'those'];
 
     /** How the application's own notices begin when it adds them under a reply; they are not part of what the coach said. */
-    private const APPLICATION_NOTICES = ["I haven't changed your plan", 'There is nothing waiting for your confirmation', 'I left the starting weight', 'As you asked, I replaced', 'Your plan changed since I asked'];
+    private const APPLICATION_NOTICES = ["I haven't changed your plan", 'There is nothing waiting for your confirmation', 'I left the starting weight', 'As you asked, I replaced', 'Your plan changed since I asked', 'Your plan keeps one number',
+        // The same notices in Spanish (see SpanishCoachMessages).
+        'No he cambiado tu plan', 'No hay nada esperando tu confirmación', 'Como pediste, reemplacé', 'Tu plan cambió desde que te pregunté', 'Tu plan guarda un solo número'];
 
-    private const BOUNDARY = '/^[\s>*_#\-•]*(?:(option|plan|workout|routine|session|alternative|choice|version|day|week)\s*(?:#|no\.?|number)?\s*(\d{1,2}|[a-d])\b|(alternatively|another option|if you prefer|or if you prefer))/iu';
+    /** Spanish words that are not an exercise name even in front of an amount (folded): headings, notes, instructions ("descansa 60 segundos entre series"). */
+    private const NOT_AN_EXERCISE_ES = ['entrenamiento', 'sesion', 'rutina', 'ejercicio', 'ejercicios', 'total', 'duracion', 'tiempo', 'descanso', 'descansa', 'descansar', 'descansen', 'pausa', 'calentamiento', 'calienta', 'enfriamiento', 'serie', 'series', 'repeticion', 'repeticiones', 'ronda', 'rondas', 'semana', 'dia', 'nota', 'notas', 'consejo', 'consejos', 'objetivo', 'meta', 'enfoque', 'hoy', 'manana', 'repite', 'repetir', 'circuito', 'intensidad', 'alrededor', 'aproximadamente', 'unos', 'unas', 'haz', 'hacer', 'realiza', 'realizar', 'completa', 'completar', 'intenta', 'intentar', 'luego', 'despues', 'termina', 'terminar', 'hasta', 'al menos', 'en total', 'agrega', 'guarda', 'pon', 'envia', 'aplica', 'usa', 'utiliza', 'por favor', 'puedes', 'este', 'esta', 'esto', 'ese', 'esa', 'eso', 'lo', 'la', 'el', 'los', 'las', 'un', 'una', 'manten', 'mantener', 'apunta', 'procura', 'trata', 'empieza', 'comienza', 'para', 'con', 'por', 'durante', 'cada', 'entre', 'plan', 'programa'];
 
-    private const LABEL = '/\b(option|plan|workout|routine|session|alternative|choice|version|day|week)\s*(?:#|no\.?|number)?\s*(\d{1,2}|[a-d])\b/iu';
+    /** Words that make a name in front of an amount a heading, not an exercise (folded). */
+    private const HEADING_NOUNS = ['session', 'workout', 'routine', 'plan', 'program', 'programme', 'day', 'week', 'training', 'sesion', 'rutina', 'entrenamiento', 'programa', 'dia', 'semana'];
+
+    /** A name that ends on one of these is a phrase that goes on ("una sesión de", "a session of"): the amount belongs to the phrase (folded). */
+    private const DANGLING = ['de', 'del', 'of', 'a', 'an', 'the', 'para', 'for', 'con', 'with', 'en', 'in', 'por', 'al', 'durante', 'cada', 'hasta', 'until', 'unos', 'unas', 'y', 'and', 'o', 'or'];
+
+    /** Verbs that make a short Spanish phrase a sentence ("la sesión dura 30 minutos") (folded). */
+    private const SENTENCE_VERBS_ES = ['es', 'son', 'esta', 'estan', 'tiene', 'tienen', 'dura', 'durara', 'incluye', 'incluyen', 'sera', 'seran', 'hay', 'toma', 'consiste'];
+
+    /** A Spanish label noun as the English one it stands for, so "Opción B" and "option b" are one label. */
+    private const LABEL_NOUNS_ES = ['opcion' => 'option', 'entrenamiento' => 'workout', 'rutina' => 'routine', 'sesion' => 'session', 'alternativa' => 'alternative', 'eleccion' => 'choice', 'version' => 'version', 'dia' => 'day', 'semana' => 'week'];
+
+    /** "la primera opción", "el segundo entrenamiento" (folded). */
+    private const ORDINALS_ES = ['primer' => 1, 'primero' => 1, 'primera' => 1, 'segundo' => 2, 'segunda' => 2, 'tercer' => 3, 'tercero' => 3, 'tercera' => 3];
+
+    private const ORDINAL_NOUNS_ES = '(?:opcion|opciones|entrenamiento|rutina|sesion|plan|version|alternativa)';
+
+    private const BOUNDARY = '/^[\s>*_#\-•]*(?:(option|plan|workout|routine|session|alternative|choice|version|day|week|opci[oó]n|entrenamiento|rutina|sesi[oó]n|alternativa|elecci[oó]n|versi[oó]n|d[ií]a|semana)\s*(?:#|no\.?|n[uú]mero|number)?\s*(\d{1,2}|[a-d])\b|(alternatively|another option|if you prefer|or if you prefer|alternativamente|otra opci[oó]n|si prefieres|o si prefieres))/iu';
+
+    private const LABEL = '/\b(option|plan|workout|routine|session|alternative|choice|version|day|week|opci[oó]n|entrenamiento|rutina|sesi[oó]n|alternativa|elecci[oó]n|versi[oó]n|d[ií]a|semana)\s*(?:#|no\.?|n[uú]mero|number)?\s*(\d{1,2}|[a-d])\b/iu';
 
     private const ORDINALS = ['first' => 1, '1st' => 1, 'second' => 2, '2nd' => 2, 'third' => 3, '3rd' => 3];
 
@@ -88,6 +116,8 @@ final class SavedWorkoutReference
             // The request around a routine is not part of it: "Add this workout to my dashboard: squats 3x10".
             // (It must name where the routine goes: "Push-ups: 3 sets of 12" and "Push press: 3x5" are exercises, not requests.)
             $line = (string) preg_replace('/^(?:(?:please|can you|could you|would you)\s+)?(?:add|save|put|push|send|pin|apply|use|schedule)\s+[^:\d]{0,80}?\b(?:workout|plan|dashboard|routine|session|schedule|calendar|exercises?|week)\b[^:\d]{0,40}:\s*/iu', '', $line);
+            // The same request in Spanish: "Agrega este entrenamiento a mi dashboard: sentadillas 3x10".
+            $line = (string) preg_replace('/^(?:(?:por favor|puedes)\s+)?(?:agrega|agrégalo|añade|anade|añádelo|guarda|guárdalo|pon|ponlo|envía|programa|aplica|usa)\s+[^:\d]{0,80}?\b(?:entrenamiento|plan|panel|rutina|sesi[oó]n|calendario|horario|ejercicios?|semana|dashboard)\b[^:\d]{0,40}:\s*/iu', '', $line);
             // A list marker is not part of an exercise either.
             $line = trim((string) preg_replace('/^(?:[-•–—>]+|\d+[.)])\s+/u', '', $line));
 
@@ -213,19 +243,19 @@ final class SavedWorkoutReference
         $text = (string) preg_replace('/[*_`#]+/u', '', $item);
         $text = (string) preg_replace('/'.self::AMOUNT.'/iu', ' ', $text);
         $text = (string) preg_replace('/\d+/u', ' ', $text);
-        $text = (string) preg_replace('/\b(?:sets?|reps?|of|rounds?|min(?:ute)?s?|seconds?|secs?|each|per|side|x)\b/iu', ' ', $text);
+        $text = (string) preg_replace('/\b(?:sets?|reps?|of|rounds?|min(?:ute)?s?|seconds?|secs?|each|per|side|x|series|repeticion(?:es)?|rondas?|minutos?|segundos?|segs?|cada|por|lado)\b/iu', ' ', $text);
         $text = (string) preg_replace('/(?<![\p{L}])-|-(?![\p{L}])/u', ' ', $text);
         $text = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[^\p{L}\s\'’\/,-]+/u', ' ', $text)));
 
-        if (! preg_match('/\bor\b|\//iu', $text)) {
+        if (! preg_match('/\bor\b|\bo\b(?![\'’])|\//iu', $text)) {
             return null;
         }
 
         // "Squats, lunges or step-ups"
         $text = str_replace(',', ' or ', $text);
 
-        $parts = preg_split('/\s+or\s+|\s*\/\s*/iu', $text) ?: [];
-        $parts = array_values(array_filter(array_map(fn (string $p) => trim((string) preg_replace('/^or\s+/iu', '', trim($p))), $parts), fn (string $p) => $p !== ''));
+        $parts = preg_split('/\s+or\s+|\s+o\s+(?![\'’])|\s*\/\s*/iu', $text) ?: [];
+        $parts = array_values(array_filter(array_map(fn (string $p) => trim((string) preg_replace('/\s+de$/iu', '', (string) preg_replace('/^(?:or|o)\s+/iu', '', trim($p)))), $parts), fn (string $p) => $p !== ''));
 
         if (count($parts) < 2 || count($parts) > 4) {
             return null;
@@ -234,7 +264,7 @@ final class SavedWorkoutReference
         foreach ($parts as $part) {
             $words = preg_split('/\s+/u', $part, -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
-            if (count($words) > 4 || mb_strlen($part) < 3 || in_array(mb_strtolower($words[0]), ['until', 'as', 'if', 'when', 'more', 'less', 'fewer', 'so', 'then', 'to', 'for', 'with', 'without', 'near', 'about', 'around', 'up', 'both', 'either'], true)) {
+            if (count($words) > 4 || mb_strlen($part) < 3 || in_array(mb_strtolower($words[0]), ['until', 'as', 'if', 'when', 'more', 'less', 'fewer', 'so', 'then', 'to', 'for', 'with', 'without', 'near', 'about', 'around', 'up', 'both', 'either', 'hasta', 'como', 'si', 'cuando', 'mas', 'menos', 'para', 'con', 'sin', 'cerca', 'alrededor', 'ambos', 'cualquiera'], true)) {
                 return null;
             }
         }
@@ -299,7 +329,7 @@ final class SavedWorkoutReference
             }
         }
 
-        return false;
+        return self::spanishOrdinal($message) !== null;
     }
 
     /**
@@ -309,7 +339,7 @@ final class SavedWorkoutReference
      */
     private static function withChoice(string $item, array $options, string $chosen): ?string
     {
-        $pattern = '/'.implode('\s*(?:,|\bor\b|\/)\s*', array_map(fn (string $o) => preg_quote($o, '/'), $options)).'/iu';
+        $pattern = '/'.implode('\s*(?:,|\bor\b|\bo\b|\/)\s*', array_map(fn (string $o) => preg_quote($o, '/'), $options)).'/iu';
         $replaced = preg_replace($pattern, $chosen, $item, 1, $count);
 
         return $count === 1 ? $replaced : null;
@@ -334,7 +364,7 @@ final class SavedWorkoutReference
 
         if (preg_match_all(self::LABEL, $message, $m, PREG_SET_ORDER)) {
             foreach ($m as $hit) {
-                $named[] = $hit[1].' '.$hit[2];
+                $named[] = self::labelOf($hit[1], $hit[2]);
             }
         }
 
@@ -350,7 +380,25 @@ final class SavedWorkoutReference
             }
         }
 
+        $index = self::spanishOrdinal($message);
+
+        return $index !== null && isset($routines[$index - 1]) ? [$routines[$index - 1]] : null;
+    }
+
+    /** "la segunda opción" is 2; null when the message names no ordinal in front of a workout noun. */
+    private static function spanishOrdinal(string $message): ?int
+    {
+        if (preg_match('/\b('.implode('|', array_keys(self::ORDINALS_ES)).')\s+'.self::ORDINAL_NOUNS_ES.'\b/u', SpanishSaveIntent::fold($message), $m)) {
+            return self::ORDINALS_ES[$m[1]];
+        }
+
         return null;
+    }
+
+    /** "option b", "opción B": one label, in English words, for matching a routine to the user's pick. */
+    private static function labelOf(string $noun, string $id): string
+    {
+        return mb_strtolower((self::LABEL_NOUNS_ES[SpanishSaveIntent::fold($noun)] ?? mb_strtolower($noun)).' '.$id);
     }
 
     // ---- reading the conversation ------------------------------------------------------------------
@@ -367,7 +415,8 @@ final class SavedWorkoutReference
 
         foreach ($history->slice(0, -1)->reverse() as $message) {
             if ($message->role === Message::ROLE_ASSISTANT) {
-                if (($message->meta['save_clarification'] ?? false) === true) {
+                // The application's answer to a "yes" (a replacement made, refused or no longer valid) is its own text, never a workout.
+                if (($message->meta['save_clarification'] ?? false) === true || isset($message->meta['plan_replacement'])) {
                     $skipRequest = true;
 
                     continue;
@@ -431,7 +480,7 @@ final class SavedWorkoutReference
 
         foreach (preg_split('/\R/u', $text) ?: [] as $line) {
             if (preg_match(self::BOUNDARY, $line, $m)) {
-                $segments[] = ['label' => ($m[1] ?? '') !== '' ? mb_strtolower($m[1].' '.$m[2]) : null, 'lines' => [$line]];
+                $segments[] = ['label' => ($m[1] ?? '') !== '' ? self::labelOf($m[1], $m[2]) : null, 'lines' => [$line]];
 
                 continue;
             }
@@ -472,7 +521,7 @@ final class SavedWorkoutReference
         }
 
         return (bool) preg_match(
-            '/\b(?:my|your|his|her|their|a|the)\s+(?:friend|trainer|coach|doctor|physio\w*|colleague|brother|sister|teammate)\s+(?:said|says|wrote|writes|sent|told|recommended|recommends|suggested|suggests|gave)\b|\baccording to\b|\b(?:someone|somebody)\s+(?:else\s+)?(?:said|wrote|sent)\b|\bfrom (?:an?|the) (?:article|website|video|post|blog)\b/iu',
+            '/\b(?:my|your|his|her|their|a|the)\s+(?:friend|trainer|coach|doctor|physio\w*|colleague|brother|sister|teammate)\s+(?:said|says|wrote|writes|sent|told|recommended|recommends|suggested|suggests|gave)\b|\baccording to\b|\b(?:someone|somebody)\s+(?:else\s+)?(?:said|wrote|sent)\b|\bfrom (?:an?|the) (?:article|website|video|post|blog)\b|\b(?:mi|tu|su|un|el|la)\s+(?:amig[oa]|entrenador(?:a)?|doctor(?:a)?|m[eé]dic[oa]|fisio\w*|colega|herman[oa]|compa[nñ]er[oa])\s+(?:me\s+)?(?:dijo|dice|escribi[oó]|escribe|envi[oó]|recomend[oó]|recomienda|sugiri[oó]|sugiere|dio)\b|\bseg[uú]n\b|\balguien (?:m[aá]s )?(?:dijo|escribi[oó]|envi[oó])\b|\bde un (?:art[ií]culo|sitio web|video|v[ií]deo|blog)\b/iu',
             $text,
         );
     }
@@ -484,13 +533,19 @@ final class SavedWorkoutReference
             return true;
         }
 
+        if (preg_match('/\by as[ií] sucesivamente\b|\by m[aá]s\b(?!\s+(?:de|tarde))|\bel resto\b(?!\s+(?:de|del)\s+(?:la|el|esta|este|tu)\s+(?:semana|d[ií]a|fin de semana|mes|sesi[oó]n))|\bejercicios restantes\b|\bcomo antes\b|\bigual que\b|\bpor (?:definir|determinar)\b|\bpendiente\b|\bm[aá]s ejercicios\b/iu', $text)) {
+            return true;
+        }
+
         if (preg_match('/[:,]$/u', rtrim($text))) {
             return true;
         }
 
         $words = ['two' => 2, 'three' => 3, 'four' => 4, 'five' => 5, 'six' => 6, 'seven' => 7, 'eight' => 8, 'nine' => 9, 'ten' => 10];
 
-        if (preg_match('/\b(\d+|two|three|four|five|six|seven|eight|nine|ten)\s+(?:exercises|moves|movements)\b/iu', $text, $m)) {
+        $words += ['dos' => 2, 'tres' => 3, 'cuatro' => 4, 'cinco' => 5, 'seis' => 6, 'siete' => 7, 'ocho' => 8, 'nueve' => 9, 'diez' => 10];
+
+        if (preg_match('/\b(\d+|two|three|four|five|six|seven|eight|nine|ten|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(?:exercises|moves|movements|ejercicios|movimientos)\b/iu', $text, $m)) {
             $announced = is_numeric($m[1]) ? (int) $m[1] : $words[mb_strtolower($m[1])];
 
             if (count(self::items($text)) < $announced) {
@@ -503,7 +558,7 @@ final class SavedWorkoutReference
         foreach (preg_split('/\R/u', $text) ?: [] as $line) {
             if (preg_match('/^\s*\d+[.)]\s+/u', $line)
                 && self::items($line) === []
-                && ! preg_match('/\b(?:warm|cool|rest|stretch|breath|hydrat|finish|walk)\w*/iu', $line)) {
+                && ! preg_match('/\b(?:warm|cool|rest|stretch|breath|hydrat|finish|walk|calent|enfri|descans|estir|respir|hidrat|termin|camin)\w*/iu', $line)) {
                 return true;
             }
         }
@@ -523,7 +578,11 @@ final class SavedWorkoutReference
         $pieces = [];
         $buffer = '';
 
-        foreach (preg_split('/\s*(?:[;,]|\bthen\b|\band\b|\+)\s*/iu', $line) ?: [] as $part) {
+        // A decimal comma ("5,5 km", "42,5 kg") is part of the number, not a list separator.
+        $line = (string) preg_replace('/(\d),(\d{1,2})(?=\s*(?:kg|kgs|km|kilos?|kil[oó]metros?|min|minutos?|millas?|metros?|segundos?)\b)/iu', '$1'."\u{2063}".'$2', $line);
+
+        foreach (preg_split('/\s*(?:[;,]|\bthen\b|\band\b|\+|\bluego\b|\by\b)\s*/iu', $line) ?: [] as $part) {
+            $part = str_replace("\u{2063}", ',', $part);
             $buffer = trim($buffer.' '.$part);
 
             if (preg_match('/'.self::AMOUNT.'/iu', $buffer)) {
@@ -557,10 +616,30 @@ final class SavedWorkoutReference
         $name = trim((string) (preg_split('/\d/u', $piece, 2)[0] ?? ''), " \t:-–—x×(");
         $words = preg_split('/\s+/u', $name, -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
-        return $words !== []
-            && count($words) <= 5
-            && preg_match('/^[\p{L}\'’\/ -]+$/u', $name) === 1
-            && ! in_array(mb_strtolower($name), self::NOT_AN_EXERCISE, true)
-            && ! in_array(mb_strtolower($words[0]), self::NOT_AN_EXERCISE, true);
+        if ($words === []
+            || count($words) > 5
+            || preg_match('/^[\p{L}\'’\/ -]+$/u', $name) !== 1
+            || in_array(mb_strtolower($name), self::NOT_AN_EXERCISE, true)
+            || in_array(mb_strtolower($words[0]), self::NOT_AN_EXERCISE, true)) {
+            return false;
+        }
+
+        // Spanish headings, notes and sentences are not exercises ("Descansa 60 segundos entre series", "La sesión dura 30 minutos").
+        $folded = array_map([SpanishSaveIntent::class, 'fold'], $words);
+
+        if (in_array(implode(' ', $folded), self::NOT_AN_EXERCISE_ES, true) || in_array($folded[0], self::NOT_AN_EXERCISE_ES, true)
+            || array_intersect($folded, self::SENTENCE_VERBS_ES) !== []) {
+            return false;
+        }
+
+        // "una sesión de 30 minutos", "a session of 30 minutes": the name trails off into the amount, so it is a heading or a sentence.
+        if (in_array($folded[count($folded) - 1], self::DANGLING, true)) {
+            return false;
+        }
+
+        // A heading that only gives a length ("Sesión de calentamiento 30 minutos") is not an exercise: no sets, no reps, just a duration.
+        $durationOnly = ! preg_match('/\d+\s*(?:x|×)\s*\d+|\b(?:sets?|reps?|series|repeticion\w*|rounds?|rondas?)\b/iu', $piece);
+
+        return ! ($durationOnly && array_intersect($folded, self::HEADING_NOUNS) !== []);
     }
 }

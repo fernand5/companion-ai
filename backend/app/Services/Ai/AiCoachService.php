@@ -17,6 +17,7 @@ use App\Services\Ai\Authorization\SavedWorkoutReference;
 use App\Services\Ai\Authorization\SaveRetry;
 use App\Services\Ai\Authorization\SaveWorkoutDay;
 use App\Services\Ai\Authorization\SaveWorkoutScope;
+use App\Services\Ai\Authorization\SpanishSaveIntent;
 use App\Services\Ai\Authorization\ToolAuthorization;
 use App\Services\Ai\Authorization\ToolCapabilities;
 use App\Services\Ai\Authorization\ToolCapability;
@@ -112,6 +113,20 @@ class AiCoachService
             return $confirmed;
         }
 
+        // A bare "si" (no accent) to a replacement question may be "sí" or "si": the application asks, and the question stays open.
+        if (($unclear = $this->clarifyAmbiguousYes($user, $conversation, $userMessage, $startedAt)) !== null) {
+            return $unclear;
+        }
+
+        // "¿Por qué no lo agregaste?" / "why didn't you add it?" is answered from what the application actually did, not by the model.
+        if (($why = $this->whyNotSaved($user, $conversation, $userMessage, $startedAt)) !== null) {
+            return $why;
+        }
+
+        // Which language the application's own words are in this turn: the language of the message being answered.
+        // Presentation only: it never decides what may be written.
+        $es = SpanishSaveIntent::writtenIn($userMessage);
+
         // Ordinary chat needs to see the whole week (not just today) so it can
         // reason about whether a historical activity the user just reported
         // should affect an upcoming day, not only today's plan.
@@ -157,7 +172,7 @@ class AiCoachService
 
         // A save that cannot be pinned down (which workout? which day?) is asked about, not guessed at, and the
         // model is not asked to improvise around it.
-        if (($question = $this->saveQuestion($authorization)) !== null) {
+        if (($question = $this->saveQuestion($authorization, $es)) !== null) {
             return $this->answerWithoutModel($user, $conversation, $authorization, $question['text'], ['save_clarification' => true, 'save_pending' => $question['pending']], $startedAt);
         }
 
@@ -172,7 +187,8 @@ class AiCoachService
                 .'Do not call, describe or write out a call to '.(count($withheld) === 1 ? 'it' : 'them').'; answer in plain text. '
                 .'A suggestion is fine, but say you have not changed anything; the user can ask you to update their plan. '
                 .'This is only a rule for this message and not a fault: never say you lack access to a tool, that the app cannot update plans, or that anything is unavailable or down. '
-                .'You can add and change plans whenever the user asks; if it would help, tell them how to ask, for example "add this workout to my dashboard".';
+                .'You can add and change plans whenever the user asks; if it would help, tell them how to ask, for example "add this workout to my dashboard"'
+                .($es ? ' (in Spanish: "agrega este entrenamiento a mi dashboard")' : '').'.';
         }
 
         // "Add this workout to my dashboard": the write is allowed (and only that write), so say exactly what to write.
@@ -266,16 +282,18 @@ class AiCoachService
             $meta['blocked_tool_calls'] = $turn->blocked();
         }
 
-        [$notice, $pending] = $this->followUp($user, $conversation, $userMessage, $authorization, $turn->confirmedChangeMade(), $history);
+        [$notice, $pending] = $this->followUp($user, $conversation, $userMessage, $authorization, $turn->confirmedChangeMade(), $history, $es);
 
         // A change that needed the user's confirmation, and could not be asked for, is said not to have happened.
         if ($authorization->weekScope === null && array_filter($turn->blocked(), fn (array $b) => $b['reason'] === 'cannot_ask_for_confirmation') !== [] && $turn->pendingReplacement() === null) {
-            $finalText = rtrim($finalText)."\n\nI haven't changed your plan: that would replace a day that already has a plan, and I couldn't ask you to confirm it just now. Please try again.";
+            $finalText = rtrim($finalText)."\n\n".($es
+                ? 'No he cambiado tu plan: eso reemplazaría un día que ya tiene un plan, y no pude pedirte que lo confirmaras en este momento. Inténtalo de nuevo.'
+                : "I haven't changed your plan: that would replace a day that already has a plan, and I couldn't ask you to confirm it just now. Please try again.");
         }
 
         // What happened to a requested save is the application's to say, not the model's.
         if ($authorization->saveScope !== null) {
-            [$finalText, $savedMeta] = $this->saveOutcome($finalText, $turn, $authorization->saveScope);
+            [$finalText, $savedMeta] = $this->saveOutcome($finalText, $turn, $authorization->saveScope, $es);
             $meta += $savedMeta;
         } elseif ($authorization->weekScope !== null) {
             [$finalText, $savedMeta] = $this->weekOutcome($turn, $authorization->weekScope);
@@ -283,7 +301,7 @@ class AiCoachService
         } elseif (($held = $turn->pendingReplacement()) !== null) {
             // Any other turn that ran into a day with a plan on it: the reply stays (it may be the workout the user
             // asked for), and the application adds what has NOT happened and what it needs to be told.
-            $finalText = rtrim($finalText)."\n\n".$this->replacementQuestion($held);
+            $finalText = rtrim($finalText)."\n\n".($es ? SpanishCoachMessages::replacementQuestion($held) : $this->replacementQuestion($held));
             $meta += $this->proposals->presentReplacement($held);
         }
 
@@ -297,7 +315,7 @@ class AiCoachService
         }
 
         // Two things the application can check against what actually happened this turn, whatever the model wrote.
-        $finalText = $this->correctClaims($finalText, $authorization, $turn, $toolTrace);
+        $finalText = $this->correctClaims($finalText, $authorization, $turn, $toolTrace, $es);
 
         if ($pending !== null) {
             $meta += $this->proposals->present($pending);
@@ -474,8 +492,27 @@ class AiCoachService
      *
      * @return array{text: string, pending: array<string, mixed>}|null
      */
-    private function saveQuestion(ToolAuthorization $authorization): ?array
+    private function saveQuestion(ToolAuthorization $authorization, bool $es = false): ?array
     {
+        if ($es) {
+            $spanish = match ($authorization->followUp) {
+                ToolAuthorization::FOLLOW_UP_NO_WORKOUT_TO_SAVE => ['text' => SpanishCoachMessages::noWorkoutToSave(), 'pending' => ['kind' => 'none']],
+                ToolAuthorization::FOLLOW_UP_WHICH_WORKOUT => ['text' => SpanishCoachMessages::whichWorkout(), 'pending' => ['kind' => 'which_workout']],
+                ToolAuthorization::FOLLOW_UP_INCOMPLETE_WORKOUT => ['text' => SpanishCoachMessages::incompleteWorkout(), 'pending' => ['kind' => 'incomplete']],
+                ToolAuthorization::FOLLOW_UP_QUOTED_WORKOUT => ['text' => SpanishCoachMessages::quotedWorkout(), 'pending' => ['kind' => 'quoted']],
+                ToolAuthorization::FOLLOW_UP_RETRY_EXPIRED => ['text' => SpanishCoachMessages::retryExpired((string) ($authorization->followUpData['reason'] ?? ''), $authorization->followUpData['made_on'] ?? null), 'pending' => ['kind' => 'expired']],
+                ToolAuthorization::FOLLOW_UP_CHOOSE_EXERCISE => isset($authorization->followUpData['choices'][0]['day'])
+                    ? null
+                    : ['text' => SpanishCoachMessages::exerciseChoice($authorization->followUpData['choices'] ?? []), 'pending' => ['kind' => 'choice', 'options' => array_column($authorization->followUpData['choices'] ?? [], 'options')]],
+                ToolAuthorization::FOLLOW_UP_WHICH_DAY => ['text' => SpanishCoachMessages::whichDay(($authorization->followUpData['problem'] ?? null) === SaveWorkoutDay::PAST), 'pending' => ['kind' => 'day']],
+                default => null,
+            };
+
+            if ($spanish !== null) {
+                return $spanish;
+            }
+        }
+
         $example = 'add this workout to my dashboard: squats 3x10, push-ups 3x12';
 
         return match ($authorization->followUp) {
@@ -576,6 +613,98 @@ class AiCoachService
         ];
     }
 
+    /** The assistant message the user's latest message answers: the one before it, or the held replacement question a clarification points to. */
+    private function questionBeingAnswered(Conversation $conversation): ?Message
+    {
+        $previous = $conversation->messages()->reorder('created_at', 'desc')->orderByDesc('id')->limit(2)->get()->get(1);
+        $holderId = $previous?->role === Message::ROLE_ASSISTANT ? ($previous->meta['confirms_message_id'] ?? null) : null;
+
+        // Looked up inside this conversation only: a pointer can never reach another conversation's proposal.
+        return is_int($holderId) ? ($conversation->messages()->whereKey($holderId)->first() ?? $previous) : $previous;
+    }
+
+    /**
+     * A bare unaccented "si" answering a replacement question that is still open: it is neither yes nor no, so the
+     * application says so and asks again, and the held proposal is left exactly as it was (not consumed, not renewed,
+     * its expiry unchanged: the answer that follows redeems the same signed proposal under the same rules). Null when
+     * it is not that, including when the proposal is expired or already used (then nothing is pending to clarify).
+     */
+    private function clarifyAmbiguousYes(User $user, Conversation $conversation, string $userMessage, float $startedAt): ?Message
+    {
+        if (! SpanishSaveIntent::isAmbiguousYes($userMessage)) {
+            return null;
+        }
+
+        $holder = $this->questionBeingAnswered($conversation);
+
+        if (! $this->proposals->presentsReplacement($holder) || ! $this->proposals->replacementIsOpen($conversation, $user, $holder)) {
+            return null;
+        }
+
+        $message = $conversation->messages()->create([
+            'role' => Message::ROLE_ASSISTANT,
+            'content' => SpanishCoachMessages::confirmationUnclear(),
+            'meta' => ['save_clarification' => true, 'confirms_message_id' => $holder->id],
+        ]);
+
+        Log::info('ai_coach.turn', [
+            'user_id' => $user->id,
+            'conversation_id' => $conversation->id,
+            'assistant_message_id' => $message->id,
+            'provider_calls' => 0,
+            'plan_authorization' => 'confirmation_unclear',
+            'response_type' => 'application',
+            'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        ]);
+
+        return $message;
+    }
+
+    /**
+     * "¿Por qué no lo agregaste?" / "why didn't you add it?": answered from what the application actually did in this
+     * conversation. Returns null (the turn goes on as usual) when it is not that question, or when a write DID happen
+     * here, which the model may then describe. If the last reply was the application explaining a blocker, that
+     * explanation is what is repeated, in its own words; otherwise the user is told that nothing was saved.
+     */
+    private function whyNotSaved(User $user, Conversation $conversation, string $userMessage, float $startedAt): ?Message
+    {
+        if (! SpanishSaveIntent::asksWhyNotSaved($userMessage)) {
+            return null;
+        }
+
+        $assistant = $conversation->messages()->where('role', Message::ROLE_ASSISTANT)->orderBy('id')->get();
+
+        foreach ($assistant as $message) {
+            foreach ((array) ($message->meta['tool_calls'] ?? []) as $call) {
+                $result = $call['result'] ?? null;
+
+                if (in_array($call['name'] ?? '', ['create_workout_plan', 'propose_weekly_plan_changes'], true) && is_array($result) && ! array_key_exists('error', $result)) {
+                    return null;
+                }
+            }
+
+            if (in_array($message->meta['plan_replacement'] ?? null, ['applied'], true)) {
+                return null;
+            }
+        }
+
+        $es = SpanishSaveIntent::writtenIn($userMessage);
+        $last = $assistant->last();
+
+        // The application's own notice at the end of its last reply (never the model's words above it, which may say otherwise).
+        $notice = null;
+
+        if (($last?->meta['save_clarification'] ?? false) === true && preg_match("/(?:No he cambiado tu plan|I haven't changed your plan|I haven't replaced it|No lo reemplacé).*\z/us", (string) $last->content, $m)) {
+            $notice = $m[0];
+        }
+
+        $text = $notice !== null
+            ? ($es ? "Esto es lo último que pasó, en las palabras de la aplicación:\n\n" : "This is what happened last, in the application's own words:\n\n").$notice
+            : ($es ? SpanishCoachMessages::whyNotSaved() : "Nothing has been saved to your plan in this conversation: the application recorded no write, and I won't tell you it was saved. To save the workout I just showed you, say \"add this workout to my dashboard\" (and the day, if you want one other than today). If something stops it (a workout I can't read in full, a day that already has one, or an unclear day), I will tell you exactly what.");
+
+        return $this->answerWithoutModel($user, $conversation, ToolAuthorization::readOnly('why_not_saved'), $text, [], $startedAt);
+    }
+
     /**
      * Reply without calling the model: the application's own words, stored like any assistant message.
      *
@@ -609,26 +738,28 @@ class AiCoachService
             return null;
         }
 
-        // Newest first: this "yes" (just stored), then the message it answers.
-        $previous = $conversation->messages()->reorder('created_at', 'desc')->orderByDesc('id')->limit(2)->get()->get(1);
+        // Newest first: this "yes" (just stored), then the message it answers. If that is the application asking the user
+        // to clarify an ambiguous answer, the question being answered is the one it points to.
+        $previous = $this->questionBeingAnswered($conversation);
 
         if (! $this->proposals->presentsReplacement($previous)) {
             return null;
         }
 
         $proposal = $this->proposals->claimReplacement($conversation, $user, $previous);
+        $es = SpanishSaveIntent::writtenIn($userMessage) && ! preg_match('/^(?:yes|yeah|yep|yup|sure|ok|okay)\b/iu', trim($userMessage));
 
         if ($proposal === null) {
-            $text = 'I haven\'t changed your plan: that confirmation is no longer valid (it expired, was already used, or is not for this conversation). If you still want the workout on your plan, ask me again.';
+            $text = $es ? SpanishCoachMessages::confirmationInvalid() : 'I haven\'t changed your plan: that confirmation is no longer valid (it expired, was already used, or is not for this conversation). If you still want the workout on your plan, ask me again.';
             $status = 'invalid';
         } else {
             $result = $this->planReplacer->apply($user, $proposal);
 
             if (is_string($result)) {
-                $text = "I haven't replaced it: {$result} Nothing was changed. If you still want the workout on your plan, ask me again.";
+                $text = $es ? SpanishCoachMessages::replacementRefused($result) : "I haven't replaced it: {$result} Nothing was changed. If you still want the workout on your plan, ask me again.";
                 $status = 'refused';
             } else {
-                $text = 'Done. '.implode(' ', array_map(
+                $text = $es ? SpanishCoachMessages::replacementApplied($proposal->changes) : 'Done. '.implode(' ', array_map(
                     fn (array $c) => match (true) {
                         $c['action'] === PlanReplacementProposal::CREATE => 'I added '.PlanReplacementProposal::summarise($c['replacement'])." to {$c['date']}.",
                         $c['action'] === PlanReplacementProposal::CLEAR && $c['existing_plan_id'] === 0 => "I marked {$c['date']} as a rest day.",
@@ -670,7 +801,7 @@ class AiCoachService
      *
      * @param  array<int, array{name: string, arguments: array, result: mixed}>  $toolTrace
      */
-    private function correctClaims(string $text, ToolAuthorization $authorization, ToolTurn $turn, array $toolTrace): string
+    private function correctClaims(string $text, ToolAuthorization $authorization, ToolTurn $turn, array $toolTrace, bool $es = false): string
     {
         // A plan of several days is reported by the application alone (weekOutcome()): nothing of the model's is left to correct.
         if ($authorization->weekScope !== null) {
@@ -678,6 +809,18 @@ class AiCoachService
         }
 
         $wrote = $this->wroteSomething($toolTrace);
+
+        // The same two checks for a model that answered in Spanish.
+        if ($es || SpanishSaveIntent::writtenIn($text)) {
+            if (SpanishCoachMessages::claimsNoAccess($text)) {
+                return rtrim($text).SpanishCoachMessages::correctionNoAccess($wrote);
+            }
+
+            if (! $wrote && $authorization->saveScope === null && $turn->pendingReplacement() === null && ! $turn->confirmedChangeMade()
+                && SpanishCoachMessages::claimsPlanWritten($text) && ! str_contains($text, 'No he cambiado tu plan')) {
+                return rtrim($text).SpanishCoachMessages::correctionClaimedWritten();
+            }
+        }
 
         if (self::claimsNoAccess($text)) {
             return rtrim($text)."\n\nTo be clear, that is not a limit of the app: I can add and change workouts on your plan whenever you ask. "
@@ -818,9 +961,9 @@ class AiCoachService
     }
 
     /** The application's note that a range was stored as one number, with the blank line before it, or nothing. */
-    private function withRangeNote(ToolTurn $turn): string
+    private function withRangeNote(ToolTurn $turn, bool $es = false): string
     {
-        $note = $turn->rangeNote();
+        $note = $es ? $turn->rangeNoteSpanish() : $turn->rangeNote();
 
         return $note === null ? '' : "\n\n".$note;
     }
@@ -832,21 +975,25 @@ class AiCoachService
      *
      * @return array{0: string, 1: array<string, mixed>}
      */
-    private function saveOutcome(string $text, ToolTurn $turn, SaveWorkoutScope $scope): array
+    private function saveOutcome(string $text, ToolTurn $turn, SaveWorkoutScope $scope, bool $es = false): array
     {
         if (($pending = $turn->pendingReplacement()) !== null) {
-            return [$this->replacementQuestion($pending), $this->proposals->presentReplacement($pending) + ['save_clarification' => true]];
+            return [$es ? SpanishCoachMessages::replacementQuestion($pending) : $this->replacementQuestion($pending), $this->proposals->presentReplacement($pending) + ['save_clarification' => true]];
         }
 
         if (($replaced = $turn->replaced()) !== null) {
-            return [rtrim($text)."\n\nAs you asked, I replaced {$replaced['was']} on {$replaced['date']} with this workout.".$this->withRangeNote($turn), []];
+            return [rtrim($text)."\n\n".($es ? SpanishCoachMessages::replaced($replaced['was'], $replaced['date']) : "As you asked, I replaced {$replaced['was']} on {$replaced['date']} with this workout.").$this->withRangeNote($turn, $es), []];
         }
 
         if ($turn->workoutSaved()) {
-            return [rtrim($text).$this->withRangeNote($turn), []];
+            return [rtrim($text).$this->withRangeNote($turn, $es), []];
         }
 
         $performed = array_filter($turn->blocked(), fn (array $b) => $b['reason'] === 'day_already_performed') !== [];
+
+        if ($es) {
+            return [rtrim($text)."\n\n".SpanishCoachMessages::notSaved($scope->date, $performed), ['save_clarification' => true]];
+        }
 
         return [
             rtrim($text)."\n\n".($performed
@@ -863,17 +1010,20 @@ class AiCoachService
      * @param  Collection<int, Message>  $history
      * @return array{0: ?string, 1: ?PlanChangeProposal}
      */
-    private function followUp(User $user, Conversation $conversation, string $userMessage, ToolAuthorization $authorization, bool $confirmedChangeMade, Collection $history): array
+    private function followUp(User $user, Conversation $conversation, string $userMessage, ToolAuthorization $authorization, bool $confirmedChangeMade, Collection $history, bool $es = false): array
     {
         $explicit = 'To change your plan, send an explicit request that names the exercise, the load in kg and the day, for example "update my bench press to 45 kg on 2026-10-17".';
 
         if ($authorization->scopedProposal() !== null) {
-            return [$confirmedChangeMade ? null : "I couldn't make the change exactly as you confirmed it, so nothing was changed. If you still want it, ask again.", null];
+            return [$confirmedChangeMade ? null : ($es ? 'No pude hacer el cambio exactamente como lo confirmaste, así que no se cambió nada. Si todavía lo quieres, pídelo de nuevo.' : "I couldn't make the change exactly as you confirmed it, so nothing was changed. If you still want it, ask again."), null];
         }
 
         return match ($authorization->followUp) {
-            'proposal_no_longer_valid' => ["Your plan changed since I asked, so I didn't make that change. {$explicit}", null],
-            ToolAuthorization::FOLLOW_UP_NOTHING_PENDING => [
+            'proposal_no_longer_valid' => [$es ? SpanishCoachMessages::proposalNoLongerValid() : "Your plan changed since I asked, so I didn't make that change. {$explicit}", null],
+            ToolAuthorization::FOLLOW_UP_NOTHING_PENDING => $es ? [
+                SpanishCoachMessages::nothingPending($this->workoutReference->resolve($userMessage, $history)->origin === WorkoutReference::FROM_PREVIOUS_REPLY),
+                null,
+            ] : [
                 'There is nothing waiting for your confirmation (it may have expired). '
                 // A "yes" to a workout the coach described and offered to add confirms nothing: say what does.
                 .($this->workoutReference->resolve($userMessage, $history)->origin === WorkoutReference::FROM_PREVIOUS_REPLY ? 'To put the workout we just discussed on your plan, say "add this workout to my dashboard". ' : '')

@@ -251,6 +251,10 @@ class PerformanceHistoryAiToolsTest extends TestCase
 
     public function test_migrated_records_are_flagged_as_migrated_but_still_show_their_sets(): void
     {
+        // The row is dated mid-September and the tool looks back 60 days from "now": pin now beside it, so the test
+        // does not depend on the real calendar.
+        $this->travelTo(CarbonImmutable::parse('2026-09-15'));
+
         $this->legacyRow('2026-09-14', 'Dumbbell Rows', 'migrated', [[15, 6], [15, 6], [15, 6]]);
 
         $record = $this->tool('get_recent_workouts', ['days' => 60])[0]['exercises'][0];

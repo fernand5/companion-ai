@@ -110,6 +110,32 @@ class PendingProposalStore
         return $this->consume($conversation, $previous, self::REPLACEMENT_META_KEY, $now) ? $proposal : null;
     }
 
+    /**
+     * Whether $holder still presents a replacement that a clear "yes" from this user, in this conversation, could redeem
+     * right now: authentic, this user's, this conversation's, unexpired and unused. Read-only: it spends nothing and
+     * extends nothing, so asking the user to clarify an ambiguous answer leaves the proposal exactly as it was.
+     */
+    public function replacementIsOpen(Conversation $conversation, User $user, Message $holder, ?CarbonImmutable $now = null): bool
+    {
+        if ($conversation->user_id !== $user->id || $holder->conversation_id !== $conversation->id || $holder->role !== Message::ROLE_ASSISTANT) {
+            return false;
+        }
+
+        $raw = $holder->meta[self::REPLACEMENT_META_KEY] ?? null;
+
+        if (! is_array($raw) || array_key_exists('consumed_at', $raw)) {
+            return false;
+        }
+
+        $proposal = PlanReplacementProposal::fromMeta($raw);
+
+        return $proposal !== null
+            && $proposal->isAuthentic()
+            && $proposal->userId === $user->id
+            && $proposal->conversationId === $conversation->id
+            && ! $proposal->isExpired($now ?? CarbonImmutable::now());
+    }
+
     /** "Set consumed_at where it is still absent": the database applies it atomically, so exactly one caller wins. */
     private function consume(Conversation $conversation, Message $previous, string $key, CarbonImmutable $now): bool
     {
