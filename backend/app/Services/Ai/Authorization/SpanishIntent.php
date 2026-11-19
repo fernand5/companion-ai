@@ -16,15 +16,23 @@ final class SpanishIntent
 
     private const PLAN_NOUN = Lexicon::PLAN_NOUN_ES;
 
+    /**
+     * What a request to save may point at: a workout noun, "plan", and the common ways "entrenamiento" is mistyped,
+     * "entretenimiento" (entertainment) included. Read only inside a sentence that is already a request to put something
+     * on the plan; the application still has to find exactly one workout in the conversation, or it asks (an entertainment
+     * conversation holds none).
+     */
+    private const SAVE_NOUN = '(?:entrenamientos?|entrenamento|entramiento|entrenamietno|entrenameinto|entrenamientto|entretenimientos?|sesion(?:es)?|rutinas?|plan(?:es)?|carreras?|caminatas?|trotes?|circuitos?|ejercicios?|programas?)';
+
     private const WORKOUT_NOUN = Lexicon::WORKOUT_NOUN_ES;
 
     /** Where a workout goes: the dashboard, the plan, the calendar, the week, a day. */
-    private const DESTINATION = '(?:a|al|en|para|como|sobre|del?|hacia|dentro de)\s+(?:(?:mi|mis|el|la|tu|tus|nuestro|nuestra|este|esta|los|las)\s+)?(?:[\w\'-]+\s+){0,2}(?:dashboard|panel|plan|planificador|calendario|agenda|horario|semana|semanal|hoy|esta noche|manana|pasado manana|ayer|\d{4}-\d{2}-\d{2}|entrenamientos?|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b';
+    private const DESTINATION = '(?:a|al|en|para|como|sobre|del?|hacia|dentro de)\s+(?:(?:mi|mis|el|la|tu|tus|nuestro|nuestra|este|esta|los|las)\s+)?(?:[\w\'-]+\s+){0,2}(?:dashboard|panel|tablero|plan|planificador|calendario|agenda|horario|semana|semanal|hoy|esta noche|manana|pasado manana|ayer|\d{4}-\d{2}-\d{2}|entrenamientos?|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b';
 
     private const SAVE_VERB = '(?:guard(?:a|ar|alo|ala|alos|alas|e|elo|ela)|agreg(?:a|ar|alo|ala|alos|alas|ue|uelo|uela)|anad(?:e|ir|elo|ela|elos|elas|a|ela)|pon(?:er|lo|la|los|las|)|met(?:e|er|elo|ela)|envi(?:a|ar|alo|ala)|programa(?:r|lo|la)?|agenda(?:r|lo|la)?|incluy(?:e|elo|ela)|fij(?:a|ar|alo|ala)|aplic(?:a|ar|alo|ala)|us(?:a|ar|alo|ala))';
 
     /** "este entrenamiento", "esa rutina", "esto", "lo", "la opción 2", "la primera", "ambas opciones". */
-    private const ANAPHOR = '(?:(?:este|esta|estos|estas|ese|esa|esos|esas|el|la|los|las|tu|mi)\s+(?:[\w\'-]+\s+){0,1}'.Lexicon::WORKOUT_NOUN_ES.'(?:\s+(?:de arriba|que (?:me )?(?:diste|escribiste|sugeriste|describiste|enviaste)))?|(?:este|esta|esto|ese|esa|eso|estos|estas|esos|esas|los|las|lo|la)'
+    private const ANAPHOR = '(?:(?:este|esta|estos|estas|ese|esa|esos|esas|el|la|los|las|tu|mi)\s+(?:[\w\'-]+\s+){0,1}'.self::SAVE_NOUN.'(?:\s+(?:de arriba|que (?:me )?(?:diste|escribiste|sugeriste|describiste|enviaste)))?|(?:esto|eso|lo|la|los|las|(?:este|esta|ese|esa|estos|estas|esos|esas)(?=\s+(?:a|al|en|para|como|sobre|dentro de)\b))'
         .'|(?:opcion|plan|entrenamiento|rutina|sesion|version|alternativa|eleccion)\s*(?:#|no\.?|numero)?\s*(?:\d{1,2}|[a-d])'
         .'|(?:(?:el|la)\s+)?(?:primer[oa]?|segund[oa]|tercer[oa]?|ultim[oa]|mejor|otr[oa]|mas facil|mas dificil|mas corto|mas largo|mas ligero|mas pesado)\s+(?:opcion|entrenamiento|rutina|sesion|plan|version|eleccion)'
         .'|(?:ambas|ambos|todas|todos|cualquiera)(?:\s+de)?\s+(?:(?:las|los|estas|estos)\s+)?(?:opciones|entrenamientos|rutinas|sesiones|versiones|planes))';
@@ -107,6 +115,12 @@ final class SpanishIntent
 
         // "guárdalo en mi plan": the verb carries the "it".
         if (preg_match('/\b(?:guard|agreg|anad|met|envi|pon)(?:alo|ala|alos|alas|elo|ela|elos|elas|lo|la|los|las)\b[^.?!]{0,40}?\b'.$dest.'/u', $text)) {
+            return true;
+        }
+
+        // "actualiza mi plan de hoy con esta rutina": the plan updated WITH the routine that is pointed at is saving that routine,
+        // the narrower request, never the broad "change my plan" one (which may ask for heavier loads).
+        if (preg_match("/\\b(?:actualiz(?:a|ar)|rellen(?:a|ar))\\s+(?:mi|el|la|tu|nuestro|nuestra)\\s+(?:[\\w'-]+\\s+){0,3}(?:plan|entrenamiento|rutina|dia|sesion|calendario|agenda)\\b[^.?!]{0,30}?\\b(?:con|por|usando|utilizando)\\s+(?:este|esta|esto|ese|esa|eso|el (?:entrenamiento|plan|rutina|sesion) (?:de arriba|anterior|que (?:me |te )?(?:acabas de|diste|escribiste|sugeriste|recomendaste|describiste|propusiste)))\\b/u", $text)) {
             return true;
         }
 

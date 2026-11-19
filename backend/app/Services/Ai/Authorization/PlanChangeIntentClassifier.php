@@ -226,6 +226,16 @@ final class PlanChangeIntentClassifier
         );
     }
 
+    /** "¿por qué no lo agregaste al dashboard?", "why didn't you add it?": asks why a workout is not on the plan (a question, never a request). */
+    public static function asksWhyNotSaved(string $message): bool
+    {
+        if (preg_match('/\b(?:por ?que|porque|como es que)\s+no\s+(?:me\s+)?(?:lo|la|los|las)?\s*(?:agregaste|guardaste|anadiste|pusiste|metiste|programaste|actualizaste|enviaste|has agregado|has guardado|has anadido|has puesto)\b/u', Lexicon::fold($message))) {
+            return true;
+        }
+
+        return (bool) preg_match("/\\bwhy (?:didn'?t|did not|haven'?t|have not|hasn'?t|wasn'?t|was not|isn'?t|is not)\\b[^.?!]{0,30}\\b(?:add\\w*|sav\\w*|put|push\\w*|schedul\\w*|updat\\w*)\\b/u", mb_strtolower($message));
+    }
+
     /**
      * "yes", "ok do it", "go ahead", "sure", "sí", "sí, reemplázalo", "claro", "dale": no content of its own. A bare "si"
      * with no accent is not consent (it may be "if"): see Confirmation.

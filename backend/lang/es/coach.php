@@ -43,6 +43,8 @@ return [
     'save' => [
         'failed' => 'No he cambiado tu plan: el entrenamiento no se guardó. Pídemelo de nuevo con ":save_workout", o envía los ejercicios en un solo mensaje.',
         'day_performed' => 'No he cambiado tu plan: el :date ya tiene un entrenamiento realizado y registrado, así que su plan no se puede reemplazar. Elige otro día, como ":save_workout_tomorrow".',
+        'why_not_saved' => 'No se ha guardado ningún entrenamiento en tu plan en esta conversación: la aplicación no registró ninguna escritura, y no voy a decirte que se guardó. Para guardar el entrenamiento que te acabo de mostrar, escribe ":save_workout" (y el día, si quieres uno distinto de hoy). Si algo lo impide (un entrenamiento que no puedo leer completo, un día que ya tiene uno o un día poco claro), te diré exactamente qué es.',
+        'why_not_saved_last' => 'Esto es lo último que pasó, con las palabras de la aplicación: :notice',
         'replaced_as_asked' => 'Como pediste, reemplacé :was el :date por este entrenamiento.',
         'cannot_ask_confirmation' => 'No he cambiado tu plan: eso reemplazaría un día que ya tiene un plan y no pude pedirte que lo confirmes en este momento. Inténtalo de nuevo.',
     ],

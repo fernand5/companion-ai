@@ -65,6 +65,33 @@ class PendingProposalStore
         return $this->consume($conversation, $previous, self::META_KEY, $now) ? $proposal : null;
     }
 
+    /**
+     * Whether $holder still presents a proposal (under $key) that a clear "yes" from this user, in this conversation, could
+     * redeem right now: authentic, this user's, this conversation's, unexpired and unused. Read-only: it spends nothing and
+     * extends nothing, so asking the user to clarify an ambiguous answer leaves the proposal exactly as it was, and a
+     * proposal that has expired or been used is never described as "still open".
+     */
+    public function isOpen(Conversation $conversation, User $user, ?Message $holder, string $key, ?CarbonImmutable $now = null): bool
+    {
+        if ($holder === null || $conversation->user_id !== $user->id || $holder->conversation_id !== $conversation->id || $holder->role !== Message::ROLE_ASSISTANT) {
+            return false;
+        }
+
+        $raw = $holder->meta[$key] ?? null;
+
+        if (! is_array($raw) || array_key_exists('consumed_at', $raw)) {
+            return false;
+        }
+
+        $proposal = $key === self::REPLACEMENT_META_KEY ? PlanReplacementProposal::fromMeta($raw) : PlanChangeProposal::fromMeta($raw);
+
+        return $proposal !== null
+            && $proposal->isAuthentic()
+            && $proposal->userId === $user->id
+            && $proposal->conversationId === $conversation->id
+            && ! $proposal->isExpired($now ?? CarbonImmutable::now());
+    }
+
     /** The meta to store on the assistant message that presents $proposal. */
     public function presentReplacement(PlanReplacementProposal $proposal): array
     {

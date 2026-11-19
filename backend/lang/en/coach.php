@@ -45,6 +45,8 @@ return [
     'save' => [
         'failed' => 'I haven\'t changed your plan: the workout was not saved. Ask me again with ":save_workout", or send the exercises in one message.',
         'day_performed' => 'I haven\'t changed your plan: :date already has recorded workout performance, so its plan can\'t be replaced. Pick another day, like ":save_workout_tomorrow".',
+        'why_not_saved' => 'Nothing has been saved to your plan in this conversation: the application recorded no write, and I won\'t tell you it was saved. To save the workout I just showed you, say ":save_workout" (and the day, if you want one other than today). If something stops it (a workout I can\'t read in full, a day that already has one, or an unclear day), I will tell you exactly what.',
+        'why_not_saved_last' => 'This is what happened last, in the application\'s own words: :notice',
         'replaced_as_asked' => 'As you asked, I replaced :was on :date with this workout.',
         'cannot_ask_confirmation' => 'I haven\'t changed your plan: that would replace a day that already has a plan, and I couldn\'t ask you to confirm it just now. Please try again.',
     ],

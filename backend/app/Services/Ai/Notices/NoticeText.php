@@ -255,6 +255,18 @@ final class NoticeText
             ."\n".$this->t('plan.replacement.confirm_all', ['minutes' => $minutes]);
     }
 
+    /** "Why didn't you add it?": nothing was written in this conversation, said from what the application recorded. */
+    public function whyNotSaved(): string
+    {
+        return $this->t('coach.save.why_not_saved');
+    }
+
+    /** "Why didn't you add it?" after a blocked save: the application's own last notice about it, not a reason made up now. */
+    public function whyNotSavedLast(string $notice): string
+    {
+        return $this->t('coach.save.why_not_saved_last', ['notice' => $notice]);
+    }
+
     // ---- the answer to a "yes" to a held replacement ------------------------------------------------------------------------
 
     /** A reply to a question that is not clearly a yes (see Confirmation): nothing happened and the question is still open. */

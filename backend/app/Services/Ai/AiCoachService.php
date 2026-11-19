@@ -26,6 +26,7 @@ use App\Services\Ai\Authorization\WeekPlanReference;
 use App\Services\Ai\Authorization\WeekSaveScope;
 use App\Services\Ai\Authorization\WorkoutReference;
 use App\Services\Ai\Contracts\AiProvider;
+use App\Services\Ai\Notices\ApplicationNotices;
 use App\Services\Ai\Notices\NoticeCode;
 use App\Services\Ai\Notices\NoticeText;
 use App\Services\Ai\Notices\PlanClaims;
@@ -132,6 +133,11 @@ class AiCoachService
         // again, in its own words, and the question it asked stays open for a clear answer.
         if (($clarified = $this->clarifyConfirmation($user, $conversation, $userMessage, $startedAt)) !== null) {
             return $clarified;
+        }
+
+        // "¿Por qué no lo agregaste?" / "why didn't you add it?" is answered from what the application actually did.
+        if (($why = $this->whyNotSaved($user, $conversation, $userMessage, $startedAt)) !== null) {
+            return $why;
         }
 
         // Ordinary chat needs to see the whole week (not just today) so it can
@@ -606,6 +612,52 @@ class AiCoachService
     }
 
     /** A reply that is not clearly a yes, to a question that is still open: the application says nothing was confirmed. */
+    /**
+     * "Why didn't you add it?": answered by the application from what it recorded in this conversation, not by the model.
+     * If a write DID happen here, the turn goes on as usual (the model may describe it). If its last reply was the
+     * application explaining a blocker, that explanation is repeated in its own words; otherwise the user is told that
+     * nothing was saved and how to ask. Nothing is claimed that is not in the database.
+     */
+    private function whyNotSaved(User $user, Conversation $conversation, string $userMessage, float $startedAt): ?Message
+    {
+        if (! PlanChangeIntentClassifier::asksWhyNotSaved($userMessage)) {
+            return null;
+        }
+
+        $assistant = $conversation->messages()->where('role', Message::ROLE_ASSISTANT)->orderBy('id')->get();
+
+        foreach ($assistant as $message) {
+            foreach ((array) ($message->meta['tool_calls'] ?? []) as $call) {
+                $result = $call['result'] ?? null;
+
+                if (in_array($call['name'] ?? '', ['create_workout_plan', 'propose_weekly_plan_changes'], true) && is_array($result) && ! array_key_exists('error', $result)) {
+                    return null;
+                }
+            }
+
+            if (($message->meta['plan_replacement'] ?? null) === 'applied') {
+                return null;
+            }
+        }
+
+        $words = NoticeText::for($user);
+        $last = $assistant->last();
+        $notice = '';
+
+        if (($last?->meta['save_clarification'] ?? false) === true) {
+            $notice = trim(mb_substr((string) $last->content, mb_strlen(ApplicationNotices::modelText($last))));
+        }
+
+        return $this->answerWithoutModel(
+            $user,
+            $conversation,
+            ToolAuthorization::readOnly('why_not_saved'),
+            ReplyText::application(NoticeCode::WHY_NOT_SAVED, $notice !== '' ? $words->whyNotSavedLast($notice) : $words->whyNotSaved()),
+            [],
+            $startedAt,
+        );
+    }
+
     private function clarifyConfirmation(User $user, Conversation $conversation, string $userMessage, float $startedAt): ?Message
     {
         if (! Confirmation::isUnclear($userMessage)) {
@@ -615,9 +667,8 @@ class AiCoachService
         $previous = $conversation->messages()->reorder('created_at', 'desc')->orderByDesc('id')->limit(2)->get()->get(1);
         $presenter = $this->presenterOf($previous, $conversation);
 
-        $open = static fn (?Message $m, string $key) => $m?->role === Message::ROLE_ASSISTANT
-            && is_array($m->meta[$key] ?? null)
-            && ! array_key_exists('consumed_at', $m->meta[$key]);
+        // Only a proposal that could still be redeemed right now is "still open": an expired, used, forged or foreign one is not.
+        $open = fn (?Message $m, string $key) => $this->proposals->isOpen($conversation, $user, $m, $key);
 
         if (! $open($presenter, PendingProposalStore::REPLACEMENT_META_KEY) && ! $open($presenter, PendingProposalStore::META_KEY)) {
             return null;

@@ -51,6 +51,9 @@ final class NoticeCode
     /** A short answer that is not clearly a yes (a bare "si" with no accent, "maybe"): nothing was confirmed, and the question stands. */
     public const CONFIRMATION_UNCLEAR = 'confirmation_unclear';
 
+    /** The answer to "why didn't you save it?" when the application recorded no write in the conversation, or the last reply it gave about it. */
+    public const WHY_NOT_SAVED = 'why_not_saved';
+
     public const WEEK_SAVED = 'week_saved';
 
     public const WEEK_BLOCKED = 'week_blocked';
@@ -82,6 +85,7 @@ final class NoticeCode
         self::CLAIM_ACCESS_CORRECTED,
         self::CLAIM_SAVED_CORRECTED,
         self::CONFIRMATION_UNCLEAR,
+        self::WHY_NOT_SAVED,
     ];
 
     /** A code as it may be stored and read back: lower case, digits, underscores, bounded. */
