@@ -2,17 +2,20 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import ExercisePerformanceEditor from '@/components/ExercisePerformanceEditor.vue'
 import ExerciseDemo from '@/components/ExerciseDemo.vue'
 import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
+import { formatMeasure } from '@/i18n/format'
 import { useWorkoutPlanStore } from '@/stores/workoutPlan'
 import type { PlanExerciseStatus, WorkoutPlanExercise } from '@/types'
 import { formatPerformedSets } from '@/utils/format'
 
 const store = useWorkoutPlanStore()
+const { t } = useI18n()
 const plan = computed(() => store.today)
 /** The exercise whose set-by-set editor is open (one at a time keeps the card short). */
 const editingId = ref<number | null>(null)
@@ -32,10 +35,10 @@ function summary(exercise: WorkoutPlanExercise): string {
   if (exercise.planned_sets && exercise.planned_reps) {
     const target = `${exercise.planned_sets} × ${exercise.planned_reps}`
 
-    return exercise.planned_weight_kg !== null ? `${target} @ ${exercise.planned_weight_kg} kg` : target
+    return exercise.planned_weight_kg !== null ? `${target} @ ${formatMeasure(Number(exercise.planned_weight_kg))} kg` : target
   }
   if (exercise.planned_duration_seconds) {
-    return `${Math.round(exercise.planned_duration_seconds / 60)} min`
+    return t('units.minutes', { n: Math.round(exercise.planned_duration_seconds / 60) })
   }
   return ''
 }
@@ -43,7 +46,7 @@ function summary(exercise: WorkoutPlanExercise): string {
 function performanceText(exercise: WorkoutPlanExercise): string {
   const sets = exercise.performance?.sets ?? []
 
-  return sets.length > 0 ? formatPerformedSets(sets) : 'amount not recorded'
+  return sets.length > 0 ? formatPerformedSets(sets) : t('todaysPlan.amountNotRecorded')
 }
 
 function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
@@ -57,7 +60,7 @@ function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
       <div>
         <p class="flex items-center gap-1.5 text-xs font-medium tracking-wide text-slate-400 uppercase">
           <FontAwesomeIcon :icon="icons.nav.activity" :class="ICON_SIZE.xs" />
-          Today's plan
+          {{ t('todaysPlan.title') }}
         </p>
         <h2 class="font-semibold text-slate-900">{{ plan.title }}</h2>
       </div>
@@ -69,7 +72,7 @@ function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
           'bg-slate-100 text-slate-500': plan.status === 'planned' || plan.status === 'skipped',
         }"
       >
-        {{ plan.status.replace('_', ' ') }}
+        {{ t(`enums.planStatus.${plan.status}`) }}
       </span>
     </div>
 
@@ -77,10 +80,10 @@ function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
 
     <ul v-if="plan.exercises.length > 0" class="space-y-1.5">
       <li v-for="exercise in plan.exercises" :key="exercise.id" class="rounded-lg px-2 py-1.5 hover:bg-slate-50">
-        <div class="flex items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <button
             type="button"
-            class="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
+            class="flex min-w-[10rem] flex-1 items-center gap-2 text-left text-sm"
             @click="setStatus(exercise, exercise.status === 'completed' ? 'pending' : 'completed')"
           >
             <FontAwesomeIcon
@@ -97,13 +100,13 @@ function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
             <span class="shrink-0 text-xs text-slate-400">{{ summary(exercise) }}</span>
           </button>
 
-          <div class="flex shrink-0 items-center gap-1 text-xs">
+          <div class="flex shrink-0 items-center gap-2 pl-6 text-xs sm:pl-0">
             <button
               v-if="exercise.status !== 'pending'"
               type="button"
               class="p-1 text-slate-400 hover:text-slate-600"
-              aria-label="Reset to pending"
-              title="Reset to pending"
+              :aria-label="t('a11y.resetPending')"
+              :title="t('todaysPlan.resetPending')"
               @click="setStatus(exercise, 'pending')"
             >
               <FontAwesomeIcon :icon="icons.action.reset" :class="ICON_SIZE.sm" />
@@ -115,7 +118,7 @@ function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
                 @click="setStatus(exercise, 'partial')"
               >
                 <FontAwesomeIcon :icon="icons.planStatus.partial" :class="ICON_SIZE.xs" />
-                Partial
+                {{ t('todaysPlan.partial') }}
               </button>
               <button
                 type="button"
@@ -123,7 +126,7 @@ function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
                 @click="setStatus(exercise, 'skipped')"
               >
                 <FontAwesomeIcon :icon="icons.planStatus.skipped" :class="ICON_SIZE.xs" />
-                Skip
+                {{ t('todaysPlan.skip') }}
               </button>
             </template>
           </div>
@@ -132,13 +135,13 @@ function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
         <!-- Actual performance, kept apart from the target shown on the row above. -->
         <div class="mt-1.5 space-y-1.5 pl-6">
           <p v-if="exercise.performance" class="text-xs text-slate-500" data-testid="logged-sets">
-            <span class="font-medium text-slate-600">Logged</span> {{ performanceText(exercise) }}
+            <span class="font-medium text-slate-600">{{ t('todaysPlan.logged') }}</span> {{ performanceText(exercise) }}
             <span
               v-if="exercise.performance.recorded_as === 'as_planned'"
               class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400"
-              title="Marked done without entering numbers — the plan's target is assumed."
+              :title="t('todaysPlan.asPlannedTitle')"
             >
-              as planned
+              {{ t('enums.recordedAs.as_planned') }}
             </span>
           </p>
           <button
@@ -147,7 +150,7 @@ function setStatus(exercise: WorkoutPlanExercise, status: PlanExerciseStatus) {
             @click="editingId = editingId === exercise.id ? null : exercise.id"
           >
             <FontAwesomeIcon :icon="icons.action.edit" :class="ICON_SIZE.xs" />
-            {{ exercise.performance?.recorded_as === 'entered' ? 'Edit sets' : 'Log sets' }}
+            {{ exercise.performance?.recorded_as === 'entered' ? t('todaysPlan.editSets') : t('todaysPlan.logSets') }}
           </button>
           <ExercisePerformanceEditor v-if="editingId === exercise.id" :exercise="exercise" @close="editingId = null" />
         </div>

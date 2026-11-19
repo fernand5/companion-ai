@@ -7,11 +7,13 @@ use App\Models\Message;
 use App\Models\User;
 use App\Models\WorkoutPlan;
 use App\Services\Ai\Authorization\PendingProposalStore;
+use App\Services\Ai\Authorization\PlanLoadGuard;
 use App\Services\Ai\Authorization\PlanReplacementProposal;
 use App\Services\Ai\Authorization\PlanReplacer;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\DTOs\AiResponse;
 use App\Services\Ai\DTOs\ToolCallRequest;
+use App\Services\Fitness\WeeklyPlanService;
 use App\Services\Fitness\WorkoutPlanService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -143,11 +145,11 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         $this->assertSame($revision, $plan->revision(), 'Nothing about the existing plan changed.');
 
         $reply = $this->lastAssistant($conversation);
-        $this->assertStringNotContainsString('Done!', $reply->content, "The model's claim that it replaced the plan is not passed on.");
-        $this->assertStringContainsString("I haven't changed your plan", $reply->content);
-        $this->assertStringContainsString('“Old plan” (Squats 3×10)', $reply->content, 'It shows what is there now.');
-        $this->assertStringContainsString('“Upper body” (Push-ups 3×12, Dumbbell rows 3×10, Plank 30 s)', $reply->content, 'And exactly what would replace it.');
-        $this->assertStringContainsString('Reply "yes" within 15 minutes', $reply->content);
+        $this->assertSaysNot('Done!', $reply->content, "The model's claim that it replaced the plan is not passed on.");
+        $this->assertSays("I haven't changed your plan", $reply->content);
+        $this->assertSays('“Old plan” (Squats 3×10)', $reply->content, 'It shows what is there now.');
+        $this->assertSays('“Upper body” (Push-ups 3×12, Dumbbell rows 3×10, Plank 30 s)', $reply->content, 'And exactly what would replace it.');
+        $this->assertSays('Reply "yes" within 15 minutes', $reply->content);
         $this->assertNotNull($this->pendingMeta($conversation));
     }
 
@@ -166,7 +168,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         $this->assertSame(1, WorkoutPlan::where('user_id', $this->user->id)->count());
 
         $reply = $this->lastAssistant($conversation);
-        $this->assertStringStartsWith('Done. I replaced “Old plan” (Squats 3×10)', $reply->content);
+        $this->assertSaysStartsWith('Done. I replaced “Old plan” (Squats 3×10)', $reply->content);
         $this->assertSame('applied', $reply->meta['plan_replacement']);
     }
 
@@ -207,7 +209,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         $this->say('yes', $conversation);
 
         $this->assertSame('Old plan', $this->planOn($this->today)->title, 'The question was not the last thing said.');
-        $this->assertStringContainsString('nothing waiting for your confirmation', $this->lastAssistant($conversation)->content);
+        $this->assertSays('nothing waiting for your confirmation', $this->lastAssistant($conversation)->content);
     }
 
     public function test_a_rest_day_is_a_plan_too_and_needs_the_same_confirmation(): void
@@ -218,7 +220,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         $this->say('Add this workout to my dashboard', $conversation, null, $this->saveCall(), new AiResponse(text: 'Done.'));
 
         $this->assertSame('Rest', $this->planOn($this->today)->title);
-        $this->assertStringContainsString('already has a rest day', $this->lastAssistant($conversation)->content);
+        $this->assertSays('already has a rest day', $this->lastAssistant($conversation)->content);
 
         $this->say('yes', $conversation);
         $this->assertSame('Upper body', $this->planOn($this->today)->title);
@@ -241,7 +243,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         // The named day now has a plan: asking again is a replacement of that day, and only that day.
         $conversation = $this->coachDescribesAWorkout();
         $this->say("Add this workout to my plan for {$name}", $conversation, null, $this->saveCall($named, 'Second'), new AiResponse(text: 'Added.'));
-        $this->assertStringContainsString("{$named} already has", $this->lastAssistant($conversation)->content);
+        $this->assertSays("{$named} already has", $this->lastAssistant($conversation)->content);
         $this->assertSame('Upper body', $this->planOn($named)->title);
         $this->assertSame($named, $this->pendingMeta($conversation)['changes'][0]['date']);
         $this->assertNotSame($today->id, $this->pendingMeta($conversation)['changes'][0]['existing_plan_id'], "The proposal is about the named day's plan, not today's.");
@@ -277,7 +279,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
 
             $this->assertSame('Upper body', $this->planOn($this->today)->title, $request);
             $this->assertNull($this->pendingMeta($conversation), $request);
-            $this->assertStringContainsString('As you asked, I replaced “Old plan” (Squats 3×10) on '.$this->today, $this->lastAssistant($conversation)->content, 'The application says it, not only the model.');
+            $this->assertSays('As you asked, I replaced “Old plan” (Squats 3×10) on '.$this->today, $this->lastAssistant($conversation)->content, 'The application says it, not only the model.');
         }
     }
 
@@ -308,7 +310,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
 
             $this->assertSame($before, $this->planOn($this->today)->revision(), $request);
             $this->assertNull($this->pendingMeta($conversation), 'No question is asked about something that cannot be done.');
-            $this->assertStringContainsString('already has recorded workout performance', $this->lastAssistant($conversation)->content, $request);
+            $this->assertSays('already has recorded workout performance', $this->lastAssistant($conversation)->content, $request);
         }
     }
 
@@ -322,7 +324,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
             $this->say("Replace today's workout with this one", $conversation, null, $this->saveCall(), new AiResponse(text: 'Done.'));
 
             $this->assertSame('Old plan', $this->planOn($this->today)->title, $status);
-            $this->assertStringContainsString('recorded workout performance', $this->lastAssistant($conversation)->content, $status);
+            $this->assertSays('recorded workout performance', $this->lastAssistant($conversation)->content, $status);
         }
     }
 
@@ -340,7 +342,35 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         $this->assertSame('Old plan', $this->planOn($this->today)->title);
         $this->assertSame(['Squats'], $this->planOn($this->today)->exercises->pluck('exercise_name')->all());
         $this->assertSame('refused', $this->lastAssistant($conversation)->meta['plan_replacement']);
-        $this->assertStringContainsString('changed after I asked', $this->lastAssistant($conversation)->content);
+        $this->assertSays('changed after I asked', $this->lastAssistant($conversation)->content);
+    }
+
+    public function test_a_confirmed_replacement_is_applied_in_english_whatever_language_the_user_chose(): void
+    {
+        // Phase 7 / M3c: the replacer's refusals are English wording the notices are rebuilt from, and its validation
+        // is what the application decides on, so it runs in English for a Spanish user too (and the language is back after).
+        $seen = new \ArrayObject;
+        $this->app->extend(PlanReplacer::class, fn (PlanReplacer $real) => new class($seen) extends PlanReplacer
+        {
+            public function __construct(private \ArrayObject $seen)
+            {
+                parent::__construct(app(WorkoutPlanService::class), app(WeeklyPlanService::class), app(PlanLoadGuard::class));
+            }
+
+            public function apply(User $user, PlanReplacementProposal $proposal): array|string
+            {
+                $this->seen[] = app()->getLocale();
+
+                return parent::apply($user, $proposal);
+            }
+        });
+
+        $conversation = $this->askedToReplace();
+        $this->say('yes', $conversation);
+
+        $this->assertSame(['en'], $seen->getArrayCopy(), 'The replacement ran in English.');
+        $this->assertSame('applied', $this->lastAssistant($conversation)->meta['plan_replacement']);
+        $this->assertSame('en', app()->getLocale());
     }
 
     public function test_the_application_itself_refuses_to_replace_a_performed_day_even_if_everything_else_matches(): void
@@ -371,7 +401,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
 
         $this->assertSame('Old plan', $this->planOn($this->today)->title);
         $this->assertSame(12, $this->planOn($this->today)->exercises->first()->planned_reps, 'What changed since is kept.');
-        $this->assertStringContainsString('changed after I asked', $this->lastAssistant($conversation)->content);
+        $this->assertSays('changed after I asked', $this->lastAssistant($conversation)->content);
     }
 
     public function test_a_plan_removed_or_swapped_after_the_question_is_not_touched(): void
@@ -381,7 +411,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
 
         $this->say('yes', $conversation);
         $this->assertNull($this->planOn($this->today), 'It does not create the workout on a day that is now empty: the confirmation was for a replacement.');
-        $this->assertStringContainsString('no longer there', $this->lastAssistant($conversation)->content);
+        $this->assertSays('no longer there', $this->lastAssistant($conversation)->content);
 
         $conversation = $this->askedToReplace();
         $this->existingPlan('Swapped in a moment ago');
@@ -398,7 +428,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
 
         $this->assertSame('Old plan', $this->planOn($this->today)->title);
         $this->assertSame('invalid', $this->lastAssistant($conversation)->meta['plan_replacement']);
-        $this->assertStringContainsString('no longer valid', $this->lastAssistant($conversation)->content);
+        $this->assertSays('no longer valid', $this->lastAssistant($conversation)->content);
     }
 
     public function test_a_confirmation_works_up_to_the_limit(): void
@@ -548,7 +578,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         ]), new AiResponse(text: 'Done.'));
 
         $this->assertNull($this->pendingMeta($conversation)['changes'][0]['replacement']['exercises'][0]['planned_weight_kg'], 'The weight in the coach\'s own reply is not signed into the proposal.');
-        $this->assertStringContainsString('I left the starting weight for Goblet Squat unset', $this->lastAssistant($conversation)->content);
+        $this->assertSays('I left the starting weight for Goblet Squat unset', $this->lastAssistant($conversation)->content);
 
         $this->say('yes', $conversation);
         $this->assertNull($this->planOn($this->today)->exercises->first()->planned_weight_kg);
@@ -607,7 +637,7 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         $this->assertSame(0, WorkoutPlan::where('user_id', $this->user->id)->count(), 'Neither attempt wrote anything.');
         $reply = $this->lastAssistant($conversation);
         $this->assertSame(['outside_requested_workout', 'outside_requested_workout'], array_column($reply->meta['blocked_tool_calls'], 'reason'));
-        $this->assertStringContainsString('the workout was not saved', $reply->content, 'A model that says "Saved!" is corrected by the application.');
+        $this->assertSays('the workout was not saved', $reply->content, 'A model that says "Saved!" is corrected by the application.');
     }
 
     public function test_the_workout_is_written_once_per_request(): void
@@ -627,6 +657,6 @@ class ReplaceDayPlanConfirmationTest extends PerformanceEvalCase
         $this->say('Add this workout to my dashboard', $conversation, null, new AiResponse(text: "Done! It's on your dashboard."));
 
         $this->assertSame(0, WorkoutPlan::where('user_id', $this->user->id)->count());
-        $this->assertStringContainsString("I haven't changed your plan: the workout was not saved", $this->lastAssistant($conversation)->content);
+        $this->assertSays("I haven't changed your plan: the workout was not saved", $this->lastAssistant($conversation)->content);
     }
 }

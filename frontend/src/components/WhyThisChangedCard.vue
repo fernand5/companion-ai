@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { useI18n } from 'vue-i18n'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
+
+const { t } = useI18n()
 
 withDefaults(
   defineProps<{
@@ -19,7 +22,7 @@ withDefaults(
   >
     <p class="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
       <FontAwesomeIcon :icon="icons.info" :class="ICON_SIZE.xs" />
-      Why this changed
+      {{ t('weeklyPlan.whyChanged') }}
     </p>
     <ul v-if="reasoningFactors.length > 0" class="mt-1.5 list-disc space-y-0.5 pl-4">
       <li v-for="(factor, idx) in reasoningFactors" :key="idx">{{ factor }}</li>

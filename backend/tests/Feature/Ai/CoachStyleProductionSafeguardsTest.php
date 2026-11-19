@@ -119,17 +119,17 @@ class CoachStyleProductionSafeguardsTest extends PerformanceEvalCase
 
             foreach ($this->fake->calls as $i => $call) {
                 $system = $call['messages'][0]['content'];
-                $this->assertStringContainsString(self::STYLE_MARKER[$style], $system, "{$label}: model call {$i} was not sent the chosen style");
-                $this->assertStringContainsString(self::DETAIL_MARKER[$detail], $system, "{$label}: model call {$i} was not sent the chosen detail");
+                $this->assertSays(self::STYLE_MARKER[$style], $system, "{$label}: model call {$i} was not sent the chosen style");
+                $this->assertSays(self::DETAIL_MARKER[$detail], $system, "{$label}: model call {$i} was not sent the chosen detail");
 
                 foreach (self::STYLE_MARKER as $other => $marker) {
                     if ($other !== $style) {
-                        $this->assertStringNotContainsString($marker, $system, "{$label}: model call {$i} carried the {$other} style too");
+                        $this->assertSaysNot($marker, $system, "{$label}: model call {$i} carried the {$other} style too");
                     }
                 }
                 foreach (self::DETAIL_MARKER as $other => $marker) {
                     if ($other !== $detail) {
-                        $this->assertStringNotContainsString($marker, $system, "{$label}: model call {$i} carried the {$other} detail too");
+                        $this->assertSaysNot($marker, $system, "{$label}: model call {$i} carried the {$other} detail too");
                     }
                 }
             }
@@ -239,15 +239,15 @@ class CoachStyleProductionSafeguardsTest extends PerformanceEvalCase
             $system = $this->fake->calls[0]['messages'][0]['content'];
 
             // What production added after Phase 6 was written is still in every prompt.
-            $this->assertStringContainsString('## Plans for several days', $system);
-            $this->assertStringContainsString('the application then saves ALL of its days together, or none', $system);
-            $this->assertStringContainsString('## App navigation', $system);
-            $this->assertStringContainsString('Progress: adherence chart, weekly summary, performance history and the load progression recommendations', $system);
-            $this->assertStringContainsString('Safety: you are a fitness/wellness coach, not a medical professional.', $system);
+            $this->assertSays('## Plans for several days', $system);
+            $this->assertSays('the application then saves ALL of its days together, or none', $system);
+            $this->assertSays('## App navigation', $system);
+            $this->assertSays('Progress: adherence chart, weekly summary, performance history and the load progression recommendations', $system);
+            $this->assertSays('Safety: you are a fitness/wellness coach, not a medical professional.', $system);
 
             // The voice comes before the rules, and the old fixed tone line is gone, so there is one voice, not two.
             $this->assertLessThan(strpos($system, 'Critical rules:'), strpos($system, '## Coaching voice'));
-            $this->assertStringNotContainsString('Tone: supportive, practical, concise', $system);
+            $this->assertSaysNot('Tone: supportive, practical, concise', $system);
 
             return [];
         });
@@ -260,8 +260,8 @@ class CoachStyleProductionSafeguardsTest extends PerformanceEvalCase
             $this->ask($user, 'Give me a plan for the rest of the week');
             $system = $this->fake->calls[0]['messages'][0]['content'];
 
-            $this->assertStringContainsString('write any workout or plan you give out in full (every day and exercise with its sets, reps or time)', $system);
-            $this->assertStringContainsString('detail sets how much you explain around it, never how much of it you write', $system);
+            $this->assertSays('write any workout or plan you give out in full (every day and exercise with its sets, reps or time)', $system);
+            $this->assertSays('detail sets how much you explain around it, never how much of it you write', $system);
 
             return [];
         });
@@ -279,10 +279,10 @@ class CoachStyleProductionSafeguardsTest extends PerformanceEvalCase
             $this->ask(User::findOrFail($user->id), 'Did I get stronger on bench?');
             $system = $this->fake->calls[0]['messages'][0]['content'];
 
-            $this->assertStringContainsString('## Reading "Recent performance"', $system, "{$label}: the reading rules are present");
-            $this->assertStringContainsString('answer in your coaching voice and detail (set above)', $system, $label);
-            $this->assertStringNotContainsString('be concise and encouraging', $system, "{$label}: a fixed length and tone line would contradict the chosen voice");
-            $this->assertStringContainsString('Never prescribe a maximal effort, a load jump justified by this history alone, or pushing harder because a target was missed', $system, "{$label}: the safety rule is untouched");
+            $this->assertSays('## Reading "Recent performance"', $system, "{$label}: the reading rules are present");
+            $this->assertSays('answer in your coaching voice and detail (set above)', $system, $label);
+            $this->assertSaysNot('be concise and encouraging', $system, "{$label}: a fixed length and tone line would contradict the chosen voice");
+            $this->assertSays('Never prescribe a maximal effort, a load jump justified by this history alone, or pushing harder because a target was missed', $system, "{$label}: the safety rule is untouched");
         }
     }
 
@@ -336,8 +336,8 @@ class CoachStyleProductionSafeguardsTest extends PerformanceEvalCase
 
         $base = $results[self::BASELINE];
         $this->assertSame([self::SATURDAY, self::SUNDAY], array_column($base['plans'], 'date'), 'exactly the two days shown');
-        $this->assertStringStartsWith('Done. I added this to your plan, all together, and checked that it is saved:', $base['turn']['answer']);
-        $this->assertStringNotContainsString('both days are on your dashboard', $base['turn']['answer'], 'the application speaks for what was saved, in every voice');
+        $this->assertSaysStartsWith('Done. I added this to your plan, all together, and checked that it is saved:', $base['turn']['answer']);
+        $this->assertSaysNot('both days are on your dashboard', $base['turn']['answer'], 'the application speaks for what was saved, in every voice');
         $this->assertNoVoiceChangesTheOutcome($results);
     }
 
@@ -437,7 +437,7 @@ class CoachStyleProductionSafeguardsTest extends PerformanceEvalCase
             return ['late' => $late['answer'], 'plans' => $this->plansOf($user)];
         });
 
-        $this->assertStringContainsString('more than 15 minutes old', $results[self::BASELINE]['late']);
+        $this->assertSays('more than 15 minutes old', $results[self::BASELINE]['late']);
         $this->assertSame([], $results[self::BASELINE]['plans']);
         $this->assertNoVoiceChangesTheOutcome($results);
     }
@@ -459,7 +459,7 @@ class CoachStyleProductionSafeguardsTest extends PerformanceEvalCase
         $base = $results[self::BASELINE];
         $this->assertSame([self::SUNDAY], array_column($base['plans'], 'date'), 'Saturday is not saved either');
         $this->assertSame('Done already', $base['plans'][0]['title']);
-        $this->assertStringContainsString("I didn't save any day of it", $base['answer']);
+        $this->assertSays("I didn't save any day of it", $base['answer']);
         $this->assertNoVoiceChangesTheOutcome($results);
     }
 
@@ -482,7 +482,7 @@ class CoachStyleProductionSafeguardsTest extends PerformanceEvalCase
 
         $base = $results[self::BASELINE];
         $this->assertTrue($base['unchanged'], 'the confirmation changed nothing');
-        $this->assertStringContainsString("I haven't replaced it", $base['yes']);
+        $this->assertSays("I haven't replaced it", $base['yes']);
         $this->assertSame([self::SUNDAY], array_column($base['plans'], 'date'));
         $this->assertNoVoiceChangesTheOutcome($results);
     }
@@ -505,7 +505,7 @@ class CoachStyleProductionSafeguardsTest extends PerformanceEvalCase
 
         $base = $results[self::BASELINE];
         $this->assertTrue($base['unchanged'], 'no day of the plan was written');
-        $this->assertStringContainsString('Nothing was saved for any day.', $base['answer']);
+        $this->assertSays('Nothing was saved for any day.', $base['answer']);
         $this->assertNoVoiceChangesTheOutcome($results);
     }
 
@@ -523,7 +523,7 @@ class CoachStyleProductionSafeguardsTest extends PerformanceEvalCase
 
         $base = $results[self::BASELINE];
         $this->assertNull($base['plans'][0]['exercises'][0][3], 'no baseline, no load');
-        $this->assertStringContainsString('left the starting weight for Goblet Squats unset', $base['answer']);
+        $this->assertSays('left the starting weight for Goblet Squats unset', $base['answer']);
         $this->assertNoVoiceChangesTheOutcome($results);
     }
 

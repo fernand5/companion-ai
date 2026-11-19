@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import CoachingStyleSettings from '@/components/CoachingStyleSettings.vue'
-import { COACH_SAMPLES } from '@/constants/coaching'
+import { en } from '@/i18n/messages/en'
 import * as profileService from '@/services/profile'
 import * as scheduleService from '@/services/schedule'
 import { useProfileStore } from '@/stores/profile'
@@ -95,17 +95,17 @@ describe('CoachingStyleSettings', () => {
 
   it('previews a fixed example for the chosen style and detail without calling anything', async () => {
     const { wrapper } = await mountLoaded()
-    expect(wrapper.get('[data-testid="sample"]').text()).toContain(COACH_SAMPLES.balanced.standard)
+    expect(wrapper.get('[data-testid="sample"]').text()).toContain(en.coaching.samples.balanced.standard)
 
     await radio(wrapper, 'coach-style', 'intense').setValue(true)
     await radio(wrapper, 'response-detail', 'concise').setValue(true)
 
-    expect(wrapper.get('[data-testid="sample"]').text()).toContain(COACH_SAMPLES.intense.concise)
+    expect(wrapper.get('[data-testid="sample"]').text()).toContain(en.coaching.samples.intense.concise)
     expect(profileService.updateProfile).not.toHaveBeenCalled()
   })
 
   it('never shows an example that pushes harder or trains through pain, in any style', () => {
-    for (const style of Object.values(COACH_SAMPLES)) {
+    for (const style of Object.values(en.coaching.samples)) {
       for (const text of Object.values(style)) {
         expect(text).toMatch(/rest|light|lower-impact|adjust/i)
         expect(text).not.toMatch(/no excuses|extra (sets|reps|weight)|heavier|train through the pain|ignore the pain/i)

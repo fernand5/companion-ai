@@ -1,14 +1,20 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import AppShell from '@/components/AppShell.vue'
+import { useDocumentTitle } from '@/composables/useDocumentTitle'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
+const { t } = useI18n()
+
+// The browser tab's title follows the page and the language on screen.
+useDocumentTitle()
 
 function handleUnauthorized() {
   auth.clearSession()
@@ -29,9 +35,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="auth.initializing" class="flex h-screen items-center justify-center gap-2 text-slate-400">
+  <div v-if="auth.initializing" class="flex h-screen items-center justify-center gap-2 text-slate-400" role="status">
     <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.md" spin />
-    Loading…
+    {{ t('common.loading') }}
   </div>
   <AppShell v-else-if="auth.isAuthenticated">
     <RouterView />

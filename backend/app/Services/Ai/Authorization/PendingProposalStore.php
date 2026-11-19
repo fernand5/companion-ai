@@ -65,6 +65,65 @@ class PendingProposalStore
         return $this->consume($conversation, $previous, self::META_KEY, $now) ? $proposal : null;
     }
 
+    /**
+     * Whether $holder still presents a proposal (under $key) that a clear "yes" from this user, in this conversation, could
+     * redeem right now: authentic, this user's, this conversation's, unexpired and unused. Read-only: it spends nothing and
+     * extends nothing, so asking the user to clarify an ambiguous answer leaves the proposal exactly as it was, and a
+     * proposal that has expired or been used is never described as "still open".
+     */
+    public function isOpen(Conversation $conversation, User $user, ?Message $holder, string $key, ?CarbonImmutable $now = null): bool
+    {
+        if ($holder === null || $conversation->user_id !== $user->id || $holder->conversation_id !== $conversation->id || $holder->role !== Message::ROLE_ASSISTANT) {
+            return false;
+        }
+
+        $raw = $holder->meta[$key] ?? null;
+
+        if (! is_array($raw) || array_key_exists('consumed_at', $raw)) {
+            return false;
+        }
+
+        $proposal = $key === self::REPLACEMENT_META_KEY ? PlanReplacementProposal::fromMeta($raw) : PlanChangeProposal::fromMeta($raw);
+
+        return $proposal !== null
+            && $proposal->isAuthentic()
+            && $proposal->userId === $user->id
+            && $proposal->conversationId === $conversation->id
+            && ! $proposal->isExpired($now ?? CarbonImmutable::now());
+    }
+
+    /**
+     * What the client may know about the replacement question $message holds, decided here by the server at the moment of
+     * reading and never from the wording of the message: null when it holds none; otherwise whether an answer sent now
+     * could redeem it ("actionable": valid, unexpired, unused, this user's and conversation's, AND the question the
+     * conversation is waiting on, not an old one), and when it lapses. Read-only; nothing is spent or extended.
+     *
+     * @return array{kind: string, actionable: bool, expires_at: ?string}|null
+     */
+    public function replacementState(Conversation $conversation, User $user, Message $message): ?array
+    {
+        $raw = $message->meta[self::REPLACEMENT_META_KEY] ?? null;
+
+        if ($message->role !== Message::ROLE_ASSISTANT || ! is_array($raw)) {
+            return null;
+        }
+
+        $latest = $conversation->messages()->reorder('created_at', 'desc')->orderByDesc('id')->first();
+        $target = $latest?->id;
+
+        if ($latest?->role === Message::ROLE_ASSISTANT && is_int($latest->meta['confirms_message_id'] ?? null)) {
+            $target = $latest->meta['confirms_message_id'];
+        }
+
+        $proposal = PlanReplacementProposal::fromMeta($raw);
+
+        return [
+            'kind' => 'replacement',
+            'actionable' => $target === $message->id && $this->isOpen($conversation, $user, $message, self::REPLACEMENT_META_KEY),
+            'expires_at' => $proposal?->isAuthentic() ? CarbonImmutable::parse($proposal->expiresAt)->toIso8601String() : null,
+        ];
+    }
+
     /** The meta to store on the assistant message that presents $proposal. */
     public function presentReplacement(PlanReplacementProposal $proposal): array
     {
@@ -108,32 +167,6 @@ class PendingProposalStore
         }
 
         return $this->consume($conversation, $previous, self::REPLACEMENT_META_KEY, $now) ? $proposal : null;
-    }
-
-    /**
-     * Whether $holder still presents a replacement that a clear "yes" from this user, in this conversation, could redeem
-     * right now: authentic, this user's, this conversation's, unexpired and unused. Read-only: it spends nothing and
-     * extends nothing, so asking the user to clarify an ambiguous answer leaves the proposal exactly as it was.
-     */
-    public function replacementIsOpen(Conversation $conversation, User $user, Message $holder, ?CarbonImmutable $now = null): bool
-    {
-        if ($conversation->user_id !== $user->id || $holder->conversation_id !== $conversation->id || $holder->role !== Message::ROLE_ASSISTANT) {
-            return false;
-        }
-
-        $raw = $holder->meta[self::REPLACEMENT_META_KEY] ?? null;
-
-        if (! is_array($raw) || array_key_exists('consumed_at', $raw)) {
-            return false;
-        }
-
-        $proposal = PlanReplacementProposal::fromMeta($raw);
-
-        return $proposal !== null
-            && $proposal->isAuthentic()
-            && $proposal->userId === $user->id
-            && $proposal->conversationId === $conversation->id
-            && ! $proposal->isExpired($now ?? CarbonImmutable::now());
     }
 
     /** "Set consumed_at where it is still absent": the database applies it atomically, so exactly one caller wins. */

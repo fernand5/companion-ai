@@ -14,6 +14,7 @@ use App\Services\Ai\SystemPromptBuilder;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Support\SpanishNotices;
 use Tests\TestCase;
 
 /**
@@ -39,6 +40,36 @@ abstract class PerformanceEvalCase extends TestCase
     public function d(int $daysAgo): string
     {
         return Carbon::now('America/Bogota')->subDays($daysAgo)->toDateString();
+    }
+
+    /**
+     * The language of the user under test. The application's notices are written in it (Phase 7 / M3b), so a suite that
+     * asserts a notice's wording goes through assertSays(): in English it is exactly assertStringContainsString, and a
+     * Spanish re-run of the suite (UsesSpanishLocale) asserts the same outcome against the Spanish sentence for it.
+     */
+    protected function noticeLocale(): string
+    {
+        return 'en';
+    }
+
+    private function notice(string $needle): string
+    {
+        return $this->noticeLocale() === 'es' ? SpanishNotices::needle($needle) : $needle;
+    }
+
+    protected function assertSays(string $needle, string $haystack, string $message = ''): void
+    {
+        $this->assertStringContainsString($this->notice($needle), $haystack, $message);
+    }
+
+    protected function assertSaysNot(string $needle, string $haystack, string $message = ''): void
+    {
+        $this->assertStringNotContainsString($this->notice($needle), $haystack, $message);
+    }
+
+    protected function assertSaysStartsWith(string $prefix, string $string, string $message = ''): void
+    {
+        $this->assertStringStartsWith($this->noticeLocale() === 'es' ? SpanishNotices::prefix($prefix) : $prefix, $string, $message);
     }
 
     public function newUser(): User

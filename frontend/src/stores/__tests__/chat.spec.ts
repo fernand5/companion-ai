@@ -62,6 +62,24 @@ describe('chat store', () => {
     expect(store.error).toBe('The AI coach is not configured yet.')
   })
 
+  it('shows a localized provider error as given, whatever stable code the backend adds beside it', async () => {
+    const store = useChatStore()
+    vi.mocked(conversationService.sendMessage).mockRejectedValueOnce({
+      response: {
+        status: 503,
+        data: {
+          message: 'Tu coach alcanzó su límite de solicitudes por ahora; espera un momento e inténtalo de nuevo.',
+          code: 'ai_rate_limited',
+        },
+      },
+    })
+
+    await store.send('¿Qué debo hacer hoy?')
+
+    expect(store.messages).toHaveLength(0)
+    expect(store.error).toBe('Tu coach alcanzó su límite de solicitudes por ahora; espera un momento e inténtalo de nuevo.')
+  })
+
   it('sets an error instead of leaving the conversation empty and silent when the initial load fails', async () => {
     const store = useChatStore()
     vi.mocked(conversationService.fetchConversations).mockRejectedValueOnce(new Error('network error'))

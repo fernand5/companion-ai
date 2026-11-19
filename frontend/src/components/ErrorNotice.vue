@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import { useI18n } from 'vue-i18n'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
 
@@ -7,6 +8,8 @@ defineProps<{
   message: string
   onRetry?: () => void
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -19,7 +22,7 @@ defineProps<{
       class="shrink-0 font-medium underline decoration-red-300 underline-offset-2 hover:text-red-700"
       @click="onRetry"
     >
-      Try again
+      {{ t('common.tryAgain') }}
     </button>
   </div>
 </template>

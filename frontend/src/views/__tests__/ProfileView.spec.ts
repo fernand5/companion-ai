@@ -91,4 +91,16 @@ describe('ProfileView coaching settings', () => {
     expect(sent).not.toHaveProperty('coach_style')
     expect(sent).not.toHaveProperty('response_detail')
   })
+
+  it('shows the language picker even while the profile is loading or missing', async () => {
+    vi.mocked(profileService.fetchProfile).mockReturnValue(new Promise(() => undefined))
+    const loading = mount(ProfileView)
+    await flushPromises()
+    expect(loading.find('[data-testid="language-selector"]').exists()).toBe(true)
+
+    vi.mocked(profileService.fetchProfile).mockRejectedValue(new Error('boom'))
+    const failed = mount(ProfileView)
+    await flushPromises()
+    expect(failed.find('[data-testid="language-selector"]').exists()).toBe(true)
+  })
 })

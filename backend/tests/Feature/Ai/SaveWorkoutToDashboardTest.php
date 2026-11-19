@@ -124,12 +124,12 @@ class SaveWorkoutToDashboardTest extends PerformanceEvalCase
         $turn = $this->say('Add this workout to my dashboard', $conversation, new AiResponse(text: 'Added.'));
         $prompt = $turn['calls'][0]['messages'][0]['content'];
 
-        $this->assertStringContainsString('put one workout on their plan', $prompt);
-        $this->assertStringContainsString('planned_date '.$this->today, $prompt, 'The day is the application\'s, stated outright.');
-        $this->assertStringContainsString('Push-ups 3x12 | Dumbbell rows 3x10 | Plank 3x30 seconds', $prompt, 'The exercises are listed as written.');
-        $this->assertStringContainsString('do not use another date', $prompt);
-        $this->assertStringContainsString('Do not choose or raise a weight', $prompt);
-        $this->assertStringContainsString('nothing has changed until the user confirms', $prompt);
+        $this->assertSays('put one workout on their plan', $prompt);
+        $this->assertSays('planned_date '.$this->today, $prompt, 'The day is the application\'s, stated outright.');
+        $this->assertSays('Push-ups 3x12 | Dumbbell rows 3x10 | Plank 3x30 seconds', $prompt, 'The exercises are listed as written.');
+        $this->assertSays('do not use another date', $prompt);
+        $this->assertSays('Do not choose or raise a weight', $prompt);
+        $this->assertSays('nothing has changed until the user confirms', $prompt);
     }
 
     public function test_the_other_phrasings_work_too(): void
@@ -183,8 +183,8 @@ class SaveWorkoutToDashboardTest extends PerformanceEvalCase
 
         $this->assertSame([], $turn['calls'], 'The model is not asked to improvise around a reference nobody can resolve.');
         $this->assertSame(0, $this->plansFor($this->user));
-        $this->assertStringContainsString("I don't see a workout in my last reply or in your message to add", $turn['result']['answer']);
-        $this->assertStringContainsString('add this workout to my dashboard: squats 3x10', $turn['result']['answer'], 'It says what to send instead, and that example is itself a working request.');
+        $this->assertSays("I don't see a workout in my last reply or in your message to add", $turn['result']['answer']);
+        $this->assertSays('add this workout to my dashboard: squats 3x10', $turn['result']['answer'], 'It says what to send instead, and that example is itself a working request.');
     }
 
     public function test_the_example_the_coach_suggests_when_there_is_nothing_to_save_actually_works(): void
@@ -220,7 +220,7 @@ class SaveWorkoutToDashboardTest extends PerformanceEvalCase
         $turn = $this->say('yes', $conversation, $this->save($this->exercises(), $this->today, 'From a yes'), new AiResponse(text: 'Added.'));
 
         $this->assertSame(0, WorkoutPlan::where('user_id', $this->user->id)->where('title', 'From a yes')->count(), "The model's own offer is still not permission.");
-        $this->assertStringContainsString('say "add this workout to my dashboard"', $turn['result']['answer']);
+        $this->assertSays('say "add this workout to my dashboard"', $turn['result']['answer']);
     }
 
     // ---- the protections still hold ---------------------------------------------------------------------------------
@@ -252,8 +252,8 @@ class SaveWorkoutToDashboardTest extends PerformanceEvalCase
         $row = WorkoutPlan::where('user_id', $this->user->id)->firstOrFail()->exercises->first();
         $this->assertSame('Goblet Squat', $row->exercise_name);
         $this->assertNull($row->planned_weight_kg, 'The weight in the coach\'s own reply is not a baseline, and the user did not choose it.');
-        $this->assertStringContainsString('left unset', json_encode($this->fake->calls[count($this->fake->calls) - 1]['messages']));
-        $this->assertStringContainsString('I left the starting weight for Goblet Squat unset', $this->lastAssistant($conversation)->content);
+        $this->assertSays('left unset', json_encode($this->fake->calls[count($this->fake->calls) - 1]['messages']));
+        $this->assertSays('I left the starting weight for Goblet Squat unset', $this->lastAssistant($conversation)->content);
     }
 
     public function test_a_day_with_recorded_performance_is_not_replaced(): void

@@ -37,9 +37,9 @@ namespace App\Services\Ai\Authorization;
  *
  * LIMITS. This is keyword matching, not understanding, and it is NOT reliable in any
  * general sense:
- *  - English only. Another language is not recognised at all, so it grants nothing and
- *    gets no prompt: the plan is simply not changed until the user writes an explicit
- *    request this reads. Localization needs its own phrase lists, tests and evaluation.
+ *  - English and Spanish (see SpanishIntent), both read for every user whatever their account language is.
+ *    Any other language is not recognised at all, so it grants nothing and gets no prompt: the plan is simply
+ *    not changed until the user writes an explicit request this reads.
  *  - Misspellings, slang, unusual word order and indirect requests are not recognised.
  *  - A recognised phrase can still be a false positive; the protections that do not depend
  *    on it are the load ceiling at dispatch, the signed single-use proposals, and the
@@ -86,7 +86,7 @@ final class PlanChangeIntentClassifier
         // attributes an instruction to someone or something else, and any message too long to
         // be a direct instruction, grants nothing.
         $pasted = mb_strlen($message) > self::MAX_INSTRUCTION_CHARS;
-        $negated = $this->negated($text) || SpanishSaveIntent::negated(SpanishSaveIntent::fold($text));
+        $negated = $this->negated($text) || SpanishIntent::negated(Lexicon::fold($text));
 
         $explicit = false;
         $request = false;
@@ -99,34 +99,36 @@ final class PlanChangeIntentClassifier
         $anyQuestion = false;
 
         foreach ($this->sentences($text) as $sentence) {
-            $es = SpanishSaveIntent::fold($sentence);
-            $question = $this->isQuestion($sentence) || SpanishSaveIntent::isQuestion($es);
+            // Spanish is read on folded text (no accents), beside the English readers, for every user: the language of
+            // the account decides nothing here, and a Spanish message is granted exactly what its English twin is.
+            $es = Lexicon::fold($sentence);
+
+            $question = $this->isQuestion($sentence) || SpanishIntent::isQuestion($es);
             $anyQuestion = $anyQuestion || $question;
 
             // Someone else's words, or a denial that anything was done: neither is an instruction.
-            if ($this->attributedToSomeoneElse($sentence) || $this->negated($sentence) || SpanishSaveIntent::attributedToSomeoneElse($es) || SpanishSaveIntent::negated($es)) {
+            if ($this->attributedToSomeoneElse($sentence) || SpanishIntent::attributedToSomeoneElse($es) || $this->negated($sentence) || SpanishIntent::negated($es)) {
                 continue;
             }
 
-            $directRequest = ! $pasted && ($question ? ($this->politeRequest($sentence) || SpanishSaveIntent::politeRequest($es)) : true);
+            $directRequest = ! $pasted && ($question ? ($this->politeRequest($sentence) || SpanishIntent::politeRequest($es)) : true);
 
             // "Can you add this workout to my dashboard?" is a question in form and a request in fact.
-            // (Spanish: "Agrega este entrenamiento a mi dashboard", read by the same path, see SpanishSaveIntent.)
-            $savesWorkout = $directRequest && ($this->saveWorkoutRequest($sentence) || SpanishSaveIntent::saveWorkoutRequest($es));
-            $addsWorkout = $directRequest && $this->addWorkoutRequest($sentence);
+            $savesWorkout = $directRequest && ($this->saveWorkoutRequest($sentence) || SpanishIntent::saveWorkoutRequest($es));
+            $addsWorkout = $directRequest && ($this->addWorkoutRequest($sentence) || SpanishIntent::addWorkoutRequest($es));
             $save = $save || $savesWorkout;
             $add = $add || $addsWorkout;
 
             // "put this workout on my plan" is also a verb-plus-noun the broad rule reads as "change my plan"; as a
             // request to save one workout it is the narrower of the two, so that is how it is read.
-            $explicit = $explicit || ($directRequest && ! $savesWorkout && ! $addsWorkout && $this->explicitChange($sentence));
-            $request = $request || (! $pasted && $this->sessionRequest($sentence));
+            $explicit = $explicit || ($directRequest && ! $savesWorkout && ! $addsWorkout && ($this->explicitChange($sentence) || SpanishIntent::explicitChange($es)));
+            $request = $request || (! $pasted && ($this->sessionRequest($sentence) || SpanishIntent::sessionRequest($es)));
 
             if (! $question) {
                 $anyStatement = true;
-                $report = $report || (! $pasted && $this->activityReport($sentence));
-                $wish = $wish || $this->changeWish($sentence);
-                $event = $event || $this->adaptationEvent($sentence);
+                $report = $report || (! $pasted && ($this->activityReport($sentence) || SpanishIntent::activityReport($es)));
+                $wish = $wish || $this->changeWish($sentence) || SpanishIntent::changeWish($es);
+                $event = $event || $this->adaptationEvent($sentence) || SpanishIntent::adaptationEvent($es);
             }
         }
 
@@ -193,9 +195,8 @@ final class PlanChangeIntentClassifier
      */
     private function statedLoads(string $text): array
     {
-        preg_match_all('/(\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos?|kilograms?)\b/u', $text, $m);
-
-        return array_values(array_map(fn (string $n) => (float) str_replace(',', '.', $n), $m[1]));
+        // "42.5" and "42,5" are 42.5; a figure that could be read two ways ("1,500") is not a stated load (see LoadNumber).
+        return LoadNumber::kilograms($text);
     }
 
     /**
@@ -207,7 +208,7 @@ final class PlanChangeIntentClassifier
     {
         $text = (new self)->normalize($message);
 
-        if (SpanishSaveIntent::statesReplacement(SpanishSaveIntent::fold($text))) {
+        if (SpanishIntent::statesReplacement(Lexicon::fold($text))) {
             return true;
         }
 
@@ -225,20 +226,29 @@ final class PlanChangeIntentClassifier
         );
     }
 
-    /** "yes", "ok do it", "go ahead", "sure": no content of its own. */
-    public static function isBareAffirmation(string $message): bool
+    /** "¿por qué no lo agregaste al dashboard?", "why didn't you add it?": asks why a workout is not on the plan (a question, never a request). */
+    public static function asksWhyNotSaved(string $message): bool
     {
-        if (SpanishSaveIntent::isBareYes($message)) {
+        if (preg_match('/\b(?:por ?que|porque|como es que)\s+no\s+(?:me\s+)?(?:lo|la|los|las)?\s*(?:agregaste|guardaste|anadiste|pusiste|metiste|programaste|actualizaste|enviaste|has agregado|has guardado|has anadido|has puesto)\b/u', Lexicon::fold($message))) {
             return true;
         }
 
-        $text = mb_strtolower(trim($message));
-        $text = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[.!,]+/u', ' ', $text)));
+        return (bool) preg_match("/\\bwhy (?:didn'?t|did not|haven'?t|have not|hasn'?t|wasn'?t|was not|isn'?t|is not)\\b[^.?!]{0,30}\\b(?:add\\w*|sav\\w*|put|push\\w*|schedul\\w*|updat\\w*)\\b/u", mb_strtolower($message));
+    }
 
-        return (bool) preg_match(
-            "/^(?:yes|yeah|yep|yup|sure|ok|okay|alright|please do|go ahead|do it|yes please|sounds good|confirm|confirmed|apply it|update it|that works|let's do it|lets do it)(?:\s+(?:please|do it|go ahead|thanks|thank you))?$/u",
-            $text,
-        );
+    /**
+     * "yes", "ok do it", "go ahead", "sure", "sí", "sí, reemplázalo", "claro", "dale": no content of its own. A bare "si"
+     * with no accent is not consent (it may be "if"): see Confirmation.
+     */
+    public static function isBareAffirmation(string $message, bool $pending = false): bool
+    {
+        return Confirmation::isYes($message, $pending);
+    }
+
+    /** "no", "No, conserva el actual", "keep the current one": a refusal. It redeems nothing and changes nothing. */
+    public static function isRefusal(string $message): bool
+    {
+        return Confirmation::isNo($message);
     }
 
     /** "the note says: change my plan", "my trainer wrote ...", "according to the article ...". */

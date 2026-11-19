@@ -15,6 +15,7 @@ use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\FakeAiProvider;
 use Tests\Support\PerformanceEval\PerformanceEvalCase;
+use Tests\Support\UsesSpanishLocale;
 
 /**
  * Production incident: a Spanish-speaking user asked five times, in plain Spanish, to put the workout the coach had just
@@ -28,6 +29,10 @@ use Tests\Support\PerformanceEval\PerformanceEvalCase;
  */
 class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
 {
+    // The user under test chose Spanish: the application's own words are Spanish because of THAT, not because of the language
+    // of the message (language is presentation, never permission). English requests are the control for the same decisions.
+    use UsesSpanishLocale;
+
     private User $user;
 
     private FakeAiProvider $fake;
@@ -153,9 +158,8 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
 
         $reply = $this->last($conversation);
         $this->assertStringContainsString('Listo, quedó en tu plan de hoy.', $reply->content);
-        $english = str_starts_with($request, 'Add') || str_starts_with($request, 'Save');
-        $this->assertStringContainsString($english ? 'saved the low end' : 'extremo inferior', $reply->content, 'The 8-10 range is said by the application, in the language of the request.');
-        $this->assertStringContainsString($english ? '(written 8-10)' : '(escrito 8-10)', $reply->content);
+        $this->assertStringContainsString('extremo inferior', $reply->content, 'The 8-10 range is said by the application, in the language the user chose.');
+        $this->assertStringContainsString('(escrito 8-10)', $reply->content);
         $this->assertArrayNotHasKey('blocked_tool_calls', $reply->meta ?? []);
     }
 
@@ -191,7 +195,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
 
         $this->assertSame([], $turn['calls'], 'The application answers; the model is not asked to explain (or to claim a save).');
         $this->assertStringContainsString('No se ha guardado ningún entrenamiento en tu plan en esta conversación', $turn['result']['answer']);
-        $this->assertStringContainsString('agrega este entrenamiento a mi dashboard', $turn['result']['answer']);
+        $this->assertStringContainsString('agrega este entrenamiento a mi plan', $turn['result']['answer']);
         $this->assertSame(0, $this->plans());
     }
 
@@ -204,7 +208,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
         $turn = $this->say('Por qué no lo agregaste?', $conversation);
 
         $this->assertSame([], $turn['calls']);
-        $this->assertStringContainsString('ya tiene un entrenamiento registrado', $turn['result']['answer']);
+        $this->assertStringContainsString('ya tiene un entrenamiento realizado y registrado', $turn['result']['answer']);
         $this->assertStringNotContainsString('revisar', $turn['result']['answer']);
     }
 
@@ -253,7 +257,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
 
         $this->assertSame([], $turn['calls']);
         $this->assertSame(0, $this->plans());
-        $this->assertStringContainsString('podrían ser varios entrenamientos', $turn['result']['answer']);
+        $this->assertStringContainsString('podrías referirte a más de un entrenamiento', $turn['result']['answer']);
     }
 
     public function test_an_unfinished_routine_is_not_partly_saved(): void
@@ -323,7 +327,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
         $this->assertSame(0, $this->plans(), 'No partial save.');
         $reply = $this->last($conversation);
         $this->assertStringContainsString('No he cambiado tu plan', $reply->content);
-        $this->assertStringContainsString('diga lo que diga el mensaje de arriba', $reply->content, 'A false "already added" is corrected by the application.');
+        $this->assertStringContainsString('el entrenamiento no se guardó', $reply->content, 'A false "already added" is corrected by the application.');
         $this->assertTrue($reply->meta['save_clarification']);
     }
 
@@ -353,7 +357,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
         $this->say('Qué más me recomiendas?', $conversation, new AiResponse(text: 'No tengo acceso para actualizar tu dashboard.'));
 
         $this->assertStringContainsString('eso no es un límite de la aplicación', $this->last($conversation)->content);
-        $this->assertStringContainsString('agrega este entrenamiento a mi dashboard', $this->last($conversation)->content);
+        $this->assertStringContainsString('agrega este entrenamiento a mi plan', $this->last($conversation)->content);
     }
 
     public function test_the_retry_after_a_failed_save_saves_once(): void
@@ -460,21 +464,20 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
         return (string) WorkoutPlan::where('user_id', $this->user->id)->value('title');
     }
 
-    public function test_a_bare_unaccented_si_asks_and_leaves_the_pending_confirmation_untouched(): void
+    public function test_a_hedge_asks_and_leaves_the_pending_confirmation_untouched(): void
     {
         $conversation = $this->heldReplacement();
         $question = $this->last($conversation);
         $before = $question->fresh()->meta;
 
-        $unclear = $this->say('si', $conversation);
+        $unclear = $this->say('tal vez', $conversation);
 
         $this->assertSame([], $unclear['calls'], 'The application asks; the model is not consulted.');
-        $this->assertSame('Plan anterior', $this->title(), 'A bare "si" approves nothing.');
-        $this->assertStringContainsString('Responde "sí" (con tilde)', $unclear['result']['answer']);
+        $this->assertSame('Plan anterior', $this->title(), 'A hedge approves nothing.');
+        $this->assertStringContainsString('responde "sí" (con tilde)', $unclear['result']['answer']);
         $this->assertSame($before, $question->fresh()->meta, 'The held proposal is neither spent nor renewed: its signed content and expiry are untouched.');
 
-        // Asked twice, still the same question.
-        $this->say('Si', $conversation);
+        $this->say('depende', $conversation);
         $this->assertSame($before, $question->fresh()->meta);
 
         // A clear answer afterwards redeems that very proposal, once.
@@ -495,7 +498,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
     public function test_a_no_after_the_clarification_declines_and_a_later_si_does_not_revive_it(): void
     {
         $conversation = $this->heldReplacement();
-        $this->say('si', $conversation);
+        $this->say('tal vez', $conversation);
 
         $this->say('No', $conversation, new AiResponse(text: 'De acuerdo, lo dejo como está.'));
         $this->say('Sí', $conversation, new AiResponse(text: '¿Sí a qué?'));
@@ -508,7 +511,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
         $conversation = $this->heldReplacement();
 
         $this->travel(10)->minutes();
-        $this->say('si', $conversation);
+        $this->say('tal vez', $conversation);
         $this->travel(10)->minutes(); // 20 minutes after the question: past its 15
 
         $late = $this->say('Sí', $conversation);
@@ -542,29 +545,30 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
     public function test_a_stale_proposal_is_refused_after_a_clarification(): void
     {
         $conversation = $this->heldReplacement();
-        $this->say('si', $conversation);
+        $this->say('tal vez', $conversation);
         WorkoutPlan::where('user_id', $this->user->id)->first()->update(['title' => 'Editado después']);
 
-        $turn = $this->say('Sí', $conversation);
+        $turn = $this->say('si', $conversation);
 
         $this->assertSame('Editado después', $this->title(), 'The day changed since it was asked: nothing is replaced.');
         $this->assertStringContainsString('No lo reemplacé', $turn['result']['answer']);
     }
 
-    public function test_a_clarification_cannot_be_used_across_users_or_conversations(): void
+    public function test_a_confirmation_cannot_be_used_across_users_or_conversations(): void
     {
         $conversation = $this->heldReplacement();
-        $this->say('si', $conversation);
+        $this->say('tal vez', $conversation);
 
         $fresh = $this->ask($this->user, 'Hola')['conversation'];
-        $this->say('si', $fresh, new AiResponse(text: 'Hola.'));
-        $this->say('Sí', $fresh, new AiResponse(text: 'Hola.'));
-        $this->assertSame('Plan anterior', $this->title());
+        foreach (['si', 'Sí', 'dale', 'claro'] as $answer) {
+            $this->say($answer, $fresh, new AiResponse(text: 'Hola.'));
+        }
+        $this->assertSame('Plan anterior', $this->title(), 'Another conversation of the same user has nothing pending.');
 
         $this->app['auth']->forgetGuards();
         $other = $this->newUser();
         $theirs = $this->ask($other, 'Hola')['conversation'];
-        foreach (['si', 'Sí'] as $answer) {
+        foreach (['si', 'Sí', 'dale'] as $answer) {
             $this->fake->queue(new AiResponse(text: 'Hola.'));
             $this->ask($other, $answer, $theirs);
         }
@@ -573,54 +577,63 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
 
         // The original is still open for its own user and conversation.
         $this->app['auth']->forgetGuards();
-        $this->say('Sí', $conversation);
+        $this->say('si', $conversation);
         $this->assertSame('Torso y Core', $this->title());
     }
 
-    public function test_refusing_keeps_the_existing_workout(): void
+    public static function notConfirmations(): array
     {
-        $this->existingPlanToday();
-        $conversation = $this->incident();
-        $this->say('Agrega este entrenamiento a mi dashboard', $conversation, $this->save(), new AiResponse(text: 'Listo.'));
-
-        $this->say('No, conserva el actual.', $conversation, new AiResponse(text: 'De acuerdo.'));
-        $this->say('sí', $conversation);
-
-        $this->assertSame('Plan anterior', WorkoutPlan::where('user_id', $this->user->id)->value('title'), 'A "no" spends nothing and a later "sí" answers a different message.');
+        return [
+            'conditional' => ['si mañana entreno puedo hacerlo después'],
+            'conditional 2' => ['si tengo tiempo lo reemplazo yo'],
+            'quoted' => ['"sí"'],
+            'quoted 2' => ['«dale»'],
+            'negated' => ['no, sí no'],
+            'mixed' => ['sí pero mejor mañana'],
+            'mixed 2' => ['claro, pero cámbialo por otro'],
+            'a question' => ['¿sí o no?'],
+            'attributed' => ['mi entrenador dijo sí'],
+        ];
     }
 
-    public function test_a_confirmation_expires(): void
+    #[DataProvider('notConfirmations')]
+    public function test_conditional_quoted_negated_and_mixed_answers_confirm_nothing_and_the_question_survives(string $answer): void
     {
-        $this->existingPlanToday();
-        $conversation = $this->incident();
-        $this->say('Agrega este entrenamiento a mi dashboard', $conversation, $this->save(), new AiResponse(text: 'Listo.'));
+        $conversation = $this->heldReplacement();
+        $question = $this->last($conversation);
+        $before = $question->fresh()->meta;
 
-        $this->travel(20)->minutes();
-        $late = $this->say('Sí', $conversation);
+        $this->say($answer, $conversation, new AiResponse(text: 'Entendido.'));
 
-        $this->assertSame('Plan anterior', WorkoutPlan::where('user_id', $this->user->id)->value('title'));
-        $this->assertStringContainsString('ya no es válida', $late['result']['answer']);
+        $this->assertSame('Plan anterior', $this->title(), $answer);
+        $this->assertSame($before, $question->fresh()->meta, 'Nothing was spent.');
     }
 
-    public function test_a_confirmation_is_not_valid_for_another_user_or_another_conversation(): void
+    public static function clearYes(): array
+    {
+        return [['sí'], ['Sí'], ['si'], ['Si.'], ['Si, reemplázalo'], ['claro'], ['dale'], ['Dale!'], ['de acuerdo']];
+    }
+
+    #[DataProvider('clearYes')]
+    public function test_a_clear_yes_confirms_the_pending_replacement(string $answer): void
+    {
+        $conversation = $this->heldReplacement();
+
+        $this->say($answer, $conversation);
+
+        $this->assertSame('Torso y Core', $this->title(), $answer);
+    }
+
+    #[DataProvider('clearYes')]
+    public function test_without_a_pending_replacement_none_of_them_authorizes_anything(string $answer): void
     {
         $this->existingPlanToday();
         $conversation = $this->incident();
-        $this->say('Agrega este entrenamiento a mi dashboard', $conversation, $this->save(), new AiResponse(text: 'Listo.'));
 
-        // Another conversation of the same user.
-        $fresh = $this->ask($this->user, 'Hola')['conversation'];
-        $this->say('Sí', $fresh, new AiResponse(text: 'Hola.'));
-        $this->assertSame('Plan anterior', WorkoutPlan::where('user_id', $this->user->id)->value('title'));
+        $this->say($answer, $conversation, new AiResponse(text: 'Hola.'));
 
-        // Another user, in their own conversation.
-        $this->app['auth']->forgetGuards();
-        $other = $this->newUser();
-        $theirs = $this->ask($other, 'Hola')['conversation'];
-        $this->fake->queue(new AiResponse(text: 'Hola.'));
-        $this->ask($other, 'Sí', $theirs);
-        $this->assertSame('Plan anterior', WorkoutPlan::where('user_id', $this->user->id)->value('title'));
-        $this->assertSame(0, $this->plans($other));
+        $this->assertSame('Plan anterior', $this->title(), $answer);
+        $this->assertSame(1, $this->plans());
     }
 
     public function test_a_started_or_completed_day_is_never_replaced(): void
@@ -634,7 +647,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
         $after = WorkoutPlan::where('user_id', $this->user->id)->firstOrFail();
         $this->assertSame($before->id, $after->id);
         $this->assertSame(['Bench Press'], $after->exercises->pluck('exercise_name')->all());
-        $this->assertStringContainsString('ya tiene un entrenamiento registrado', $turn['result']['answer']);
+        $this->assertStringContainsString('ya tiene un entrenamiento realizado y registrado', $turn['result']['answer']);
     }
 
     public function test_saying_replace_outright_replaces_an_untouched_day_without_asking(): void
@@ -719,7 +732,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
 
             $this->assertSame([], $turn['calls'], $case);
             $this->assertSame(0, $this->plans(), $case.': nothing is written, and never silently today.');
-            $this->assertStringContainsString($lang === 'es' ? 'qué día' : 'which day', $turn['result']['answer'], $case);
+            $this->assertStringContainsString('Qué día debo usar', $turn['result']['answer'], $case);
         }
     }
 
@@ -739,5 +752,51 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
         $conversation = $this->incident($this->heading($lang, $day).$this->body($lang));
         $this->say($lang === 'es' ? 'Guárdalo en mi plan para mañana' : 'Save it to my plan for tomorrow', $conversation, $this->planFor($lang, $other->toDateString()), new AiResponse(text: 'ok'));
         $this->assertSame(1, WorkoutPlan::where('user_id', $this->user->id)->whereDate('planned_date', $other->toDateString())->count());
+    }
+
+    // ---- the language of the account is presentation, never permission ---------------------------------------------------
+
+    public static function accountsAndRequests(): array
+    {
+        return [
+            'spanish account, spanish request' => ['es', 'Agrega este entrenamiento a mi dashboard'],
+            'english account, spanish request' => ['en', 'Agrega este entrenamiento a mi dashboard'],
+            'spanish account, english request' => ['es', 'Add this workout to my dashboard'],
+            'english account, english request' => ['en', 'Add this workout to my dashboard'],
+        ];
+    }
+
+    #[DataProvider('accountsAndRequests')]
+    public function test_the_same_workout_is_saved_whatever_the_account_language_or_the_request_language(string $account, string $request): void
+    {
+        $this->user = User::factory()->create(['timezone' => 'America/Bogota', 'locale' => $account]);
+        $this->today = $this->user->localToday();
+        $conversation = $this->incident();
+
+        $this->say($request, $conversation, $this->save(), new AiResponse(text: 'Listo.'));
+
+        $plan = WorkoutPlan::where('user_id', $this->user->id)->firstOrFail();
+        $this->assertSame(['Flexiones de brazos', 'Bird-Dog', 'Dead Bug', 'Sentadillas con peso corporal'], $plan->exercises->pluck('exercise_name')->all());
+        $this->assertSame([null, null, null, null], $plan->exercises->pluck('planned_weight_kg')->all());
+        // Only the words of the application's own note follow the account.
+        $this->assertStringContainsString($account === 'es' ? 'extremo inferior' : 'saved the low end', $this->last($conversation)->content);
+    }
+
+    #[DataProvider('accountsAndRequests')]
+    public function test_an_existing_workout_needs_the_signed_confirmation_whatever_the_languages(string $account, string $request): void
+    {
+        $this->user = User::factory()->create(['timezone' => 'America/Bogota', 'locale' => $account]);
+        $this->today = $this->user->localToday();
+        $this->existingPlanToday();
+        $conversation = $this->incident();
+
+        $this->say($request, $conversation, $this->save(), new AiResponse(text: 'Listo.'));
+        $this->assertSame('Plan anterior', $this->title(), 'Nothing is replaced before a confirmation.');
+
+        $this->say('tal vez', $conversation, new AiResponse(text: 'ok'));
+        $this->assertSame('Plan anterior', $this->title(), 'A hedge confirms nothing, in any account language.');
+
+        $this->say($account === 'es' ? 'si' : 'yes', $conversation);
+        $this->assertSame('Torso y Core', $this->title());
     }
 }

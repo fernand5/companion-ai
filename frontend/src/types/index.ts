@@ -1,8 +1,12 @@
+import type { AppLocale } from '@/i18n'
+
 export interface User {
   id: number
   name: string
   email: string
   timezone: string | null
+  /** The language the user reads the app in, saved on their account. Changes wording only. */
+  locale: AppLocale
 }
 
 /** How the AI coach sounds. A voice only: it never changes training rules or what the coach may do. */
@@ -126,11 +130,37 @@ export interface ToolCallTrace {
   result: unknown
 }
 
+/** What a save or replacement actually did, read back from the database by the server after it persisted. */
+export type SaveOutcome = 'added' | 'replaced' | 'rest'
+
+export interface SavedDay {
+  date: string
+  outcome: SaveOutcome
+  /** The workout's name as stored; null for a rest day. */
+  title: string | null
+}
+
+export interface SaveResult {
+  version: number
+  days: SavedDay[]
+}
+
+/**
+ * Whether a replacement question can be answered right now, decided by the server at the moment of reading (never by the
+ * wording of a message): only a live, unexpired, unused question that the conversation is waiting on is `actionable`.
+ */
+export interface MessageConfirmation {
+  kind: 'replacement'
+  actionable: boolean
+  expires_at: string | null
+}
+
 export interface Message {
   id: number
   role: MessageRole
   content: string
-  meta: { tool_calls?: ToolCallTrace[] } | null
+  meta: { tool_calls?: ToolCallTrace[]; save_result?: SaveResult } | null
+  confirmation?: MessageConfirmation | null
   created_at: string | null
 }
 

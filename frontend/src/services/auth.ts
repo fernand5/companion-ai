@@ -1,4 +1,5 @@
 import api from '@/services/api'
+import type { AppLocale } from '@/i18n'
 import type { User } from '@/types'
 
 export interface AuthResponse {
@@ -23,11 +24,13 @@ function detectTimezone(): string | undefined {
   }
 }
 
+/** `locale` is the language chosen on the sign-up screen; it becomes the new account's saved language. */
 export function register(payload: {
   name: string
   email: string
   password: string
   password_confirmation: string
+  locale?: AppLocale
 }) {
   return api
     .post<AuthResponse>('/auth/register', { ...payload, timezone: detectTimezone() })
@@ -42,6 +45,11 @@ export function login(payload: { email: string; password: string }) {
 
 export function logout() {
   return api.post('/auth/logout')
+}
+
+/** Saves the account's language. The login call never does this: a guest's pick must not overwrite it. */
+export function updateLocale(locale: AppLocale) {
+  return api.put<User>('/me/locale', { locale }).then((r) => r.data)
 }
 
 export function me() {

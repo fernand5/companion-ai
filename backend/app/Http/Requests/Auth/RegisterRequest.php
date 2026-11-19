@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Support\AppLocale;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 
 class RegisterRequest extends FormRequest
@@ -19,6 +21,8 @@ class RegisterRequest extends FormRequest
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'confirmed', Password::min(8)],
             'timezone' => ['nullable', 'string', 'timezone'],
+            // The language chosen on the sign-up screen. Optional: leaving it out means English.
+            'locale' => ['nullable', 'string', Rule::in(AppLocale::values())],
         ];
     }
 }

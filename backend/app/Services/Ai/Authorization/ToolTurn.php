@@ -4,7 +4,6 @@ namespace App\Services\Ai\Authorization;
 
 use App\Models\User;
 use App\Models\WorkoutPlan;
-use App\Services\Ai\SpanishCoachMessages;
 use App\Services\Fitness\WeeklyPlanService;
 use App\Services\Tools\ReplacementGrant;
 use App\Services\Tools\ToolRegistry;
@@ -59,9 +58,6 @@ final class ToolTurn
     private bool $workoutSaved = false;
 
     private ?string $rangeNote = null;
-
-    /** The saved workout's scope and arguments, so the same range note can be worded in Spanish (presentation only). */
-    private ?array $rangeSource = null;
 
     /** "Add this plan to my dashboard" is handled once per turn: saved, held for confirmation, or refused. */
     private bool $weekHandled = false;
@@ -507,7 +503,6 @@ final class ToolTurn
             $this->saveHandled = true;
             $this->workoutSaved = true;
             $this->rangeNote = $scope->rangeNote($arguments);
-            $this->rangeSource = [$scope, $arguments];
 
             if ($existing !== null) {
                 $this->replaced = ['date' => $scope->date, 'was' => $this->describeExisting($existing)];
@@ -730,12 +725,6 @@ final class ToolTurn
     public function rangeNote(): ?string
     {
         return $this->rangeNote;
-    }
-
-    /** The same note in Spanish, for a single workout saved under a save scope; null when nothing was a range. */
-    public function rangeNoteSpanish(): ?string
-    {
-        return $this->rangeSource === null ? null : SpanishCoachMessages::rangeNote($this->rangeSource[0], $this->rangeSource[1]);
     }
 
     /** True when a workout was written under the save scope this turn. */

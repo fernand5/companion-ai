@@ -9,6 +9,7 @@ use App\Http\Resources\MessageResource;
 use App\Models\Conversation;
 use App\Services\Ai\AiCoachService;
 use App\Services\Ai\AiProviderException;
+use App\Support\ApiMessages;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
@@ -53,7 +54,7 @@ class ConversationController extends Controller
 
         if (! $lock->get()) {
             return response()->json([
-                'message' => 'Your coach is still working on your previous message — please wait for the reply first.',
+                'message' => ApiMessages::coachBusy(),
             ], 409);
         }
 
@@ -64,7 +65,7 @@ class ConversationController extends Controller
                 $request->string('content')->toString(),
             );
         } catch (AiProviderException $e) {
-            return response()->json(['message' => $e->userFacingMessage()], 503);
+            return ApiMessages::providerFailure($e);
         } finally {
             $lock->release();
         }

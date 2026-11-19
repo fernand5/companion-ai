@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\ApiMessages;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -27,7 +28,7 @@ class ProgressionProposalRequest extends FormRequest
         return [
             function (Validator $validator) {
                 if (array_diff(array_keys($this->all()), ['proposal']) !== []) {
-                    $validator->errors()->add('proposal', 'Only the proposal can be submitted.');
+                    $validator->errors()->add('proposal', ApiMessages::onlyTheProposal());
                 }
             },
         ];

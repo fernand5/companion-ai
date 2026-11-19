@@ -7,7 +7,6 @@ use App\Services\Ai\Authorization\PlanChangeIntentClassifier;
 use App\Services\Ai\Authorization\SavedWorkoutReference;
 use App\Services\Ai\Authorization\SaveWorkoutDay;
 use App\Services\Ai\Authorization\SaveWorkoutScope;
-use App\Services\Ai\Authorization\SpanishSaveIntent;
 use Carbon\CarbonImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -81,17 +80,6 @@ class SpanishSaveIntentTest extends TestCase
         $this->assertSame(['sets' => [3, 3], 'reps' => [10, 10], 'seconds' => null], SaveWorkoutScope::prescription('Bird-Dog: 3 series de 10 repeticiones por lado'));
         $this->assertSame(['sets' => [3, 3], 'reps' => null, 'seconds' => [30, 30]], SaveWorkoutScope::prescription('Plancha: 3 series de 30 segundos'));
         $this->assertSame(['sets' => [3, 3], 'reps' => [12, 12], 'seconds' => null], SaveWorkoutScope::prescription('Push-ups 3x12'), 'English is read as before.');
-    }
-
-    public function test_only_an_unaccented_bare_si_is_ambiguous(): void
-    {
-        foreach (['si', 'Si', 'SI.', ' si '] as $ambiguous) {
-            $this->assertTrue(SpanishSaveIntent::isAmbiguousYes($ambiguous), $ambiguous);
-        }
-
-        foreach (['sí', 'Sí', 'si, reemplázalo', 'si el plan cambia', 'no', 'yes'] as $other) {
-            $this->assertFalse(SpanishSaveIntent::isAmbiguousYes($other), $other);
-        }
     }
 
     public function test_options_are_not_merged_into_one_workout(): void

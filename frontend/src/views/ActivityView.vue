@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import ActivityQuickLogForm from '@/components/ActivityQuickLogForm.vue'
 import ErrorNotice from '@/components/ErrorNotice.vue'
@@ -11,6 +12,7 @@ import { ICON_SIZE, icons } from '@/constants/icons'
 import { useActivityStore } from '@/stores/activity'
 import { activityIcon, activityLabel, activitySummary, formatDate } from '@/utils/format'
 
+const { t } = useI18n()
 const activityStore = useActivityStore()
 
 onMounted(() => {
@@ -30,7 +32,7 @@ const timeline = computed(() =>
 
 <template>
   <div class="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
-    <h1 class="text-lg font-semibold text-slate-900">Activity</h1>
+    <h1 class="text-lg font-semibold text-slate-900">{{ t('activity.title') }}</h1>
 
     <div class="grid gap-4 sm:grid-cols-2">
       <ActivityQuickLogForm />
@@ -43,11 +45,11 @@ const timeline = computed(() =>
     <section>
       <h2 class="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
         <FontAwesomeIcon :icon="icons.history" :class="[ICON_SIZE.sm, 'text-slate-400']" />
-        History
+        {{ t('activity.history') }}
       </h2>
       <p v-if="activityStore.loading" class="flex items-center gap-1.5 text-sm text-slate-400">
         <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.sm" spin />
-        Loading…
+        {{ t('common.loading') }}
       </p>
       <ErrorNotice
         v-else-if="activityStore.error"
@@ -56,7 +58,7 @@ const timeline = computed(() =>
       />
       <p v-else-if="timeline.length === 0" class="flex items-center gap-1.5 text-sm text-slate-400">
         <FontAwesomeIcon :icon="icons.activityFallback" :class="ICON_SIZE.sm" />
-        Nothing logged yet.
+        {{ t('activity.empty') }}
       </p>
       <ul v-else class="space-y-2">
         <li
@@ -77,7 +79,7 @@ const timeline = computed(() =>
               <button
                 type="button"
                 class="text-slate-300 hover:text-red-500"
-                aria-label="Delete activity log"
+                :aria-label="t('a11y.deleteActivityLog')"
                 @click="activityStore.remove(log.id)"
               >
                 <FontAwesomeIcon :icon="icons.action.delete" :class="ICON_SIZE.sm" />

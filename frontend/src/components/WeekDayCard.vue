@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import WhyThisChangedCard from '@/components/WhyThisChangedCard.vue'
 import WorkoutSessionSummary from '@/components/WorkoutSessionSummary.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
 import type { ActivityType, WeekActivity, WeeklyPlanDay, WorkoutPlanExercise } from '@/types'
-import { activityIcon, activityLabel, activitySummary, formatDate, formatPerformedSets, formatTarget } from '@/utils/format'
+import { activityIcon, activityLabel, activitySummary, formatDate, formatPerformedSets, formatTarget, sportLabel } from '@/utils/format'
 import { DAY_STATE, formatSteps } from '@/utils/weekDay'
 
 const props = withDefaults(
@@ -22,6 +23,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{ toggle: []; 'show-suggestions': [] }>()
+const { t } = useI18n()
 
 const state = computed(() => DAY_STATE[props.day.state])
 const steps = computed(() => props.day.steps ?? [])
@@ -30,12 +32,17 @@ const showBody = computed(() => !props.collapsible || props.expanded)
 /** The day's steps in one line for the header: one entry says its count; several say how many entries, not a total. */
 const stepsSummary = computed(() => {
   if (steps.value.length === 0) return null
-  if (steps.value.length > 1) return `${steps.value.length} step entries`
+  if (steps.value.length > 1) return t('weeklyPlan.stepEntries', { n: steps.value.length })
 
   const count = steps.value[0].steps
 
-  return count === null ? 'Steps logged' : `${formatSteps(count)} steps`
+  return count === null ? t('weeklyPlan.stepsLogged') : stepsText(count)
 })
+/** "6,000 steps" in the language on screen. The count is shown, never changed. */
+function stepsText(count: number): string {
+  return t('units.steps', { n: formatSteps(count) }, count === 1 ? 1 : 2)
+}
+
 const plan = computed(() => props.day.plan)
 const bodyId = computed(() => `day-body-${props.day.date}`)
 
@@ -43,12 +50,12 @@ const bodyId = computed(() => `day-body-${props.day.date}`)
 const heading = computed(() => {
   if (plan.value) return plan.value.title
   if (props.day.state === 'activity_only') return activityName(props.day.activities[0])
-  if (props.day.state === 'rest') return 'Rest day'
+  if (props.day.state === 'rest') return t('enums.dayState.rest')
 
   // Steps are not a workout, but they are something recorded: never say nothing was.
-  if (steps.value.length > 0) return 'No workout planned or logged'
+  if (steps.value.length > 0) return t('weeklyPlan.noWorkoutPlannedOrLogged')
 
-  return props.day.is_past ? 'No plan or activity recorded' : 'Nothing planned'
+  return props.day.is_past ? t('weeklyPlan.noPlanOrActivity') : t('enums.dayState.nothing')
 })
 
 const headingType = computed<ActivityType | null>(() => {
@@ -64,14 +71,14 @@ function activityName(activity: WeekActivity | undefined): string {
 
   const sport = activity.type === 'sport' ? String((activity.metadata ?? {}).sport ?? '') : ''
 
-  return sport || activityLabel(activity.type)
+  return sport ? sportLabel(sport) : activityLabel(activity.type)
 }
 
 function activityDetail(activity: WeekActivity): string {
   // Cardio reads best as distance, time and speed; anything else as how long it lasted.
   if (activity.type === 'treadmill') return activitySummary(activity)
 
-  return activity.duration_minutes ? `${activity.duration_minutes} min` : ''
+  return activity.duration_minutes ? t('units.minutes', { n: activity.duration_minutes }) : ''
 }
 
 function target(exercise: WorkoutPlanExercise): string {
@@ -91,32 +98,32 @@ function recorded(exercise: WorkoutPlanExercise): { text: string; tone: 'measure
   const sets = exercise.performance?.sets ?? []
 
   if (sets.length > 0 && exercise.performance?.recorded_as !== 'as_planned') {
-    const earlier = exercise.performance?.recorded_as === 'migrated' ? ' (from an earlier log)' : ''
+    const earlier = exercise.performance?.recorded_as === 'migrated' ? ` ${t('weeklyPlan.fromEarlierLog')}` : ''
 
     return { text: `${formatPerformedSets(sets)}${earlier}`, tone: 'measured' }
   }
 
   if (exercise.status === 'completed' || exercise.status === 'partial' || sets.length > 0) {
-    return { text: `Marked ${exercise.status === 'partial' ? 'partly done' : 'done'}, amounts not recorded`, tone: 'weak' }
+    return { text: exercise.status === 'partial' ? t('weeklyPlan.markedPartial') : t('weeklyPlan.markedDone'), tone: 'weak' }
   }
 
-  if (exercise.status === 'skipped') return { text: 'Skipped', tone: 'none' }
+  if (exercise.status === 'skipped') return { text: t('weeklyPlan.skipped'), tone: 'none' }
 
-  return { text: 'Not recorded', tone: 'none' }
+  return { text: t('weeklyPlan.notRecorded'), tone: 'none' }
 }
 
 const explanation = computed(() => {
   switch (props.day.state) {
     case 'not_marked_done':
-      return "This session wasn't marked done and no sets were recorded. That doesn't mean it was missed."
+      return t('weeklyPlan.explanation.notMarkedDone')
     case 'rest':
-      return 'A planned rest day.'
+      return t('weeklyPlan.explanation.rest')
     case 'nothing':
-      if (steps.value.length > 0) return 'No workout was planned or logged for this day. Your steps are below.'
+      if (steps.value.length > 0) return t('weeklyPlan.explanation.nothingWithSteps')
 
-      return props.day.is_past ? 'Nothing was planned or logged for this day.' : 'No workout is planned for this day yet.'
+      return props.day.is_past ? t('weeklyPlan.explanation.nothingPast') : t('weeklyPlan.explanation.nothingFuture')
     case 'activity_only':
-      return 'You logged this without a plan for the day.'
+      return t('weeklyPlan.explanation.activityOnly')
     default:
       return null
   }
@@ -144,18 +151,18 @@ const explanation = computed(() => {
       <span class="min-w-0 space-y-0.5">
         <span class="flex items-center gap-1.5 text-xs font-medium tracking-wide text-slate-400 uppercase">
           {{ formatDate(day.date) }}
-          <span v-if="day.is_today" class="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white normal-case" data-testid="today-chip">Today</span>
+          <span v-if="day.is_today" class="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white normal-case" data-testid="today-chip">{{ t('weeklyPlan.today') }}</span>
         </span>
         <span class="flex items-start gap-1.5 font-semibold break-words text-slate-900" :class="plan || day.state === 'activity_only' ? '' : 'text-sm font-normal text-slate-500'">
           <FontAwesomeIcon v-if="headingType" :icon="activityIcon(headingType)" :class="[ICON_SIZE.sm, 'mt-1 shrink-0']" />
           <span class="min-w-0" data-testid="day-heading">{{ heading }}</span>
         </span>
         <span v-if="plan" class="block text-xs text-slate-500" data-testid="day-type">
-          {{ activityLabel(plan.activity_type as ActivityType) }}<template v-if="plan.duration_minutes"> · {{ plan.duration_minutes }} min</template>
+          {{ activityLabel(plan.activity_type as ActivityType) }}<template v-if="plan.duration_minutes"> · {{ t('units.minutes', { n: plan.duration_minutes }) }}</template>
         </span>
         <span v-if="stepsSummary" class="block text-xs text-slate-500" data-testid="day-steps-summary">{{ stepsSummary }}</span>
         <span v-if="suggestions > 0" class="block pt-0.5 text-xs font-medium text-brand-700" data-testid="day-suggestions">
-          {{ suggestions }} suggested {{ suggestions === 1 ? 'adjustment' : 'adjustments' }} to review in Progress
+          {{ t('weeklyPlan.suggestions', { count: suggestions }, suggestions) }}
         </span>
       </span>
 
@@ -170,18 +177,18 @@ const explanation = computed(() => {
       <span class="min-w-0 space-y-0.5">
         <span class="flex items-center gap-1.5 text-xs font-medium tracking-wide text-slate-400 uppercase">
           {{ formatDate(day.date) }}
-          <span v-if="day.is_today" class="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white normal-case" data-testid="today-chip">Today</span>
+          <span v-if="day.is_today" class="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] font-semibold text-white normal-case" data-testid="today-chip">{{ t('weeklyPlan.today') }}</span>
         </span>
         <span class="flex items-start gap-1.5 font-semibold break-words text-slate-900" :class="plan || day.state === 'activity_only' ? '' : 'text-sm font-normal text-slate-500'">
           <FontAwesomeIcon v-if="headingType" :icon="activityIcon(headingType)" :class="[ICON_SIZE.sm, 'mt-1 shrink-0']" />
           <span class="min-w-0" data-testid="day-heading">{{ heading }}</span>
         </span>
         <span v-if="plan" class="block text-xs text-slate-500" data-testid="day-type">
-          {{ activityLabel(plan.activity_type as ActivityType) }}<template v-if="plan.duration_minutes"> · {{ plan.duration_minutes }} min</template>
+          {{ activityLabel(plan.activity_type as ActivityType) }}<template v-if="plan.duration_minutes"> · {{ t('units.minutes', { n: plan.duration_minutes }) }}</template>
         </span>
         <span v-if="stepsSummary" class="block text-xs text-slate-500" data-testid="day-steps-summary">{{ stepsSummary }}</span>
         <span v-if="suggestions > 0" class="block pt-0.5 text-xs font-medium text-brand-700" data-testid="day-suggestions">
-          {{ suggestions }} suggested {{ suggestions === 1 ? 'adjustment' : 'adjustments' }} to review in Progress
+          {{ t('weeklyPlan.suggestions', { count: suggestions }, suggestions) }}
         </span>
       </span>
 
@@ -198,14 +205,14 @@ const explanation = computed(() => {
 
       <WhyThisChangedCard v-if="plan" :reasoning="plan.reasoning" :reasoning-factors="plan.reasoning_factors" />
 
-      <section v-if="plan && plan.exercises.length > 0" aria-label="Planned exercises">
+      <section v-if="plan && plan.exercises.length > 0" :aria-label="t('weeklyPlan.plannedExercises')">
         <ul class="space-y-2">
           <li v-for="exercise in plan.exercises" :key="exercise.id" class="rounded-lg bg-white/70 p-2 text-sm ring-1 ring-slate-100" data-testid="exercise">
             <p class="font-medium break-words text-slate-900">{{ exercise.exercise_name }}</p>
             <dl class="mt-0.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs">
-              <dt class="text-slate-400">Planned</dt>
+              <dt class="text-slate-400">{{ t('weeklyPlan.planned') }}</dt>
               <dd class="break-words text-slate-700" data-testid="exercise-planned">{{ target(exercise) }}</dd>
-              <dt class="text-slate-400">Recorded</dt>
+              <dt class="text-slate-400">{{ t('weeklyPlan.recorded') }}</dt>
               <dd
                 class="break-words"
                 :class="recorded(exercise).tone === 'measured' ? 'text-slate-900' : 'text-slate-500'"
@@ -218,9 +225,9 @@ const explanation = computed(() => {
         </ul>
       </section>
 
-      <section v-if="day.activities.length > 0" class="space-y-1.5" :aria-label="plan ? 'Also logged' : 'Logged activity'">
+      <section v-if="day.activities.length > 0" class="space-y-1.5" :aria-label="plan ? t('weeklyPlan.alsoLogged') : t('weeklyPlan.loggedActivity')">
         <h3 class="text-xs font-medium tracking-wide text-slate-400 uppercase" data-testid="activities-heading">
-          {{ plan ? 'Also logged this day' : 'Logged activity' }}
+          {{ plan ? t('weeklyPlan.alsoLoggedThisDay') : t('weeklyPlan.loggedActivity') }}
         </h3>
         <ul class="space-y-1.5">
           <li v-for="activity in day.activities" :key="activity.id" class="rounded-lg bg-white/70 p-2 text-sm ring-1 ring-slate-100" data-testid="activity">
@@ -235,21 +242,21 @@ const explanation = computed(() => {
         </ul>
       </section>
 
-      <section v-if="steps.length > 0" class="space-y-1.5" aria-label="Steps" data-testid="steps">
-        <h3 class="text-xs font-medium tracking-wide text-slate-400 uppercase">Steps</h3>
+      <section v-if="steps.length > 0" class="space-y-1.5" :aria-label="t('weeklyPlan.steps')" data-testid="steps">
+        <h3 class="text-xs font-medium tracking-wide text-slate-400 uppercase">{{ t('weeklyPlan.steps') }}</h3>
         <ul class="space-y-1.5">
           <li v-for="entry in steps" :key="entry.id" class="rounded-lg bg-white/70 p-2 text-sm ring-1 ring-slate-100" data-testid="steps-entry">
             <p class="flex items-start gap-1.5 font-medium break-words text-slate-900">
               <FontAwesomeIcon :icon="activityIcon('steps')" :class="[ICON_SIZE.sm, 'mt-0.5 shrink-0']" />
-              <span class="min-w-0" data-testid="steps-count">{{ entry.steps === null ? 'Steps logged (count not recorded)' : `${formatSteps(entry.steps)} steps` }}</span>
+              <span class="min-w-0" data-testid="steps-count">{{ entry.steps === null ? t('weeklyPlan.stepsLoggedUnknown') : stepsText(entry.steps) }}</span>
             </p>
-            <p class="text-xs text-slate-500" data-testid="steps-date">Logged for {{ formatDate(entry.logged_date) }}</p>
+            <p class="text-xs text-slate-500" data-testid="steps-date">{{ t('weeklyPlan.loggedFor', { date: formatDate(entry.logged_date) }) }}</p>
           </li>
         </ul>
         <p v-if="steps.length > 1" class="text-xs text-slate-500" data-testid="steps-note">
-          {{ steps.length }} separate entries, shown as logged and not added together.
+          {{ t('weeklyPlan.separateEntries', { n: steps.length }) }}
         </p>
-        <p class="text-xs text-slate-400">Steps are a daily measurement. They don't count as a workout or complete a planned session.</p>
+        <p class="text-xs text-slate-400">{{ t('weeklyPlan.stepsNote') }}</p>
       </section>
 
       <button
@@ -259,7 +266,7 @@ const explanation = computed(() => {
         data-testid="show-suggestions"
         @click="emit('show-suggestions')"
       >
-        Review {{ suggestions === 1 ? 'the adjustment' : 'the adjustments' }} in Progress
+        {{ t('weeklyPlan.reviewSuggestions', suggestions) }}
       </button>
     </div>
   </article>

@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 
 import * as conversationService from '@/services/conversations'
 import type { Conversation, Message } from '@/types'
-import { extractErrorMessage } from '@/utils/errors'
+import { errorRef } from '@/utils/errors'
 
 export const useChatStore = defineStore('chat', () => {
   const conversations = ref<Conversation[]>([])
@@ -11,7 +11,8 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([])
   const loadingMessages = ref(false)
   const sending = ref(false)
-  const error = ref<string | null>(null)
+  const failure = errorRef()
+  const error = failure.message
 
   async function loadConversations() {
     conversations.value = await conversationService.fetchConversations()
@@ -20,7 +21,7 @@ export const useChatStore = defineStore('chat', () => {
   async function openConversation(conversation: Conversation) {
     activeConversation.value = conversation
     loadingMessages.value = true
-    error.value = null
+    failure.clear()
 
     try {
       messages.value = await conversationService.fetchMessages(conversation.id)
@@ -35,7 +36,7 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     loadingMessages.value = true
-    error.value = null
+    failure.clear()
 
     try {
       await loadConversations()
@@ -54,12 +55,44 @@ export const useChatStore = defineStore('chat', () => {
 
       return created
     } catch (e: unknown) {
-      error.value = extractErrorMessage(e, "Couldn't load your coach conversation.")
+      failure.fail(e, 'chatLoad')
 
       return null
     } finally {
       loadingMessages.value = false
     }
+  }
+
+  /**
+   * Re-reads, from the server, which replacement questions can still be answered, and updates only those. A question that
+   * cannot be re-read is treated as closed, so a button is never offered on a guess; the server decides every answer anyway.
+   */
+  async function refreshConfirmations() {
+    const conversation = activeConversation.value
+
+    if (!conversation || !messages.value.some((m) => m.confirmation?.actionable)) {
+      return
+    }
+
+    let fresh: Message[] | null = null
+
+    try {
+      fresh = await conversationService.fetchMessages(conversation.id)
+    } catch {
+      fresh = null
+    }
+
+    if (activeConversation.value?.id !== conversation.id) {
+      return
+    }
+
+    const byId = new Map((fresh ?? []).map((m) => [m.id, m]))
+
+    messages.value = messages.value.map((m) =>
+      m.confirmation?.actionable
+        ? { ...m, confirmation: byId.get(m.id)?.confirmation ?? { ...m.confirmation, actionable: false } }
+        : m,
+    )
   }
 
   async function send(content: string) {
@@ -73,7 +106,7 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     sending.value = true
-    error.value = null
+    failure.clear()
 
     try {
       const conversation = await ensureActiveConversation()
@@ -99,12 +132,17 @@ export const useChatStore = defineStore('chat', () => {
         if (activeConversation.value?.id === conversation.id) {
           messages.value.push(assistantMessage)
         }
+
+        // An older question may have just been answered, spent or overtaken: the server says which ones can still be answered.
+        await refreshConfirmations()
       } catch (e: unknown) {
-        error.value = extractErrorMessage(e, "Couldn't reach your coach — please try again.")
+        failure.fail(e, 'coachUnreachable')
         // Compare by id, not object reference — Vue's reactive array wraps
         // pushed objects in a proxy, so the local object reference no longer
         // matches what filter() reads back out of messages.value.
         messages.value = messages.value.filter((m) => m.id !== tempId)
+        // The request may have reached the server before the connection failed: ask it what is still open.
+        await refreshConfirmations()
       }
     } finally {
       sending.value = false

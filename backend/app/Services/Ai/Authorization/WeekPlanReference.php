@@ -38,10 +38,19 @@ final class WeekPlanReference
     /** The coach's closing words: after these nothing is part of a day. */
     private const CLOSING = '/^(?:if (?:this|that|you|the|it)\b|would you\b|want me\b|do you want\b|let me know\b|just say\b|shall i\b|say\b|reply\b|feel free\b|once you\b|when you(?:\'re| are) ready\b|i can also\b|i(?:\'ll| will)\b|ready to\b|note:|notes?\b|tip:|remember\b)/iu';
 
+    /** The coach's closing words in Spanish (folded): after these nothing is part of a day. */
+    private const CLOSING_ES = '/^(?:si (?:este|esto|te|quieres|prefieres|todo|estas)\b|quieres que\b|te gustaria\b|dime\b|avisame\b|responde\b|escribe\b|di\b|cuando estes listo\b|puedo tambien\b|nota:|notas?\b|consejo:|recuerda\b|listo para\b)/u';
+
+    /** A listed line that is not an exercise, in Spanish (folded): a warm-up, a note, a sub-heading, a total. */
+    private const NOT_AN_EXERCISE_LINE_ES = '/^(?:calent|enfri|descans|estir|respir|hidrat|termin|nota|consejo|objetivo|enfoque|forma\b|tempo|intensidad|equipo|por que\b|opcional|total|duracion|tiempo\b|repite|circuito|ronda|vuelta a la calma)|:\s*$/u';
+
     /** A listed line that is not an exercise: a warm-up, a note, a sub-heading, a total. */
     private const NOT_AN_EXERCISE_LINE = '/^(?:warm|cool|rest\b|stretch|breath|hydrat|finish|note|tip|goal|focus|form\b|tempo|intensity|equipment|why\b|optional|total|duration|time\b|repeat|circuit|round)|:\s*$/iu';
 
     private const REST = '/\b(?:rest(?:ing)?(?:\s+day)?|day off|off day|no workout|recovery day|take it easy|nothing planned|complete rest|full rest)\b/iu';
+
+    /** A rest day in Spanish (folded): "descanso", "día de descanso", "día libre", "sin entrenar", "descanso completo". */
+    private const REST_ES = '/\b(?:descans\w*|dia libre|dia de recuperacion|sin entrenar|sin entrenamiento|no entrenes|nada planeado|nada programado)\b/u';
 
     /**
      * @param  Collection<int, Message>  $history  the conversation up to and including the user's current message
@@ -81,6 +90,12 @@ final class WeekPlanReference
         $seen = [];
 
         foreach ($sections as $section) {
+            // A line that starts with a Spanish weekday but is not a heading ("Lunes y miércoles descanso", "Lunes a viernes: …") would be
+            // read as part of the day above it and could silently drop days: it is asked about instead.
+            if (($section['stray'] ?? []) !== []) {
+                return WeekPlan::unresolved(WeekPlan::UNCLEAR_DAY, [$section['label']], 'a line under it names another day without being a heading of its own');
+            }
+
             $date = self::dateOf($section, $today, $weekStart);
 
             if ($date === null) {
@@ -95,7 +110,7 @@ final class WeekPlanReference
             $dated[] = $section + ['date' => $date];
         }
 
-        if (! array_filter($dated, fn (array $s) => $s['explicit']) && preg_match('/\bnext week\b/iu', $text)) {
+        if (! array_filter($dated, fn (array $s) => $s['explicit']) && (preg_match('/\bnext week\b/iu', $text) || preg_match('/\b(?:semana (?:que viene|proxima|siguiente)|proxima semana)\b/u', Lexicon::fold($text)))) {
             return WeekPlan::unresolved(WeekPlan::DATES, [], 'the plan is for next week but its days have no dates');
         }
 
@@ -143,7 +158,7 @@ final class WeekPlanReference
         foreach ($dated as $section) {
             $body = $section['body'];
             $items = SavedWorkoutReference::items($body);
-            $labelRest = (bool) preg_match(self::REST, $section['title']);
+            $labelRest = (bool) preg_match(self::REST, $section['title']) || (bool) preg_match(self::REST_ES, Lexicon::fold($section['title']));
 
             if (SavedWorkoutReference::looksUnfinished($body)) {
                 return WeekPlan::unresolved(WeekPlan::UNCLEAR_DAY, [$section['label']], 'it looks cut off or unfinished');
@@ -162,11 +177,12 @@ final class WeekPlanReference
                     return WeekPlan::unresolved(WeekPlan::UNCLEAR_DAY, [$section['label']], 'it mentions an activity with no sets, reps or time');
                 }
 
-                if (preg_match('/\brest\b[^.\n]{0,25}(?:\bor\b|\/)|(?:\bor\b|\/)\s*(?:a\s+)?rest\b/iu', $section['title']."\n".$body)) {
+                if (preg_match('/\brest\b[^.\n]{0,25}(?:\bor\b|\/)|(?:\bor\b|\/)\s*(?:a\s+)?rest\b/iu', $section['title']."\n".$body)
+                    || preg_match('/\bdescans\w*[^.\n]{0,25}(?:\bo\b|\/)|(?:\bo\b|\/)\s*(?:un\s+)?descans\w*/u', Lexicon::fold($section['title']."\n".$body))) {
                     return WeekPlan::unresolved(WeekPlan::UNCLEAR_DAY, [$section['label']], 'it says rest or something else');
                 }
 
-                if (! preg_match(self::REST, $section['title']."\n".$body)) {
+                if (! preg_match(self::REST, $section['title']."\n".$body) && ! preg_match(self::REST_ES, Lexicon::fold($section['title']."\n".$body))) {
                     return WeekPlan::unresolved(WeekPlan::UNCLEAR_DAY, [$section['label']], 'it lists no exercises and does not say it is a rest day');
                 }
 
@@ -181,7 +197,7 @@ final class WeekPlanReference
 
             // A listed line that gives no sets, reps or time would be left out of the saved day: say so instead.
             foreach ($section['list'] as $line) {
-                if (SavedWorkoutReference::items($line) === [] && ! preg_match(self::NOT_AN_EXERCISE_LINE, $line) && preg_match('/\p{L}/u', $line)) {
+                if (SavedWorkoutReference::items($line) === [] && ! preg_match(self::NOT_AN_EXERCISE_LINE, $line) && ! preg_match(self::NOT_AN_EXERCISE_LINE_ES, ltrim(Lexicon::fold($line), " \t*-•–—0123456789.)")) && preg_match('/\p{L}/u', $line)) {
                     return WeekPlan::unresolved(WeekPlan::UNCLEAR_DAY, [$section['label']], 'the line "'.mb_substr($line, 0, 50).'" gives no sets, reps or time, so I would have to leave it out');
                 }
             }
@@ -211,14 +227,14 @@ final class WeekPlanReference
     /** Whether a day offers options ("Option A", "Alternatively", "if you prefer"), which would be saved together as one workout. */
     private static function offersAlternatives(string $body): bool
     {
-        return (bool) preg_match('/^[\s>*_#\-•]*(?:option|alternative|choice|version)\s*(?:#|no\.?)?\s*(?:\d{1,2}|[a-d])\b|\b(?:alternatively|another option|or if you prefer|if you prefer)\b/imu', $body);
+        return (bool) preg_match('/^[\s>*_#\-•]*(?:option|alternative|choice|version|opci[oó]n|alternativa|elecci[oó]n|versi[oó]n)\s*(?:#|no\.?|n[uú]mero)?\s*(?:\d{1,2}|[a-d])\b|\b(?:alternatively|another option|or if you prefer|if you prefer|alternativamente|otra opci[oó]n|o si prefieres|si prefieres)\b/imu', $body);
     }
 
     /**
      * The day sections of a text, in order. Each: weekday (1-7), label (the heading as written), title (the heading
      * without the weekday), body (everything under it, the heading's own remainder first), date parts if the heading has any.
      *
-     * @return array<int, array{weekday: int, label: string, title: string, body: string, list: array<int, string>, after: string, month: ?int, day: ?int, year: ?int, explicit: bool}>
+     * @return array<int, array{weekday: int, label: string, title: string, body: string, list: array<int, string>, after: string, month: ?int, day: ?int, year: ?int, explicit: bool, numeric?: ?array, stray?: array<int, string>}>
      */
     public static function sections(string $text): array
     {
@@ -255,8 +271,13 @@ final class WeekPlanReference
             }
 
             // The coach's closing offer or a note is not part of the day above it; a later day is still read.
-            if ($current !== null && ! $isListItem && preg_match(self::CLOSING, $bare)) {
+            if ($current !== null && ! $isListItem && (preg_match(self::CLOSING, $bare) || preg_match(self::CLOSING_ES, ltrim(Lexicon::fold($bare), '¿¡ ')))) {
                 $closed = true;
+            }
+
+            // A Spanish weekday opening a line that is not a heading: remembered, so the day is asked about, not read around.
+            if ($current !== null && ! $closed && ! $isListItem && preg_match('/^(?:'.Lexicon::weekdaysEs().')\b/u', Lexicon::fold($bare))) {
+                $sections[$current]['stray'][] = $line;
             }
 
             if ($current !== null && ! $closed) {
@@ -288,6 +309,84 @@ final class WeekPlanReference
 
     /** @return array{weekday: int, label: string, title: string, body: string, list: array<int, string>, after: string, month: ?int, day: ?int, year: ?int, explicit: bool}|null */
     private static function heading(string $bare): ?array
+    {
+        return self::headingEnglish($bare) ?? self::headingSpanish($bare);
+    }
+
+    /**
+     * "Lunes, 18 de noviembre — Torso", "Miércoles (18/11): descanso", "Día 2 (Martes)", "Sábado de piernas": a Spanish day heading,
+     * read like the English one (same fields, same fail-closed rules). A numeric date is kept as written and settled later against
+     * its weekday (see dateOf()); a line that starts with a weekday but is not a heading is not read here (sections() notes it).
+     *
+     * @return array{weekday: int, label: string, title: string, body: string, list: array<int, string>, after: string, month: ?int, day: ?int, year: ?int, explicit: bool, numeric: ?array}|null
+     */
+    private static function headingSpanish(string $bare): ?array
+    {
+        if (mb_strlen($bare) > 400) {
+            return null;
+        }
+
+        $folded = Lexicon::foldKeepingLength($bare);
+        $full = Lexicon::weekdaysEs();
+        $abbreviations = ['lun' => 1, 'mar' => 2, 'mie' => 3, 'jue' => 4, 'vie' => 5, 'sab' => 6, 'dom' => 7];
+
+        if (! preg_match('/^((?:dia\s*\d+\s*[:\-–—(]\s*)?)('.$full.'|lun|mie|jue|vie|sab|dom|mar(?=\s*[:.\-–—,(]))\b\.?/u', $folded, $m)) {
+            return null;
+        }
+
+        $typed = mb_substr($bare, mb_strlen($m[1]), mb_strlen($m[2]));
+        $rest = mb_substr($bare, mb_strlen($m[0]));
+        $foldedRest = mb_substr($folded, mb_strlen($m[0]));
+        $weekday = Lexicon::WEEKDAYS_ES[$m[2]] ?? $abbreviations[$m[2]];
+
+        if (trim($foldedRest) !== '' && ! preg_match('/^\s*(?:[:,;()\-–—\/]|\d|de\s+\p{L}|(?:'.Lexicon::monthsEs().')\b)/u', $foldedRest)) {
+            return null; // "Lunes y miércoles son…": a sentence, not a heading
+        }
+
+        // "Lunes y miércoles", "Lunes a viernes", "Lunes - miércoles": a list or a range of days, not one.
+        if (preg_match('/^\s*(?:[,\/&\-–—]|y\b|a\b|al\b)\s*(?:y\s+)?(?:'.$full.'|lun|mie|jue|vie|sab|dom)\b/u', $foldedRest)) {
+            return null;
+        }
+
+        $head = mb_substr($foldedRest, 0, 80);
+        $months = Lexicon::MONTHS_ES + ['ene' => 1, 'abr' => 4, 'ago' => 8, 'sept' => 9, 'set' => 9, 'dic' => 12, 'feb' => 2, 'mar' => 3, 'may' => 5, 'jun' => 6, 'jul' => 7, 'sep' => 9, 'oct' => 10, 'nov' => 11];
+        $alternation = implode('|', array_keys($months));
+        $month = $day = $year = null;
+        $numeric = null;
+
+        if (preg_match('/\b(\d{4})-(\d{2})-(\d{2})\b/u', $head, $d)) {
+            [$year, $month, $day] = [(int) $d[1], (int) $d[2], (int) $d[3]];
+        } elseif (preg_match('/\b(\d{1,2})\s+de\s+('.$alternation.')\b(?:\s+de\s+(\d{4}))?/u', $head, $d)) {
+            [$month, $day, $year] = [$months[$d[2]], (int) $d[1], ($d[3] ?? '') !== '' ? (int) $d[3] : null];
+        } elseif (preg_match('/\b(\d{1,2})\s+('.$alternation.')\b\.?/u', $head, $d)) {
+            [$month, $day] = [$months[$d[2]], (int) $d[1]];
+        } elseif (preg_match('/\b('.$alternation.')\b\.?\s+(\d{1,2})\b/u', $head, $d)) {
+            [$month, $day] = [$months[$d[1]], (int) $d[2]];
+        } elseif (preg_match('/(?<![\d\/.])(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?(?![\d\/])/u', $head, $d)) {
+            $numeric = [(int) $d[1], (int) $d[2], ($d[3] ?? '') !== '' ? (int) $d[3] : null];
+        }
+
+        $label = rtrim(trim((string) preg_replace('/\s+/u', ' ', ucfirst(mb_strtolower($typed)).$rest)), " \t:-–—,(");
+        $label = mb_strlen($label) > 70 ? rtrim(mb_substr($label, 0, 69)).'…' : $label;
+        $title = trim((string) preg_replace('/^[\s:\-–—,()]+/u', '', $rest));
+
+        return [
+            'weekday' => $weekday,
+            'label' => rtrim($label, " \t:-–—,("),
+            'title' => $title,
+            'body' => $title,
+            'list' => [],
+            'after' => '',
+            'month' => $month,
+            'day' => $day,
+            'year' => $year,
+            'explicit' => $month !== null || $numeric !== null,
+            'numeric' => $numeric,
+        ];
+    }
+
+    /** @return array{weekday: int, label: string, title: string, body: string, list: array<int, string>, after: string, month: ?int, day: ?int, year: ?int, explicit: bool}|null */
+    private static function headingEnglish(string $bare): ?array
     {
         $names = implode('|', array_keys(self::WEEKDAYS));
 
@@ -339,6 +438,18 @@ final class WeekPlanReference
     /** The date of a section, or null if its own date is not on its weekday. */
     private static function dateOf(array $section, CarbonImmutable $today, CarbonImmutable $weekStart): ?string
     {
+        // "Lunes 7/11": read as written only if exactly one reading is that weekday (the weekday is the context that settles it).
+        // None, or two, and the heading is not a date the application can trust: the user is asked.
+        if (($section['numeric'] ?? null) !== null) {
+            [$a, $b, $year] = $section['numeric'];
+            $fits = array_values(array_filter(
+                DateReading::candidates($a, $b, $year, $today),
+                fn (string $date) => CarbonImmutable::parse($date)->dayOfWeekIso === $section['weekday'],
+            ));
+
+            return count($fits) === 1 ? $fits[0] : null;
+        }
+
         if ($section['month'] === null) {
             return $weekStart->addDays($section['weekday'] - 1)->toDateString();
         }
@@ -379,6 +490,23 @@ final class WeekPlanReference
                     default => $weekStart->addDays(self::WEEKDAYS[$word] - 1)->toDateString(),
                 };
                 $named[$date] = ucfirst($word);
+            }
+        }
+
+        // The same in Spanish: "para el sábado y el domingo", "solo hoy", "mañana".
+        $es = Lexicon::fold($message);
+        $weekdays = Lexicon::weekdaysEs();
+
+        if (preg_match_all('/\b('.$weekdays.'|hoy|pasado manana)\b|'.Lexicon::TOMORROW_ES.'/u', $es, $hits, PREG_SET_ORDER)) {
+            foreach ($hits as $hit) {
+                $word = $hit[1] ?? 'manana';
+                $date = match ($word) {
+                    'hoy' => $today->toDateString(),
+                    'manana' => $today->addDay()->toDateString(),
+                    'pasado manana' => $today->addDays(2)->toDateString(),
+                    default => $weekStart->addDays(Lexicon::WEEKDAYS_ES[$word] - 1)->toDateString(),
+                };
+                $named[$date] = ucfirst($word === 'manana' ? 'mañana' : ($word === 'miercoles' ? 'miércoles' : ($word === 'sabado' ? 'sábado' : $word)));
             }
         }
 

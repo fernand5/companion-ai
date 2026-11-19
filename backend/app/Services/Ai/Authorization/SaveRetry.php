@@ -54,16 +54,17 @@ final class SaveRetry
     /** "try again", "could you try to add them again?", "add them to my dashboard again", "give it another try". */
     public static function isRetryPhrase(string $message): bool
     {
-        if (SpanishSaveIntent::retryPhrase($message)) {
-            return true;
-        }
-
         $text = mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $message)));
         $text = trim(str_replace(['’', '‘'], "'", $text), " \t.!?,;:");
         $text = trim((string) preg_replace('/\s+(?:please|pls|thanks|thank you)$/u', '', $text), " \t.!?,;:");
 
         if ($text === '' || mb_strlen($text) > 100) {
             return false;
+        }
+
+        // "inténtalo de nuevo", "vuelve a intentarlo", "agrégalos otra vez": the same request in Spanish (see SpanishIntent).
+        if (SpanishIntent::retryPhrase(Lexicon::fold($text))) {
+            return true;
         }
 
         // A denial, or a question about what happened, is not a request: "don't try again", "why didn't you try again".

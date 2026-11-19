@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
+use App\Http\Requests\UpdateLocaleRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Support\ApiMessages;
+use App\Support\AppLocale;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -20,6 +23,7 @@ class AuthController extends Controller
             'email' => $request->string('email'),
             'password' => Hash::make($request->string('password')),
             'timezone' => $request->string('timezone')->toString() ?: null,
+            'locale' => AppLocale::fromSupplied($request->input('locale'))?->value ?? AppLocale::DEFAULT->value,
         ]);
 
         $token = $user->createToken('api')->plainTextToken;
@@ -36,7 +40,7 @@ class AuthController extends Controller
 
         if (! $user || ! Hash::check($request->string('password'), $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['These credentials do not match our records.'],
+                'email' => [ApiMessages::loginFailed()],
             ]);
         }
 
@@ -59,11 +63,25 @@ class AuthController extends Controller
     {
         $request->user()->currentAccessToken()->delete();
 
-        return response()->json(['message' => 'Logged out.']);
+        return response()->json(['message' => ApiMessages::loggedOut()]);
     }
 
     public function me(Request $request)
     {
         return new UserResource($request->user());
+    }
+
+    /**
+     * Saves the language the user reads the application in. It lives on the user, not on the fitness
+     * profile, so it works before a profile exists. It changes wording only; nothing here touches
+     * the plan, the profile or the coaching voice. Login deliberately never writes it: a language
+     * picked on the sign-in screen must not replace the one the account already has.
+     */
+    public function updateLocale(UpdateLocaleRequest $request)
+    {
+        $user = $request->user();
+        $user->update(['locale' => $request->validated('locale')]);
+
+        return new UserResource($user->refresh());
     }
 }

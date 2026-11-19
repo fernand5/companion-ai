@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { ICON_SIZE, icons } from '@/constants/icons'
 import { useExerciseImageStore } from '@/stores/exerciseImages'
@@ -13,6 +14,7 @@ const props = defineProps<{
   imageUrl: string | null
 }>()
 
+const { t } = useI18n()
 const store = useExerciseImageStore()
 const entry = computed(() => store.entryFor(props.exerciseId))
 const brokenImage = ref(false)
@@ -29,16 +31,16 @@ onUnmounted(() => store.cancel(props.exerciseId))
     <img
       v-if="showImage"
       :src="url!"
-      :alt="`${exerciseName} demonstration`"
+      :alt="t('activity.demo.alt', { name: exerciseName })"
       loading="lazy"
       class="w-full rounded-lg border border-slate-200 bg-slate-50 object-cover"
       @error="brokenImage = true"
     />
     <p v-else-if="entry?.state === 'loading'" class="flex items-center gap-1.5 text-xs text-slate-400">
       <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.xs" spin />
-      Generating exercise demonstration…
+      {{ t('activity.demo.generating') }}
     </p>
-    <p v-else-if="unavailable" class="text-xs text-slate-400">Demo unavailable right now.</p>
+    <p v-else-if="unavailable" class="text-xs text-slate-400">{{ t('activity.demo.unavailable') }}</p>
     <button
       v-else
       type="button"
@@ -46,7 +48,7 @@ onUnmounted(() => store.cancel(props.exerciseId))
       @click="store.request(planId, exerciseId)"
     >
       <FontAwesomeIcon :icon="icons.demo" :class="ICON_SIZE.xs" />
-      Show demo
+      {{ t('activity.demo.show') }}
     </button>
   </div>
 </template>

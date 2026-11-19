@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import ErrorNotice from '@/components/ErrorNotice.vue'
 import ProgressionRecommendations from '@/components/ProgressionRecommendations.vue'
@@ -8,9 +9,11 @@ import ProgressChart from '@/components/ProgressChart.vue'
 import StatCard from '@/components/StatCard.vue'
 import WeeklySummaryCard from '@/components/WeeklySummaryCard.vue'
 import { ICON_SIZE, icons } from '@/constants/icons'
+import { formatMeasure } from '@/i18n/format'
 import { useDashboardStore } from '@/stores/dashboard'
 import { formatDate } from '@/utils/format'
 
+const { t } = useI18n()
 const store = useDashboardStore()
 
 onMounted(() => {
@@ -41,7 +44,7 @@ const workoutValues = computed(() => data.value?.weekly_workouts.map((d) => d.wo
   <div class="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
     <h1 class="flex items-center gap-2 text-lg font-semibold text-slate-900">
       <FontAwesomeIcon :icon="icons.nav.progress" :class="ICON_SIZE.md" />
-      Progress
+      {{ t('progress.title') }}
     </h1>
 
     <!-- Load progression: what to do next with the weights. Mounted on its own so it neither waits for nor is hidden by the charts below. -->
@@ -49,7 +52,7 @@ const workoutValues = computed(() => data.value?.weekly_workouts.map((d) => d.wo
 
     <div v-if="store.progressLoading" class="flex items-center justify-center gap-2 py-12 text-center text-slate-400">
       <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.md" spin />
-      Loading progress…
+      {{ t('progress.loading') }}
     </div>
 
     <div v-else-if="store.progressError" class="rounded-xl border border-slate-200 bg-white p-4">
@@ -57,7 +60,7 @@ const workoutValues = computed(() => data.value?.weekly_workouts.map((d) => d.wo
     </div>
 
     <div v-else-if="data" class="space-y-6">
-      <h2 class="text-base font-semibold text-slate-900" data-testid="trends-heading">Trends and history</h2>
+      <h2 class="text-base font-semibold text-slate-900" data-testid="trends-heading">{{ t('progress.trends') }}</h2>
 
       <WeeklySummaryCard
         :summary="store.weeklySummary"
@@ -67,23 +70,23 @@ const workoutValues = computed(() => data.value?.weekly_workouts.map((d) => d.wo
 
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
-          label="Current"
+          :label="t('progress.stats.current')"
           :icon="icons.activityType.weight"
-          :value="data.summary.current_weight_kg ? `${data.summary.current_weight_kg} kg` : '—'"
+          :value="data.summary.current_weight_kg ? `${formatMeasure(Number(data.summary.current_weight_kg))} kg` : '—'"
         />
         <StatCard
-          label="Starting"
+          :label="t('progress.stats.starting')"
           :icon="icons.activityType.weight"
-          :value="data.summary.starting_weight_kg ? `${data.summary.starting_weight_kg} kg` : '—'"
+          :value="data.summary.starting_weight_kg ? `${formatMeasure(Number(data.summary.starting_weight_kg))} kg` : '—'"
         />
-        <StatCard label="Workouts/wk" :icon="icons.activityType.strength" :value="String(data.summary.workouts_this_week)" />
-        <StatCard label="Avg steps" :icon="icons.activityType.steps" :value="String(data.summary.average_steps)" />
+        <StatCard :label="t('progress.stats.workoutsPerWeek')" :icon="icons.activityType.strength" :value="String(data.summary.workouts_this_week)" />
+        <StatCard :label="t('progress.stats.avgSteps')" :icon="icons.activityType.steps" :value="String(data.summary.average_steps)" />
       </div>
 
       <section v-if="store.adherenceError" class="rounded-xl border border-slate-200 bg-white p-4">
         <h2 class="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
           <FontAwesomeIcon :icon="icons.adherence" :class="[ICON_SIZE.sm, 'text-slate-400']" />
-          Adherence
+          {{ t('progress.adherence') }}
         </h2>
         <ErrorNotice :message="store.adherenceError" :on-retry="store.loadAdherence" />
       </section>
@@ -92,52 +95,52 @@ const workoutValues = computed(() => data.value?.weekly_workouts.map((d) => d.wo
         <div class="mb-2 flex items-center justify-between">
           <h2 class="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
             <FontAwesomeIcon :icon="icons.adherence" :class="[ICON_SIZE.sm, 'text-slate-400']" />
-            Adherence
+            {{ t('progress.adherence') }}
           </h2>
-          <span class="text-xs text-slate-400">Last 7 days: {{ adherence.summary.active_days }} active day(s)</span>
+          <span class="text-xs text-slate-400">{{ t('progress.last7Days', { n: adherence.summary.active_days }, adherence.summary.active_days) }}</span>
         </div>
         <p class="mb-2 text-2xl font-semibold text-slate-900">
           {{ adherence.summary.adherence_pct !== null ? `${adherence.summary.adherence_pct}%` : '—' }}
         </p>
-        <ProgressChart type="line" label="Adherence %" :labels="adherenceLabels" :values="adherenceValues" color="#0ea5e9" />
+        <ProgressChart type="line" :label="t('progress.chart.adherence')" :labels="adherenceLabels" :values="adherenceValues" color="#0ea5e9" />
       </section>
 
       <section class="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 class="mb-2 text-sm font-semibold text-slate-700">Weight</h2>
+        <h2 class="mb-2 text-sm font-semibold text-slate-700">{{ t('progress.weight') }}</h2>
         <ProgressChart
           v-if="weightValues.length > 0"
           type="line"
-          label="Weight (kg)"
+          :label="t('progress.chart.weight')"
           :labels="weightLabels"
           :values="weightValues"
         />
         <p v-else class="flex items-center gap-1.5 text-sm text-slate-400">
           <FontAwesomeIcon :icon="icons.activityType.weight" :class="ICON_SIZE.sm" />
-          No weight entries yet.
+          {{ t('progress.noWeight') }}
         </p>
       </section>
 
       <section class="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 class="mb-2 text-sm font-semibold text-slate-700">Steps</h2>
+        <h2 class="mb-2 text-sm font-semibold text-slate-700">{{ t('progress.steps') }}</h2>
         <ProgressChart
           v-if="stepsValues.length > 0"
           type="bar"
-          label="Steps"
+          :label="t('progress.chart.steps')"
           :labels="stepsLabels"
           :values="stepsValues"
           color="#0ea5e9"
         />
         <p v-else class="flex items-center gap-1.5 text-sm text-slate-400">
           <FontAwesomeIcon :icon="icons.activityType.steps" :class="ICON_SIZE.sm" />
-          No steps logged yet.
+          {{ t('progress.noSteps') }}
         </p>
       </section>
 
       <section class="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 class="mb-2 text-sm font-semibold text-slate-700">Workouts per week</h2>
+        <h2 class="mb-2 text-sm font-semibold text-slate-700">{{ t('progress.workoutsPerWeek') }}</h2>
         <ProgressChart
           type="bar"
-          label="Workouts"
+          :label="t('progress.chart.workouts')"
           :labels="workoutLabels"
           :values="workoutValues"
           color="#a855f7"

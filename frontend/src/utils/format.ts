@@ -1,43 +1,41 @@
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 
 import { icons } from '@/constants/icons'
+import { DEFAULT_SPORT } from '@/constants/activity'
+import { i18n } from '@/i18n'
+import { formatDateOnly, formatDecimal, formatMeasure, formatTimeOfDay, weekdayName } from '@/i18n/format'
 import type { ActivityType, PerformedSet } from '@/types'
 
-const ACTIVITY_LABELS: Record<ActivityType, string> = {
-  steps: 'Steps',
-  treadmill: 'Treadmill',
-  strength: 'Strength',
-  sport: 'Sport',
-  recovery: 'Recovery',
-  weight: 'Weight',
-}
+/** Words are looked up when called (never cached), so whatever reads them follows the language on screen. */
+const t = i18n.global.t
+
+/** An unknown stored value is shown as it is, never hidden. */
+const ACTIVITY_TYPES: ReadonlyArray<string> = ['steps', 'treadmill', 'strength', 'sport', 'recovery', 'weight']
 
 export function activityIcon(type: ActivityType): IconDefinition {
   return icons.activityType[type] ?? icons.activityFallback
 }
 
 export function activityLabel(type: ActivityType): string {
-  return ACTIVITY_LABELS[type] ?? type
+  return ACTIVITY_TYPES.includes(type) ? t(`enums.activityType.${type}`) : type
+}
+
+/** How a stored sport name is shown: the canonical suggestion in the language on screen, anything else as saved. */
+export function sportLabel(stored: string): string {
+  return stored === DEFAULT_SPORT ? t('activity.quickLog.defaultSport') : stored
 }
 
 export function formatDate(dateStr: string): string {
-  const date = new Date(`${dateStr}T00:00:00`)
-
-  return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  return formatDateOnly(dateStr, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
 export function formatTime(timeStr: string): string {
-  const [hours, minutes] = timeStr.split(':')
-  const date = new Date()
-  date.setHours(Number(hours), Number(minutes))
-
-  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return formatTimeOfDay(timeStr)
 }
 
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
+/** Short weekday name for 0 (Sunday) … 6 (Saturday), in the language the user chose. */
 export function dayName(dayOfWeek: number): string {
-  return DAY_NAMES[dayOfWeek] ?? '?'
+  return weekdayName(dayOfWeek, 'short')
 }
 
 /** 450 -> "7:30 /km". */
@@ -48,8 +46,9 @@ export function formatPace(secondsPerKm: number): string {
   return `${minutes}:${String(seconds).padStart(2, '0')} /km`
 }
 
+/** At most two decimals, no trailing zeros, in the user's number format: 42.5 → "42.5" / "42,5". */
 function trimNumber(value: number): string {
-  return String(Number(value.toFixed(2)))
+  return formatDecimal(Number(value.toFixed(2)), { maximumFractionDigits: 2, useGrouping: false })
 }
 
 /**
@@ -63,12 +62,12 @@ export function formatPerformedSets(sets: PerformedSet[]): string {
       const parts: string[] = []
 
       if (set.reps !== null && set.weight_kg !== null) parts.push(`${set.reps}×${trimNumber(set.weight_kg)}`)
-      else if (set.reps !== null) parts.push(`${set.reps} reps`)
+      else if (set.reps !== null) parts.push(t('units.reps', { n: set.reps }))
       else if (set.weight_kg !== null) parts.push(`${trimNumber(set.weight_kg)}`)
 
       if (set.duration_seconds !== null) parts.push(`${set.duration_seconds}s`)
 
-      return set.completed ? parts.join(' ') : `${parts.join(' ')} (not completed)`
+      return set.completed ? parts.join(' ') : `${parts.join(' ')} ${t('units.notCompleted')}`
     })
     .join(', ')
 
@@ -82,8 +81,8 @@ function cardioSummary(log: {
 }): string {
   return [
     log.distance_km != null ? `${trimNumber(log.distance_km)} km` : null,
-    log.duration_minutes ? `${log.duration_minutes} min` : null,
-    log.speed_kmh != null ? `${log.speed_kmh} km/h` : null,
+    log.duration_minutes ? t('units.minutes', { n: log.duration_minutes }) : null,
+    log.speed_kmh != null ? `${formatMeasure(Number(log.speed_kmh))} km/h` : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -100,17 +99,17 @@ export function activitySummary(log: {
 
   switch (log.type) {
     case 'steps':
-      return `${meta.steps ?? '?'} steps`
+      return t('units.steps', { n: meta.steps ?? '?' }, Number(meta.steps) === 1 ? 1 : 2)
     case 'weight':
-      return `${meta.weight_kg ?? '?'} kg`
+      return `${meta.weight_kg == null ? '?' : formatMeasure(Number(meta.weight_kg))} kg`
     case 'treadmill':
-      return cardioSummary(log) || 'Treadmill session'
+      return cardioSummary(log) || t('activity.treadmillSession')
     case 'sport':
-      return String(meta.sport ?? 'Sport session')
+      return meta.sport == null ? t('activity.sportSession') : sportLabel(String(meta.sport))
     case 'recovery':
-      return `Energy ${meta.energy ?? '-'} / Soreness ${meta.soreness ?? '-'}`
+      return t('recovery.summary', { energy: meta.energy ?? '-', soreness: meta.soreness ?? '-' })
     case 'strength':
-      return log.duration_minutes ? `${log.duration_minutes} min strength` : 'Strength session'
+      return log.duration_minutes ? t('activity.strengthSessionMinutes', { n: log.duration_minutes }) : t('activity.strengthSession')
     default:
       return ''
   }
@@ -118,7 +117,7 @@ export function activitySummary(log: {
 
 /** "3×10 @ 40 kg", "45s", "3×10"; "Not set" when the plan has no target for it. */
 export function formatTarget(target: { sets: number | null; reps: number | null; weight_kg: number | null; duration_seconds: number | null } | null): string {
-  if (!target) return 'Not set'
+  if (!target) return t('units.notSet')
 
   const volume =
     target.sets !== null && target.reps !== null
@@ -126,14 +125,14 @@ export function formatTarget(target: { sets: number | null; reps: number | null;
       : target.sets !== null && target.duration_seconds !== null
         ? `${target.sets}×${target.duration_seconds}s`
         : target.reps !== null
-          ? `${target.reps} reps`
+          ? t('units.reps', { n: target.reps })
           : target.duration_seconds !== null
             ? `${target.duration_seconds}s`
             : target.sets !== null
-              ? `${target.sets} sets`
+              ? t('units.sets', { n: target.sets })
               : null
-  const load = target.weight_kg !== null ? `${Number(target.weight_kg)} kg` : null
+  const load = target.weight_kg !== null ? `${formatMeasure(Number(target.weight_kg))} kg` : null
   const parts = [volume, load].filter((p): p is string => p !== null)
 
-  return parts.length === 0 ? 'Not set' : parts.join(' @ ')
+  return parts.length === 0 ? t('units.notSet') : parts.join(' @ ')
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services\Ai;
 
+use App\Support\ApiMessages;
 use RuntimeException;
 use Throwable;
 
@@ -45,10 +46,7 @@ class AiProviderException extends RuntimeException
      */
     public function userFacingMessage(): string
     {
-        return match ($this->userFacingReason()) {
-            'not_configured' => 'The AI coach is not configured yet. Set AI_API_KEY in the backend .env file.',
-            'rate_limited' => 'Your coach is at its request limit for now — please wait a moment and try again.',
-            default => 'The AI coach is temporarily unavailable — please try again in a moment.',
-        };
+        // Worded in the language of the request (English unchanged); chosen by the reason code only.
+        return ApiMessages::provider($this->userFacingReason());
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Services\Ai\Authorization;
 
 use App\Models\Message;
+use App\Services\Ai\Notices\ApplicationNotices;
 use Illuminate\Support\Collection;
 
 /**
@@ -40,11 +41,6 @@ final class SavedWorkoutReference
 
     /** Not an exercise name even when it sits in front of an amount. */
     private const NOT_AN_EXERCISE = ['workout', 'session', 'routine', 'exercise', 'exercises', 'total', 'duration', 'time', 'rest', 'warm-up', 'warm up', 'warmup', 'cool-down', 'cool down', 'cooldown', 'set', 'sets', 'rep', 'reps', 'round', 'rounds', 'week', 'day', 'note', 'notes', 'tip', 'tips', 'goal', 'focus', 'today', 'tomorrow', 'repeat', 'circuit', 'main set', 'intensity', 'target', 'about', 'around', 'aim for', 'aim', 'do', 'perform', 'complete', 'try', 'for', 'then', 'finish', 'up to', 'at least', 'in total', 'overall', 'add', 'save', 'put', 'push', 'send', 'pin', 'apply', 'use', 'schedule', 'please', 'can', 'could', 'would', 'i', 'we', 'my', 'this', 'that', 'it', 'these', 'those'];
-
-    /** How the application's own notices begin when it adds them under a reply; they are not part of what the coach said. */
-    private const APPLICATION_NOTICES = ["I haven't changed your plan", 'There is nothing waiting for your confirmation', 'I left the starting weight', 'As you asked, I replaced', 'Your plan changed since I asked', 'Your plan keeps one number',
-        // The same notices in Spanish (see SpanishCoachMessages).
-        'No he cambiado tu plan', 'No hay nada esperando tu confirmación', 'Como pediste, reemplacé', 'Tu plan cambió desde que te pregunté', 'Tu plan guarda un solo número'];
 
     /** Spanish words that are not an exercise name even in front of an amount (folded): headings, notes, instructions ("descansa 60 segundos entre series"). */
     private const NOT_AN_EXERCISE_ES = ['entrenamiento', 'sesion', 'rutina', 'ejercicio', 'ejercicios', 'total', 'duracion', 'tiempo', 'descanso', 'descansa', 'descansar', 'descansen', 'pausa', 'calentamiento', 'calienta', 'enfriamiento', 'serie', 'series', 'repeticion', 'repeticiones', 'ronda', 'rondas', 'semana', 'dia', 'nota', 'notas', 'consejo', 'consejos', 'objetivo', 'meta', 'enfoque', 'hoy', 'manana', 'repite', 'repetir', 'circuito', 'intensidad', 'alrededor', 'aproximadamente', 'unos', 'unas', 'haz', 'hacer', 'realiza', 'realizar', 'completa', 'completar', 'intenta', 'intentar', 'luego', 'despues', 'termina', 'terminar', 'hasta', 'al menos', 'en total', 'agrega', 'guarda', 'pon', 'envia', 'aplica', 'usa', 'utiliza', 'por favor', 'puedes', 'este', 'esta', 'esto', 'ese', 'esa', 'eso', 'lo', 'la', 'el', 'los', 'las', 'un', 'una', 'manten', 'mantener', 'apunta', 'procura', 'trata', 'empieza', 'comienza', 'para', 'con', 'por', 'durante', 'cada', 'entre', 'plan', 'programa'];
@@ -388,7 +384,7 @@ final class SavedWorkoutReference
     /** "la segunda opción" is 2; null when the message names no ordinal in front of a workout noun. */
     private static function spanishOrdinal(string $message): ?int
     {
-        if (preg_match('/\b('.implode('|', array_keys(self::ORDINALS_ES)).')\s+'.self::ORDINAL_NOUNS_ES.'\b/u', SpanishSaveIntent::fold($message), $m)) {
+        if (preg_match('/\b('.implode('|', array_keys(self::ORDINALS_ES)).')\s+'.self::ORDINAL_NOUNS_ES.'\b/u', Lexicon::fold($message), $m)) {
             return self::ORDINALS_ES[$m[1]];
         }
 
@@ -398,7 +394,7 @@ final class SavedWorkoutReference
     /** "option b", "opción B": one label, in English words, for matching a routine to the user's pick. */
     private static function labelOf(string $noun, string $id): string
     {
-        return mb_strtolower((self::LABEL_NOUNS_ES[SpanishSaveIntent::fold($noun)] ?? mb_strtolower($noun)).' '.$id);
+        return mb_strtolower((self::LABEL_NOUNS_ES[Lexicon::fold($noun)] ?? mb_strtolower($noun)).' '.$id);
     }
 
     // ---- reading the conversation ------------------------------------------------------------------
@@ -422,7 +418,8 @@ final class SavedWorkoutReference
                     continue;
                 }
 
-                $content = self::withoutApplicationNotices((string) $message->content);
+                // The model's words only: what the application added below them is never a workout (see ApplicationNotices).
+                $content = ApplicationNotices::modelText($message);
 
                 if ($retry && self::routines($content) === []) {
                     $skipSaveRequest = true;
@@ -450,22 +447,6 @@ final class SavedWorkoutReference
         }
 
         return null;
-    }
-
-    /** The coach's words only: whatever the application appended below them (its own examples, dates and quotes) is cut off. */
-    private static function withoutApplicationNotices(string $reply): string
-    {
-        $cut = null;
-
-        foreach (self::APPLICATION_NOTICES as $notice) {
-            $at = mb_strpos($reply, "\n\n".$notice);
-
-            if ($at !== false && ($cut === null || $at < $cut)) {
-                $cut = $at;
-            }
-        }
-
-        return $cut === null ? $reply : mb_substr($reply, 0, $cut);
     }
 
     /**
@@ -625,7 +606,7 @@ final class SavedWorkoutReference
         }
 
         // Spanish headings, notes and sentences are not exercises ("Descansa 60 segundos entre series", "La sesión dura 30 minutos").
-        $folded = array_map([SpanishSaveIntent::class, 'fold'], $words);
+        $folded = array_map([Lexicon::class, 'fold'], $words);
 
         if (in_array(implode(' ', $folded), self::NOT_AN_EXERCISE_ES, true) || in_array($folded[0], self::NOT_AN_EXERCISE_ES, true)
             || array_intersect($folded, self::SENTENCE_VERBS_ES) !== []) {

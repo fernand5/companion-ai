@@ -4,25 +4,27 @@ import { defineStore } from 'pinia'
 import * as workoutPlanService from '@/services/workoutPlans'
 import type { PerformedSetInput, UpdateExerciseStatusPayload } from '@/services/workoutPlans'
 import type { PlanExerciseStatus, WorkoutPlan } from '@/types'
-import { extractErrorMessage } from '@/utils/errors'
+import { errorRef } from '@/utils/errors'
 
 export const useWorkoutPlanStore = defineStore('workoutPlan', () => {
   const today = ref<WorkoutPlan | null>(null)
   const loading = ref(false)
-  const error = ref<string | null>(null)
+  const failure = errorRef()
+  const error = failure.message
   /** The exercise whose set-by-set record is being saved, if any. */
   const savingPerformanceFor = ref<number | null>(null)
   /** Kept apart from `error` so a rejected set entry shows beside the editor, not under the whole plan. */
-  const performanceError = ref<string | null>(null)
+  const performanceErrorRef = errorRef()
+  const performanceError = performanceErrorRef.message
 
   async function loadToday() {
     loading.value = true
-    error.value = null
+    failure.clear()
 
     try {
       today.value = await workoutPlanService.fetchPlanForDate()
     } catch (e: unknown) {
-      error.value = extractErrorMessage(e, "Couldn't load today's plan.")
+      failure.fail(e, 'todayPlanLoad')
     } finally {
       loading.value = false
     }
@@ -46,7 +48,7 @@ export const useWorkoutPlanStore = defineStore('workoutPlan', () => {
       today.value = await workoutPlanService.updateExerciseStatus(planId, exerciseId, { status, ...actuals })
     } catch {
       today.value = previous
-      error.value = "Couldn't update that exercise — please try again."
+      failure.fail(undefined, 'exerciseUpdate')
     }
   }
 
@@ -59,14 +61,14 @@ export const useWorkoutPlanStore = defineStore('workoutPlan', () => {
     if (!today.value || savingPerformanceFor.value !== null) return false
 
     savingPerformanceFor.value = exerciseId
-    performanceError.value = null
+    performanceErrorRef.clear()
 
     try {
       today.value = await workoutPlanService.recordExercisePerformance(today.value.id, exerciseId, { sets })
 
       return true
     } catch (e: unknown) {
-      performanceError.value = extractErrorMessage(e, "Couldn't save those sets — please try again.")
+      performanceErrorRef.fail(e, 'performanceSave')
 
       return false
     } finally {

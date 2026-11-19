@@ -11,6 +11,8 @@ use App\Services\Ai\AiProviderException;
 use App\Services\Ai\WeeklyPlanCoachService;
 use App\Services\Fitness\WeeklyPlanService;
 use App\Services\Fitness\WeekOverviewService;
+use App\Support\ApiMessages;
+use App\Support\WeeklyPlanMessages;
 use Illuminate\Http\Request;
 
 class WeeklyPlanController extends Controller
@@ -82,7 +84,7 @@ class WeeklyPlanController extends Controller
             ->exists();
 
         if ($missingScheduledDays === [] && $weekHasAnyPlan) {
-            return response()->json(['applied' => false, 'explanation' => 'This week already reflects your recurring schedule.']);
+            return response()->json(['applied' => false, 'explanation' => ApiMessages::weekAlreadyCovered()]);
         }
 
         $instruction = $missingScheduledDays !== []
@@ -93,10 +95,10 @@ class WeeklyPlanController extends Controller
         try {
             $result = $this->weeklyPlanCoachService->run($user, $instruction, WeeklyPlanCoachService::GENERATE_ENDPOINT);
         } catch (AiProviderException $e) {
-            return response()->json(['message' => $e->userFacingMessage()], 503);
+            return ApiMessages::providerFailure($e);
         }
 
-        return response()->json($result);
+        return response()->json(WeeklyPlanMessages::present($result, $user));
     }
 
     public function adapt(AdaptWeeklyPlanRequest $request)
@@ -104,9 +106,9 @@ class WeeklyPlanController extends Controller
         try {
             $result = $this->weeklyPlanCoachService->run($request->user(), $request->string('input')->toString());
         } catch (AiProviderException $e) {
-            return response()->json(['message' => $e->userFacingMessage()], 503);
+            return ApiMessages::providerFailure($e);
         }
 
-        return response()->json($result);
+        return response()->json(WeeklyPlanMessages::present($result, $request->user()));
     }
 }

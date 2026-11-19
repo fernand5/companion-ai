@@ -1,5 +1,7 @@
 import axios from 'axios'
 
+import { LOCALE_HEADER, currentLocale } from '@/i18n'
+
 // Defaults to the backend on the same host the page was loaded from (port
 // 8000) rather than a hardcoded "localhost" — that way it keeps working when
 // the frontend is reached over a LAN IP from another device, where
@@ -15,6 +17,10 @@ const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
+  // The UI language, as an explicit header. The server reads it only when nobody is signed in
+  // (a login error, for example); a signed-in user is always answered in their saved language.
+  config.headers[LOCALE_HEADER] = currentLocale()
+
   const token = localStorage.getItem('auth_token')
 
   if (token) {

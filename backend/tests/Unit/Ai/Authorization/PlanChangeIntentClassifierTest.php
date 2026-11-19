@@ -222,7 +222,9 @@ class PlanChangeIntentClassifierTest extends TestCase
     public static function unsupportedWording(): array
     {
         $messages = [
-            'actualiza mi plan', 'cambia mi entrenamiento de mañana', 'Quiero subir a 60 kg', 'sí', 'dale',
+            // (Spanish requests are read since Phase 7 / M4; see SpanishIntentTest. A Spanish WISH still proposes nothing:
+            // a load proposal needs an exercise match that Spanish names do not give, and "sí"/"dale" confirm nothing alone.)
+            'Quiero subir a 60 kg', 'sí', 'dale',
             'mets à jour mon plan', 'ändere meinen Plan', 'aggiorna il mio piano',
             'updte my plan', 'chnage my workout', 'pls modfy my programme',
         ];

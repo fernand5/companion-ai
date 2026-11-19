@@ -5,7 +5,7 @@ import * as adherenceService from '@/services/adherence'
 import * as coachService from '@/services/coach'
 import * as dashboardService from '@/services/dashboard'
 import type { AdherenceData, DashboardData, ProgressData, WeeklySummary } from '@/types'
-import { extractErrorMessage } from '@/utils/errors'
+import { errorRef } from '@/utils/errors'
 
 export const useDashboardStore = defineStore('dashboard', () => {
   const dashboard = ref<DashboardData | null>(null)
@@ -13,21 +13,25 @@ export const useDashboardStore = defineStore('dashboard', () => {
   const adherence = ref<AdherenceData | null>(null)
   const weeklySummary = ref<WeeklySummary | null>(null)
   const loading = ref(false)
-  const error = ref<string | null>(null)
+  const failure = errorRef()
+  const error = failure.message
   const progressLoading = ref(false)
-  const progressError = ref<string | null>(null)
-  const adherenceError = ref<string | null>(null)
+  const progressErrorRef = errorRef()
+  const progressError = progressErrorRef.message
+  const adherenceErrorRef = errorRef()
+  const adherenceError = adherenceErrorRef.message
   const weeklySummaryLoading = ref(false)
-  const weeklySummaryError = ref<string | null>(null)
+  const weeklySummaryErrorRef = errorRef()
+  const weeklySummaryError = weeklySummaryErrorRef.message
 
   async function loadDashboard() {
     loading.value = true
-    error.value = null
+    failure.clear()
 
     try {
       dashboard.value = await dashboardService.fetchDashboard()
     } catch (e: unknown) {
-      error.value = extractErrorMessage(e, "Couldn't load your dashboard.")
+      failure.fail(e, 'dashboardLoad')
     } finally {
       loading.value = false
     }
@@ -35,35 +39,35 @@ export const useDashboardStore = defineStore('dashboard', () => {
 
   async function loadProgress() {
     progressLoading.value = true
-    progressError.value = null
+    progressErrorRef.clear()
 
     try {
       progress.value = await dashboardService.fetchProgress()
     } catch (e: unknown) {
-      progressError.value = extractErrorMessage(e, "Couldn't load your progress.")
+      progressErrorRef.fail(e, 'progressLoad')
     } finally {
       progressLoading.value = false
     }
   }
 
   async function loadAdherence() {
-    adherenceError.value = null
+    adherenceErrorRef.clear()
 
     try {
       adherence.value = await adherenceService.fetchAdherence()
     } catch (e: unknown) {
-      adherenceError.value = extractErrorMessage(e, "Couldn't load your adherence data.")
+      adherenceErrorRef.fail(e, 'adherenceLoad')
     }
   }
 
   async function loadWeeklySummary() {
     weeklySummaryLoading.value = true
-    weeklySummaryError.value = null
+    weeklySummaryErrorRef.clear()
 
     try {
       weeklySummary.value = await coachService.fetchWeeklySummary()
     } catch (e: unknown) {
-      weeklySummaryError.value = extractErrorMessage(e, "Couldn't load your weekly summary.")
+      weeklySummaryErrorRef.fail(e, 'weeklySummaryLoad')
     } finally {
       weeklySummaryLoading.value = false
     }

@@ -109,7 +109,7 @@ final class SaveWorkoutScope
         }
 
         $lineStems = array_map([self::class, 'stem'], $this->words($line));
-        $squashed = (string) preg_replace('/[^\p{L}]+/u', '', SpanishSaveIntent::fold($line));
+        $squashed = (string) preg_replace('/[^\p{L}]+/u', '', Lexicon::fold($line));
 
         foreach ($tokens as $token) {
             if (! in_array($token, $lineStems, true) && (mb_strlen($token) < 4 || ! str_contains($squashed, $token))) {
@@ -207,7 +207,7 @@ final class SaveWorkoutScope
      *
      * @return array<int, string>
      */
-    public function rangeParts(array $arguments, bool $spanish = false): array
+    public function rangeParts(array $arguments): array
     {
         $exercises = $arguments['exercises'] ?? null;
         $parts = [];
@@ -224,8 +224,7 @@ final class SaveWorkoutScope
                 $range = $prescribed[$part];
 
                 if ($range !== null && $range[0] !== $range[1] && isset($exercises[$index][$field])) {
-                    $unit = $spanish ? ['sets' => 'series', 'reps' => 'repeticiones', 'seconds' => 'segundos'][$unit] : $unit;
-                    $said[] = "{$range[0]} {$unit} (".($spanish ? 'escrito' : 'written')." {$range[0]}-{$range[1]})";
+                    $said[] = "{$range[0]} {$unit} (written {$range[0]}-{$range[1]})";
                 }
             }
 
@@ -247,7 +246,7 @@ final class SaveWorkoutScope
     public static function prescription(string $line): array
     {
         // Accents are folded so "repetición" and "repeticion" are one word; a Spanish decimal comma is a point.
-        $text = ' '.SpanishSaveIntent::fold(str_replace(['–', '—', '−', '×', '✕', '*'], ['-', '-', '-', 'x', 'x', ''], $line)).' ';
+        $text = ' '.Lexicon::fold(str_replace(['–', '—', '−', '×', '✕', '*'], ['-', '-', '-', 'x', 'x', ''], $line)).' ';
         $found = ['sets' => null, 'reps' => null, 'seconds' => null];
         $range = static fn (string $low, string $high = '', int $scale = 1): array => [
             min((int) $low, (int) ($high === '' ? $low : $high)) * $scale,
@@ -339,7 +338,7 @@ final class SaveWorkoutScope
     /** @return array<int, string> */
     private function words(string $text): array
     {
-        return preg_split('/[^\p{L}]+/u', SpanishSaveIntent::fold($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        return preg_split('/[^\p{L}]+/u', Lexicon::fold($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
     }
 
     private static function stem(string $word): string

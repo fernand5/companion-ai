@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 
 import * as weeklyPlanService from '@/services/weeklyPlan'
 import type { WeekInfo, WeeklyAdaptationResult, WeeklyPlanDay } from '@/types'
-import { extractErrorMessage } from '@/utils/errors'
+import { errorRef } from '@/utils/errors'
 
 export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
   const days = ref<WeeklyPlanDay[]>([])
@@ -14,14 +14,15 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
   /** True once filling the week actually added plans (so things derived from the plans can refresh). */
   const filled = ref(false)
   const sending = ref(false)
-  const error = ref<string | null>(null)
+  const failure = errorRef()
+  const error = failure.message
   const lastResult = ref<WeeklyAdaptationResult | null>(null)
   /** Notes from the application (not the coach) about the latest plan change, e.g. a weight left for the user to choose. */
   const notices = ref<string[]>([])
 
   async function loadWeek() {
     loading.value = true
-    error.value = null
+    failure.clear()
     filled.value = false
 
     // Show whatever already exists first. Filling gaps is an AI call that can
@@ -33,7 +34,7 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
       days.value = overview.days
       week.value = overview.week
     } catch (e: unknown) {
-      error.value = extractErrorMessage(e, "Couldn't load your weekly plan.")
+      failure.fail(e, 'weeklyPlanLoad')
       loading.value = false
 
       return
@@ -58,7 +59,7 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
         filled.value = true
       }
     } catch (e: unknown) {
-      error.value = extractErrorMessage(e, "Couldn't fill in the rest of your week.")
+      failure.fail(e, 'weekFill')
     } finally {
       generating.value = false
     }
@@ -81,7 +82,7 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
   async function submitAdaptation(input: string) {
     if (sending.value) return
 
-    error.value = null
+    failure.clear()
     notices.value = []
     sending.value = true
 
@@ -94,7 +95,7 @@ export const useWeeklyPlanStore = defineStore('weeklyPlan', () => {
         await loadWeek()
       }
     } catch (e: unknown) {
-      error.value = extractErrorMessage(e, "Couldn't reach your coach — please try again.")
+      failure.fail(e, 'coachUnreachable')
     } finally {
       sending.value = false
     }

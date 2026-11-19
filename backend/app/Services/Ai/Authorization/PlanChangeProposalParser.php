@@ -43,20 +43,22 @@ class PlanChangeProposalParser
             return ProposalResult::failed('unsupported_unit');
         }
 
-        preg_match_all('/(\d+(?:[.,]\d+)?)\s*(?:kg|kgs|kilos?|kilograms?)\b/u', $text, $loads);
+        // One load, read one way only: "42.5" and "42,5" are 42.5, never 425 or 42; "1,250" or "1.250" could be read two ways and is not read.
+        $readable = LoadNumber::kilograms($text);
 
-        if (count($loads[1]) !== 1) {
+        if (LoadNumber::countKilograms($text) !== 1 || count($readable) !== 1) {
             return ProposalResult::failed('no_single_load');
         }
 
-        $weight = (float) str_replace(',', '.', $loads[1][0]);
+        $weight = $readable[0];
 
         if ($weight <= 0 || $weight > 500) {
             return ProposalResult::failed('load_out_of_range');
         }
 
         // A day it cannot name exactly is a day it will not guess.
-        if (preg_match('/\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekend|week|month|every|each|daily|after|then|later|until)\b/u', $text)) {
+        if (preg_match('/\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekend|week|month|every|each|daily|after|then|later|until)\b/u', $text)
+            || preg_match('/\b(?:lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo|semana|mes|cada|todos|despues|después|luego|hasta)\b/u', $text)) {
             return ProposalResult::failed('date_not_representable');
         }
 

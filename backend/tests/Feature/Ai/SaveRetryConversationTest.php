@@ -134,12 +134,12 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         // 1. The user asks to add a workout; there is none yet, so the application asks, in its own words.
         $first = $this->say('Add this workout to my dashboard', null);
         $this->assertSame(0, $first['calls']);
-        $this->assertStringContainsString("I don't see a workout", $first['answer']);
+        $this->assertSays("I don't see a workout", $first['answer']);
         $conversation = $first['conversation'];
 
         // 2. The coach shows the workout.
         $shown = $this->say('Give me an upper body workout', $conversation, null, new AiResponse(text: self::WORKOUT));
-        $this->assertStringContainsString('Romanian Deadlift or Goblet Squat', $shown['answer']);
+        $this->assertSays('Romanian Deadlift or Goblet Squat', $shown['answer']);
         $this->assertSame(0, $this->plans());
 
         // 3. "could you try to add them again?": the plan tool is offered, and the exercise that is a choice is asked about
@@ -147,10 +147,10 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         $retry = $this->say('could you try to add them again?', $conversation);
         $this->assertSame(0, $retry['calls'], 'The application asks; the model is not left to improvise an excuse.');
         $this->assertSame(0, $this->plans());
-        $this->assertStringStartsWith("I haven't changed your plan", $retry['answer']);
-        $this->assertStringContainsString('"Romanian Deadlift" or "Goblet Squat"', $retry['answer']);
-        $this->assertStringContainsString('Reply with just the name', $retry['answer']);
-        $this->assertStringNotContainsString('access', $retry['answer']);
+        $this->assertSaysStartsWith("I haven't changed your plan", $retry['answer']);
+        $this->assertSays('"Romanian Deadlift" or "Goblet Squat"', $retry['answer']);
+        $this->assertSays('Reply with just the name', $retry['answer']);
+        $this->assertSaysNot('access', $retry['answer']);
         $this->assertSame('choice', $retry['message']->meta['save_pending']['kind']);
         $this->assertSame([['Romanian Deadlift', 'Goblet Squat']], $retry['message']->meta['save_pending']['options']);
 
@@ -163,10 +163,10 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         $this->assertSame(['Dumbbell Floor Press', 'Bent-Over Row', 'Shoulder Press', 'Plank Hold', 'Goblet Squat'], $plan->exercises->pluck('exercise_name')->all());
         $this->assertSame([8, 8, 8, null, 8], $plan->exercises->pluck('planned_reps')->all(), 'A range is stored as its low end, whatever the model chose inside it (SaveRangePolicyTest).');
         $this->assertSame(30, $plan->exercises[3]->planned_duration_seconds, 'The low end of 30-45 seconds.');
-        $this->assertStringStartsWith('Done, it is on your dashboard for today.', $saved['answer']);
-        $this->assertStringContainsString('I saved the low end of every range', $saved['answer'], 'The user is told what was stored.');
-        $this->assertStringContainsString('Goblet Squat: 3 sets of 8-12 reps', $this->fake->calls[count($this->fake->calls) - 2]['messages'][0]['content'], 'The model is told the chosen exercise, not the choice.');
-        $this->assertStringNotContainsString('Romanian Deadlift', $this->fake->calls[count($this->fake->calls) - 2]['messages'][0]['content']);
+        $this->assertSaysStartsWith('Done, it is on your dashboard for today.', $saved['answer']);
+        $this->assertSays('I saved the low end of every range', $saved['answer'], 'The user is told what was stored.');
+        $this->assertSays('Goblet Squat: 3 sets of 8-12 reps', $this->fake->calls[count($this->fake->calls) - 2]['messages'][0]['content'], 'The model is told the chosen exercise, not the choice.');
+        $this->assertSaysNot('Romanian Deadlift', $this->fake->calls[count($this->fake->calls) - 2]['messages'][0]['content']);
     }
 
     public function test_the_stored_production_conversation_can_be_resumed_after_the_false_failure_replies(): void
@@ -184,7 +184,7 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         $resume = $this->say('try again', $conversation);
 
         $this->assertSame(0, $resume['calls']);
-        $this->assertStringContainsString('"Romanian Deadlift" or "Goblet Squat"', $resume['answer']);
+        $this->assertSays('"Romanian Deadlift" or "Goblet Squat"', $resume['answer']);
 
         $this->say('Romanian Deadlift', $conversation, null, $this->saveCall($this->productionExercises('Romanian Deadlift')), new AiResponse(text: 'Added.'));
 
@@ -218,7 +218,7 @@ class SaveRetryConversationTest extends PerformanceEvalCase
             $turn = $this->say($answer, $conversation, null, new AiResponse(text: 'Okay.'));
 
             $this->assertSame(0, $this->plans(), $answer);
-            $this->assertStringNotContainsString('access', $turn['answer'], $answer);
+            $this->assertSaysNot('access', $turn['answer'], $answer);
         }
     }
 
@@ -260,7 +260,7 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         $wrong = $this->saveCall([['exercise_name' => 'Burpees', 'planned_sets' => 9, 'planned_reps' => 99]]);
         $first = $this->say('Add this workout to my dashboard', $conversation, null, $wrong, $wrong, $wrong, new AiResponse(text: 'Done, saved!'));
         $this->assertSame(0, $this->plans());
-        $this->assertStringContainsString('the workout was not saved', $first['answer'], 'The claim of success is corrected by what was actually persisted.');
+        $this->assertSays('the workout was not saved', $first['answer'], 'The claim of success is corrected by what was actually persisted.');
         $this->assertTrue($first['message']->meta['save_clarification']);
 
         // "try again" is the same request, still pointing at the workout above the notice.
@@ -280,7 +280,7 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         $retry = $this->say('try again', $conversation, null, $this->saveCall($this->simpleExercises()), new AiResponse(text: 'Replaced it.'));
 
         $this->assertSame($before, $this->planOn($this->today)->revision());
-        $this->assertStringContainsString('already has recorded workout performance', $retry['answer']);
+        $this->assertSays('already has recorded workout performance', $retry['answer']);
     }
 
     public function test_a_retry_onto_a_day_with_a_plan_still_asks_before_replacing_it(): void
@@ -292,7 +292,7 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         $retry = $this->say('add them again', $conversation, null, $this->saveCall($this->simpleExercises()), new AiResponse(text: 'Replaced.'));
 
         $this->assertSame('Old plan', $this->planOn($this->today)->title);
-        $this->assertStringContainsString('Do you want me to replace it', $retry['answer']);
+        $this->assertSays('Do you want me to replace it', $retry['answer']);
 
         $this->say('yes', $conversation);
         $this->assertSame('Upper body', $this->planOn($this->today)->title);
@@ -306,8 +306,8 @@ class SaveRetryConversationTest extends PerformanceEvalCase
 
         $ask = $this->say('Add this workout to my dashboard', $conversation);
         $this->assertSame(0, $ask['calls']);
-        $this->assertStringContainsString('Which day should I use?', $ask['answer']);
-        $this->assertStringContainsString('Reply with just the day', $ask['answer']);
+        $this->assertSays('Which day should I use?', $ask['answer']);
+        $this->assertSays('Reply with just the day', $ask['answer']);
         $this->assertSame('day', $ask['message']->meta['save_pending']['kind']);
 
         $this->say('Friday', $conversation, null, $this->saveCall($this->simpleExercises(), $this->nextFriday()), new AiResponse(text: 'Added for Friday.'));
@@ -336,7 +336,7 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         $again = $this->say('try again', $conversation);
 
         $this->assertSame(0, $again['calls']);
-        $this->assertStringContainsString('only add a workout to today or a later day', $again['answer']);
+        $this->assertSays('only add a workout to today or a later day', $again['answer']);
         $this->assertSame(0, $this->plans());
 
         $this->say('tomorrow', $conversation, null, $this->saveCall($this->simpleExercises(), Carbon::now('America/Bogota')->addDay()->toDateString()), new AiResponse(text: 'Added for tomorrow.'));
@@ -351,9 +351,9 @@ class SaveRetryConversationTest extends PerformanceEvalCase
 
         $turn = $this->say('I wonder if you can put those on my plan', $conversation, null, new AiResponse(text: self::FALSE_CLAIM));
 
-        $this->assertStringContainsString("I don't have access to the plan updating tool", $turn['answer']);
-        $this->assertStringContainsString('that is not a limit of the app', $turn['answer']);
-        $this->assertStringContainsString('say "add this workout to my dashboard"', $turn['answer']);
+        $this->assertSays("I don't have access to the plan updating tool", $turn['answer']);
+        $this->assertSays('that is not a limit of the app', $turn['answer']);
+        $this->assertSays('say "add this workout to my dashboard"', $turn['answer']);
         $this->assertSame(0, $this->plans());
     }
 
@@ -362,15 +362,15 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         $this->say('How was my week?', null, null, new AiResponse(text: 'Pretty consistent.'));
 
         $prompt = $this->fake->calls[0]['messages'][0]['content'];
-        $this->assertStringContainsString('never say you lack access to a tool', $prompt);
-        $this->assertStringContainsString('add this workout to my dashboard', $prompt);
+        $this->assertSays('never say you lack access to a tool', $prompt);
+        $this->assertSays('add this workout to my dashboard', $prompt);
     }
 
     public function test_a_real_safety_refusal_is_not_mistaken_for_a_false_claim(): void
     {
         $turn = $this->say('Can you change my plan so I run a marathon next week?', null, null, new AiResponse(text: "I can't safely change your plan to a marathon next week; it would be too big a jump, and I'd recommend building up gradually."));
 
-        $this->assertStringNotContainsString('not a limit of the app', $turn['answer']);
+        $this->assertSaysNot('not a limit of the app', $turn['answer']);
     }
 
     // ---- claims of success must be true --------------------------------------------------------------------------------------------------
@@ -380,7 +380,7 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         $turn = $this->say('Give me a workout for today', null, null, new AiResponse(text: "Here you go: squats 3x10 and lunges 3x12. I've added it to your dashboard."));
 
         $this->assertSame(0, $this->plans());
-        $this->assertStringContainsString("I haven't changed your plan: nothing was saved this time", $turn['answer']);
+        $this->assertSays("I haven't changed your plan: nothing was saved this time", $turn['answer']);
     }
 
     public function test_a_true_claim_and_an_honest_offer_are_left_alone(): void
@@ -499,7 +499,7 @@ class SaveRetryConversationTest extends PerformanceEvalCase
         $turn = $this->say('try again', $conversation, null, $this->saveCall([['exercise_name' => 'Goblet Squat', 'planned_sets' => 3, 'planned_reps' => 10, 'planned_weight_kg' => 24], ['exercise_name' => 'Push-ups', 'planned_sets' => 3, 'planned_reps' => 12]]), new AiResponse(text: 'Added.'));
 
         $this->assertNull($this->planOn($this->today)->exercises->first()->planned_weight_kg);
-        $this->assertStringContainsString('I left the starting weight for Goblet Squat unset', $turn['answer']);
+        $this->assertSays('I left the starting weight for Goblet Squat unset', $turn['answer']);
     }
 
     // ---- other users ---------------------------------------------------------------------------------------------------------------------------

@@ -95,7 +95,9 @@ class MissingApplicationKeyTest extends PerformanceEvalCase
         ];
 
         foreach ($responses as $response) {
-            $response->assertStatus(503)->assertJson(['code' => 'progression_unavailable', 'message' => 'Progression suggestions are temporarily unavailable. Please try again later.']);
+            $response->assertStatus(503)->assertJson(['code' => 'progression_unavailable', 'message' => $this->noticeLocale() === 'es'
+                ? 'Las sugerencias de progresión no están disponibles por el momento. Inténtalo de nuevo más tarde.'
+                : 'Progression suggestions are temporarily unavailable. Please try again later.']);
 
             $body = strtolower($response->getContent());
             foreach (['app_key', 'key', 'cipher', 'encrypt', 'base64', 'exception', 'config', 'trace'] as $leak) {
@@ -239,8 +241,8 @@ class MissingApplicationKeyTest extends PerformanceEvalCase
 
         $message = Message::where('conversation_id', $result['conversation'])->where('role', 'assistant')->latest('id')->firstOrFail();
         $this->assertStringContainsString('That is a modest step.', $message->content, 'The coach still answers.');
-        $this->assertStringNotContainsString('Reply "yes"', $message->content, 'No confirmation is offered that could never be redeemed.');
-        $this->assertStringContainsString('explicit request', $message->content);
+        $this->assertSaysNot('Reply "yes"', $message->content, 'No confirmation is offered that could never be redeemed.');
+        $this->assertSays('explicit request', $message->content);
         $this->assertArrayNotHasKey('pending_plan_proposal', $message->meta ?? []);
         $this->assertSame($before, $this->loadsAndDismissals());
         Log::shouldHaveReceived('error')->withArgs(fn (string $m) => $m === 'app_key.unusable')->once();
@@ -253,7 +255,7 @@ class MissingApplicationKeyTest extends PerformanceEvalCase
         $result = $this->ask($this->user, 'I want to go up to 44 kg on bench next session');
         $message = Message::where('conversation_id', $result['conversation'])->where('role', 'assistant')->latest('id')->firstOrFail();
 
-        $this->assertStringContainsString('Reply "yes"', $message->content);
+        $this->assertSays('Reply "yes"', $message->content);
         $this->assertArrayHasKey('pending_plan_proposal', $message->meta);
     }
 }
