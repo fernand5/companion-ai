@@ -153,7 +153,8 @@ class SpanishWeekPlanSaveTest extends PerformanceEvalCase
         $this->assertStringNotContainsString('ya están en tu panel', $turn['answer'], 'The application speaks for what was saved, not the model.');
 
         $result = $turn['message']->meta['save_result'];
-        $this->assertSame([
+        // (MySQL stores JSON objects with their own key order: compare the content.)
+        $this->assertEquals([
             ['date' => self::SATURDAY, 'outcome' => 'added', 'title' => 'Cuerpo completo'],
             ['date' => self::SUNDAY, 'outcome' => 'added', 'title' => 'Recuperación activa'],
         ], $result['days'], 'Names and dates come from the stored plans.');

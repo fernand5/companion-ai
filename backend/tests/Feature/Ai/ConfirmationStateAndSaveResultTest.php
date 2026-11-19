@@ -139,7 +139,8 @@ class ConfirmationStateAndSaveResultTest extends PerformanceEvalCase
         $result = $this->last($conversation)->meta['save_result'];
 
         $this->assertSame(1, $result['version']);
-        $this->assertSame([['date' => $this->user->localToday(), 'outcome' => 'added', 'title' => 'Torso']], $result['days']);
+        // (MySQL stores JSON objects with their own key order, so compare the content, not the order of keys.)
+        $this->assertEquals([['date' => $this->user->localToday(), 'outcome' => 'added', 'title' => 'Torso']], $result['days']);
         $this->assertSame('Torso', WorkoutPlan::where('user_id', $this->user->id)->value('title'), 'Read back from the database.');
     }
 
@@ -150,7 +151,7 @@ class ConfirmationStateAndSaveResultTest extends PerformanceEvalCase
 
         $result = $this->last($conversation)->meta['save_result'];
 
-        $this->assertSame([['date' => $this->user->localToday(), 'outcome' => 'replaced', 'title' => 'Torso']], $result['days']);
+        $this->assertEquals([['date' => $this->user->localToday(), 'outcome' => 'replaced', 'title' => 'Torso']], $result['days']);
     }
 
     public function test_nothing_is_reported_when_nothing_was_saved(): void
