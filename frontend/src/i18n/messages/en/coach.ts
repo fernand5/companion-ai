@@ -14,6 +14,23 @@ export const coach = {
     progress: 'How am I progressing?',
   },
   checked: 'Checked {count} thing | Checked {count} things',
+  // Under a replacement question the application is holding. A button SENDS this answer as the person's own message.
+  confirm: {
+    yes: 'Yes, replace',
+    no: 'No, keep it',
+    yesMessage: 'Yes',
+    noMessage: 'No',
+    group: 'Answer the question above',
+    expired: 'This question has expired. Ask again if you still want the change.',
+  },
+  // What a save actually did (shown only after the server confirmed it was stored).
+  saved: {
+    title: 'Saved to your plan',
+    added: 'Added',
+    replaced: 'Replaced',
+    rest: 'Rest day',
+    dashboard: 'Open Dashboard',
+  },
 }
 
 export type Coach = typeof coach

@@ -240,9 +240,9 @@ final class PlanChangeIntentClassifier
      * "yes", "ok do it", "go ahead", "sure", "sí", "sí, reemplázalo", "claro", "dale": no content of its own. A bare "si"
      * with no accent is not consent (it may be "if"): see Confirmation.
      */
-    public static function isBareAffirmation(string $message): bool
+    public static function isBareAffirmation(string $message, bool $pending = false): bool
     {
-        return Confirmation::isYes($message);
+        return Confirmation::isYes($message, $pending);
     }
 
     /** "no", "No, conserva el actual", "keep the current one": a refusal. It redeems nothing and changes nothing. */

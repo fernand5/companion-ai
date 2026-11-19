@@ -14,4 +14,19 @@ export const coach: Coach = {
     progress: '¿Cómo voy con mi progreso?',
   },
   checked: 'Revisó {count} cosa | Revisó {count} cosas',
+  confirm: {
+    yes: 'Sí, reemplazar',
+    no: 'No, conservar',
+    yesMessage: 'Sí',
+    noMessage: 'No',
+    group: 'Responde la pregunta de arriba',
+    expired: 'Esta pregunta venció. Vuelve a pedirlo si todavía quieres el cambio.',
+  },
+  saved: {
+    title: 'Guardado en tu plan',
+    added: 'Agregado',
+    replaced: 'Reemplazado',
+    rest: 'Día de descanso',
+    dashboard: 'Abrir el Dashboard',
+  },
 }

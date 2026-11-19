@@ -92,6 +92,38 @@ class PendingProposalStore
             && ! $proposal->isExpired($now ?? CarbonImmutable::now());
     }
 
+    /**
+     * What the client may know about the replacement question $message holds, decided here by the server at the moment of
+     * reading and never from the wording of the message: null when it holds none; otherwise whether an answer sent now
+     * could redeem it ("actionable": valid, unexpired, unused, this user's and conversation's, AND the question the
+     * conversation is waiting on, not an old one), and when it lapses. Read-only; nothing is spent or extended.
+     *
+     * @return array{kind: string, actionable: bool, expires_at: ?string}|null
+     */
+    public function replacementState(Conversation $conversation, User $user, Message $message): ?array
+    {
+        $raw = $message->meta[self::REPLACEMENT_META_KEY] ?? null;
+
+        if ($message->role !== Message::ROLE_ASSISTANT || ! is_array($raw)) {
+            return null;
+        }
+
+        $latest = $conversation->messages()->reorder('created_at', 'desc')->orderByDesc('id')->first();
+        $target = $latest?->id;
+
+        if ($latest?->role === Message::ROLE_ASSISTANT && is_int($latest->meta['confirms_message_id'] ?? null)) {
+            $target = $latest->meta['confirms_message_id'];
+        }
+
+        $proposal = PlanReplacementProposal::fromMeta($raw);
+
+        return [
+            'kind' => 'replacement',
+            'actionable' => $target === $message->id && $this->isOpen($conversation, $user, $message, self::REPLACEMENT_META_KEY),
+            'expires_at' => $proposal?->isAuthentic() ? CarbonImmutable::parse($proposal->expiresAt)->toIso8601String() : null,
+        ];
+    }
+
     /** The meta to store on the assistant message that presents $proposal. */
     public function presentReplacement(PlanReplacementProposal $proposal): array
     {

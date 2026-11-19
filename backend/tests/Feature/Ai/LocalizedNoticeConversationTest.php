@@ -158,14 +158,14 @@ class LocalizedNoticeConversationTest extends PerformanceEvalCase
         $this->assertSame('', ApplicationNotices::modelText($done));
     }
 
-    public function test_a_bare_si_without_an_accent_confirms_nothing_but_the_question_stays_open_for_a_clear_answer(): void
+    public function test_a_hedge_confirms_nothing_but_the_question_stays_open_for_a_clear_answer(): void
     {
         $user = $this->userWho('es');
         [$conversation, $question] = $this->held($user);
 
-        // A bare "si" with no accent may be "if": it is not consent. The application says so and the question stays open.
+        // "Tal vez" is neither a yes nor a no: the application says so and the question stays open, unchanged.
         $callsBefore = count($this->fake->calls);
-        $unclear = $this->say($user, 'si', $conversation, new AiResponse(text: 'No debería usarse.'));
+        $unclear = $this->say($user, 'tal vez', $conversation, new AiResponse(text: 'No debería usarse.'));
         $this->assertSame('Old plan', WorkoutPlan::where('user_id', $user->id)->first()->title, 'Only a clear yes confirms.');
         $this->assertSame([NoticeCode::CONFIRMATION_UNCLEAR], $this->codes($unclear));
         $this->assertSame($question->id, $unclear->meta['confirms_message_id']);
@@ -174,6 +174,17 @@ class LocalizedNoticeConversationTest extends PerformanceEvalCase
 
         // A clear "sí" afterwards redeems exactly the proposal the question held, once.
         $done = $this->say($user, 'sí', $conversation);
+        $this->assertSame('Upper body', WorkoutPlan::where('user_id', $user->id)->first()->title);
+        $this->assertSame([NoticeCode::REPLACEMENT_APPLIED], $this->codes($done));
+    }
+
+    public function test_a_bare_si_confirms_while_exactly_one_valid_proposal_is_waiting(): void
+    {
+        $user = $this->userWho('es');
+        [$conversation] = $this->held($user);
+
+        $done = $this->say($user, 'si', $conversation);
+
         $this->assertSame('Upper body', WorkoutPlan::where('user_id', $user->id)->first()->title);
         $this->assertSame([NoticeCode::REPLACEMENT_APPLIED], $this->codes($done));
     }

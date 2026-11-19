@@ -45,7 +45,7 @@ describe('translation catalogs', () => {
     // Brand and unit symbols that are the same in both languages.
     const sameOnPurpose = new Set([
       'nav.brand', 'nav.items.coach', 'coach.title', 'coaching.example.coach', 'language.options.en', 'language.options.es',
-      'units.minutes', 'units.reps', 'progress.stats.avgSteps', 'activity.workout.kg', 'activity.workout.minutes', 'activity.performance.reps', 'activity.performance.kg',
+      'units.minutes', 'units.reps', 'progress.stats.avgSteps', 'activity.workout.kg', 'activity.workout.minutes', 'activity.performance.reps', 'activity.performance.kg', 'coach.confirm.noMessage',
     ])
 
     for (const [key, text] of Object.entries(english)) {

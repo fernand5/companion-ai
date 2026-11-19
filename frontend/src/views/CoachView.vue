@@ -28,6 +28,11 @@ watch(
 async function handleSend(content: string) {
   await chat.send(content)
 }
+
+// A button sends the same short answer a person would type; the server checks the signed proposal and decides what happens.
+async function handleAnswer(answer: 'yes' | 'no') {
+  await chat.send(answer === 'yes' ? t('coach.confirm.yesMessage') : t('coach.confirm.noMessage'))
+}
 </script>
 
 <template>
@@ -46,7 +51,13 @@ async function handleSend(content: string) {
         <FontAwesomeIcon :icon="icons.ai" :class="ICON_SIZE.lg" />
         {{ t('coach.empty') }}
       </p>
-      <ChatBubble v-for="message in chat.messages" :key="message.id" :message="message" />
+      <ChatBubble
+        v-for="message in chat.messages"
+        :key="message.id"
+        :message="message"
+        :busy="chat.sending"
+        @answer="handleAnswer"
+      />
       <p v-if="chat.sending" class="flex items-center gap-1.5 text-sm text-slate-400">
         <FontAwesomeIcon :icon="icons.loading" :class="ICON_SIZE.sm" spin />
         {{ t('coach.thinking') }}

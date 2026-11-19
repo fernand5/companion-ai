@@ -11,6 +11,7 @@ use App\Services\Ai\Authorization\PendingProposalStore;
 use App\Services\Ai\Authorization\PlanChangeIntentClassifier;
 use App\Services\Ai\Authorization\PlanChangeProposal;
 use App\Services\Ai\Authorization\PlanChangeProposalParser;
+use App\Services\Ai\Authorization\PlanReplacementProposal;
 use App\Services\Ai\Authorization\PlanReplacer;
 use App\Services\Ai\Authorization\ProposalMatcher;
 use App\Services\Ai\Authorization\SavedWorkoutReference;
@@ -308,9 +309,9 @@ class AiCoachService
 
         // What happened to a requested save is the application's to say, not the model's.
         if ($authorization->saveScope !== null) {
-            $meta += $this->saveOutcome($reply, $turn, $authorization->saveScope, $words);
+            $meta += $this->saveOutcome($reply, $turn, $authorization->saveScope, $words, $user);
         } elseif ($authorization->weekScope !== null) {
-            [$reply, $savedMeta] = $this->weekOutcome($turn, $authorization->weekScope, $words);
+            [$reply, $savedMeta] = $this->weekOutcome($turn, $authorization->weekScope, $words, $user);
             $meta += $savedMeta;
         } elseif (($held = $turn->pendingReplacement()) !== null) {
             // Any other turn that ran into a day with a plan on it: the reply stays (it may be the workout the user
@@ -393,7 +394,10 @@ class AiCoachService
     {
         $previous = $this->presenterOf($history->slice(0, -1)->last(), $conversation);
 
-        if (PlanChangeIntentClassifier::isBareAffirmation($userMessage) && $previous?->role === Message::ROLE_ASSISTANT) {
+        // A bare "si" (no accent) is a yes only while exactly one valid signed proposal is waiting for it; otherwise it is nothing.
+        $pending = $this->proposals->isOpen($conversation, $user, $previous, PendingProposalStore::META_KEY);
+
+        if (PlanChangeIntentClassifier::isBareAffirmation($userMessage, $pending) && $previous?->role === Message::ROLE_ASSISTANT) {
             $proposal = $this->proposals->claim($conversation, $user, $previous);
 
             if ($proposal !== null) {
@@ -700,7 +704,7 @@ class AiCoachService
      */
     private function confirmReplacement(User $user, Conversation $conversation, string $userMessage, float $startedAt): ?Message
     {
-        if (! PlanChangeIntentClassifier::isBareAffirmation($userMessage)) {
+        if (! PlanChangeIntentClassifier::isBareAffirmation($userMessage, pending: true)) {
             return null;
         }
 
@@ -708,6 +712,12 @@ class AiCoachService
         $previous = $this->presenterOf($conversation->messages()->reorder('created_at', 'desc')->orderByDesc('id')->limit(2)->get()->get(1), $conversation);
 
         if (! $this->proposals->presentsReplacement($previous)) {
+            return null;
+        }
+
+        // A bare "si" counts only while that replacement could still be redeemed right now (valid, unexpired, unused); a clear "sí" is
+        // always answered, and told if the proposal is no longer valid.
+        if (! PlanChangeIntentClassifier::isBareAffirmation($userMessage, $this->proposals->isOpen($conversation, $user, $previous, PendingProposalStore::REPLACEMENT_META_KEY))) {
             return null;
         }
 
@@ -729,6 +739,7 @@ class AiCoachService
                 $text = $words->confirmationApplied($proposal);
                 $status = 'applied';
                 $code = NoticeCode::REPLACEMENT_APPLIED;
+                $saved = SaveResult::meta($user, $proposal->changes);
             }
         }
 
@@ -736,7 +747,7 @@ class AiCoachService
         $message = $conversation->messages()->create([
             'role' => Message::ROLE_ASSISTANT,
             'content' => $text,
-            'meta' => ['plan_replacement' => $status] + ReplyText::application($code, $text)->meta(),
+            'meta' => ['plan_replacement' => $status] + ($saved ?? []) + ReplyText::application($code, $text)->meta(),
         ]);
 
         Log::info('ai_coach.turn', [
@@ -880,7 +891,7 @@ class AiCoachService
      *
      * @return array{0: ReplyText, 1: array<string, mixed>}
      */
-    private function weekOutcome(ToolTurn $turn, WeekSaveScope $scope, NoticeText $words): array
+    private function weekOutcome(ToolTurn $turn, WeekSaveScope $scope, NoticeText $words, User $user): array
     {
         if (($pending = $turn->pendingReplacement()) !== null) {
             return [ReplyText::application(NoticeCode::REPLACEMENT_QUESTION, $words->replacementQuestion($pending)), $this->proposals->presentReplacement($pending) + ['save_clarification' => true]];
@@ -893,7 +904,7 @@ class AiCoachService
                 $reply->with(NoticeCode::RANGE_NOTE, $rangeNote);
             }
 
-            return [$reply, ['plan_replacement' => 'applied']];
+            return [$reply, ['plan_replacement' => 'applied'] + SaveResult::meta($user, $saved)];
         }
 
         if ($turn->weekBlocked() !== []) {
@@ -917,7 +928,7 @@ class AiCoachService
      *
      * @return array<string, mixed>
      */
-    private function saveOutcome(ReplyText $reply, ToolTurn $turn, SaveWorkoutScope $scope, NoticeText $words): array
+    private function saveOutcome(ReplyText $reply, ToolTurn $turn, SaveWorkoutScope $scope, NoticeText $words, User $user): array
     {
         if (($pending = $turn->pendingReplacement()) !== null) {
             $reply->replaceWith(NoticeCode::REPLACEMENT_QUESTION, $words->replacementQuestion($pending));
@@ -932,7 +943,7 @@ class AiCoachService
                 $reply->with(NoticeCode::RANGE_NOTE, $rangeNote);
             }
 
-            return [];
+            return SaveResult::meta($user, [['date' => $scope->date, 'action' => PlanReplacementProposal::REPLACE]]);
         }
 
         if ($turn->workoutSaved()) {
@@ -942,7 +953,7 @@ class AiCoachService
                 $reply->with(NoticeCode::RANGE_NOTE, $rangeNote);
             }
 
-            return [];
+            return SaveResult::meta($user, [['date' => $scope->date, 'action' => PlanReplacementProposal::CREATE]]);
         }
 
         $performed = array_filter($turn->blocked(), fn (array $b) => $b['reason'] === 'day_already_performed') !== [];

@@ -37,8 +37,19 @@ final class Confirmation
     /** Words a refusal may be made of (folded), in both languages. A message with any other word is not a bare refusal. */
     private const NO_WORDS = '/^(?:no|nop|nope|nel|nunca|jamas|nada|cancela\w*|cancel|olvidalo|never ?mind|stop|para|mejor|ya|asi|esta|estaba|queda|se|bien|gracias|por favor|please|thanks|thank you|thank|you|quiero|hagas|hacerlo|reemplaces|reemplazar|cambies|cambiar|guardes|guardar|sobrescribas|modifiques|toques|conserva\w*|manten\w*|mantengas|deja\w*|quedate|keep|leave|it|as|is|the|current|existing|old|original|one|plan|workout|entrenamiento|rutina|sesion|actual|lo|la|los|las|el|del|de|que|tenia|tengo|momento|ahora|todavia|aun|por|don\'?t|do|not|now|replace|change|save|add|that|this|mind|changed|my|i|es|necesario|hace|falta)$/u';
 
-    public static function classify(string $message): string
+    /**
+     * @param  bool  $pending  exactly one valid signed proposal is waiting for this user's answer in this conversation (the
+     *                         caller checked: see PendingProposalStore::isOpen). Only then is a bare "si" with no accent read as
+     *                         "sí"; without one it is as it always was, not a yes. Nothing else changes with it: a hedge, a
+     *                         condition ("si mañana entreno…"), a quotation or a mixed instruction is never a yes.
+     */
+    public static function classify(string $message, bool $pending = false): string
     {
+        // A quoted answer is somebody's words, not the user's ("\"sí\"", «dale»).
+        if (preg_match('/^\s*["“«„].*["”»]\s*$/us', $message) === 1) {
+            return self::NONE;
+        }
+
         $raw = mb_strtolower(trim($message));
         $raw = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[.!,;:…¡¿?"“”«»()]+/u', ' ', $raw)));
         $raw = str_replace(['’', '‘'], "'", $raw);
@@ -60,15 +71,15 @@ final class Confirmation
         $yes = self::yes($raw, $folded);
 
         if ($yes !== null) {
-            return $yes;
+            return $yes === self::UNCLEAR && $pending ? self::YES : $yes;
         }
 
         return self::refusal($folded) ? self::NO : self::NONE;
     }
 
-    public static function isYes(string $message): bool
+    public static function isYes(string $message, bool $pending = false): bool
     {
-        return self::classify($message) === self::YES;
+        return self::classify($message, $pending) === self::YES;
     }
 
     public static function isNo(string $message): bool

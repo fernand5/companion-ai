@@ -464,21 +464,20 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
         return (string) WorkoutPlan::where('user_id', $this->user->id)->value('title');
     }
 
-    public function test_a_bare_unaccented_si_asks_and_leaves_the_pending_confirmation_untouched(): void
+    public function test_a_hedge_asks_and_leaves_the_pending_confirmation_untouched(): void
     {
         $conversation = $this->heldReplacement();
         $question = $this->last($conversation);
         $before = $question->fresh()->meta;
 
-        $unclear = $this->say('si', $conversation);
+        $unclear = $this->say('tal vez', $conversation);
 
         $this->assertSame([], $unclear['calls'], 'The application asks; the model is not consulted.');
-        $this->assertSame('Plan anterior', $this->title(), 'A bare "si" approves nothing.');
+        $this->assertSame('Plan anterior', $this->title(), 'A hedge approves nothing.');
         $this->assertStringContainsString('responde "sí" (con tilde)', $unclear['result']['answer']);
         $this->assertSame($before, $question->fresh()->meta, 'The held proposal is neither spent nor renewed: its signed content and expiry are untouched.');
 
-        // Asked twice, still the same question.
-        $this->say('Si', $conversation);
+        $this->say('depende', $conversation);
         $this->assertSame($before, $question->fresh()->meta);
 
         // A clear answer afterwards redeems that very proposal, once.
@@ -499,7 +498,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
     public function test_a_no_after_the_clarification_declines_and_a_later_si_does_not_revive_it(): void
     {
         $conversation = $this->heldReplacement();
-        $this->say('si', $conversation);
+        $this->say('tal vez', $conversation);
 
         $this->say('No', $conversation, new AiResponse(text: 'De acuerdo, lo dejo como está.'));
         $this->say('Sí', $conversation, new AiResponse(text: '¿Sí a qué?'));
@@ -512,7 +511,7 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
         $conversation = $this->heldReplacement();
 
         $this->travel(10)->minutes();
-        $this->say('si', $conversation);
+        $this->say('tal vez', $conversation);
         $this->travel(10)->minutes(); // 20 minutes after the question: past its 15
 
         $late = $this->say('Sí', $conversation);
@@ -546,29 +545,30 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
     public function test_a_stale_proposal_is_refused_after_a_clarification(): void
     {
         $conversation = $this->heldReplacement();
-        $this->say('si', $conversation);
+        $this->say('tal vez', $conversation);
         WorkoutPlan::where('user_id', $this->user->id)->first()->update(['title' => 'Editado después']);
 
-        $turn = $this->say('Sí', $conversation);
+        $turn = $this->say('si', $conversation);
 
         $this->assertSame('Editado después', $this->title(), 'The day changed since it was asked: nothing is replaced.');
         $this->assertStringContainsString('No lo reemplacé', $turn['result']['answer']);
     }
 
-    public function test_a_clarification_cannot_be_used_across_users_or_conversations(): void
+    public function test_a_confirmation_cannot_be_used_across_users_or_conversations(): void
     {
         $conversation = $this->heldReplacement();
-        $this->say('si', $conversation);
+        $this->say('tal vez', $conversation);
 
         $fresh = $this->ask($this->user, 'Hola')['conversation'];
-        $this->say('si', $fresh, new AiResponse(text: 'Hola.'));
-        $this->say('Sí', $fresh, new AiResponse(text: 'Hola.'));
-        $this->assertSame('Plan anterior', $this->title());
+        foreach (['si', 'Sí', 'dale', 'claro'] as $answer) {
+            $this->say($answer, $fresh, new AiResponse(text: 'Hola.'));
+        }
+        $this->assertSame('Plan anterior', $this->title(), 'Another conversation of the same user has nothing pending.');
 
         $this->app['auth']->forgetGuards();
         $other = $this->newUser();
         $theirs = $this->ask($other, 'Hola')['conversation'];
-        foreach (['si', 'Sí'] as $answer) {
+        foreach (['si', 'Sí', 'dale'] as $answer) {
             $this->fake->queue(new AiResponse(text: 'Hola.'));
             $this->ask($other, $answer, $theirs);
         }
@@ -577,54 +577,63 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
 
         // The original is still open for its own user and conversation.
         $this->app['auth']->forgetGuards();
-        $this->say('Sí', $conversation);
+        $this->say('si', $conversation);
         $this->assertSame('Torso y Core', $this->title());
     }
 
-    public function test_refusing_keeps_the_existing_workout(): void
+    public static function notConfirmations(): array
     {
-        $this->existingPlanToday();
-        $conversation = $this->incident();
-        $this->say('Agrega este entrenamiento a mi dashboard', $conversation, $this->save(), new AiResponse(text: 'Listo.'));
-
-        $this->say('No, conserva el actual.', $conversation, new AiResponse(text: 'De acuerdo.'));
-        $this->say('sí', $conversation);
-
-        $this->assertSame('Plan anterior', WorkoutPlan::where('user_id', $this->user->id)->value('title'), 'A "no" spends nothing and a later "sí" answers a different message.');
+        return [
+            'conditional' => ['si mañana entreno puedo hacerlo después'],
+            'conditional 2' => ['si tengo tiempo lo reemplazo yo'],
+            'quoted' => ['"sí"'],
+            'quoted 2' => ['«dale»'],
+            'negated' => ['no, sí no'],
+            'mixed' => ['sí pero mejor mañana'],
+            'mixed 2' => ['claro, pero cámbialo por otro'],
+            'a question' => ['¿sí o no?'],
+            'attributed' => ['mi entrenador dijo sí'],
+        ];
     }
 
-    public function test_a_confirmation_expires(): void
+    #[DataProvider('notConfirmations')]
+    public function test_conditional_quoted_negated_and_mixed_answers_confirm_nothing_and_the_question_survives(string $answer): void
     {
-        $this->existingPlanToday();
-        $conversation = $this->incident();
-        $this->say('Agrega este entrenamiento a mi dashboard', $conversation, $this->save(), new AiResponse(text: 'Listo.'));
+        $conversation = $this->heldReplacement();
+        $question = $this->last($conversation);
+        $before = $question->fresh()->meta;
 
-        $this->travel(20)->minutes();
-        $late = $this->say('Sí', $conversation);
+        $this->say($answer, $conversation, new AiResponse(text: 'Entendido.'));
 
-        $this->assertSame('Plan anterior', WorkoutPlan::where('user_id', $this->user->id)->value('title'));
-        $this->assertStringContainsString('ya no es válida', $late['result']['answer']);
+        $this->assertSame('Plan anterior', $this->title(), $answer);
+        $this->assertSame($before, $question->fresh()->meta, 'Nothing was spent.');
     }
 
-    public function test_a_confirmation_is_not_valid_for_another_user_or_another_conversation(): void
+    public static function clearYes(): array
+    {
+        return [['sí'], ['Sí'], ['si'], ['Si.'], ['Si, reemplázalo'], ['claro'], ['dale'], ['Dale!'], ['de acuerdo']];
+    }
+
+    #[DataProvider('clearYes')]
+    public function test_a_clear_yes_confirms_the_pending_replacement(string $answer): void
+    {
+        $conversation = $this->heldReplacement();
+
+        $this->say($answer, $conversation);
+
+        $this->assertSame('Torso y Core', $this->title(), $answer);
+    }
+
+    #[DataProvider('clearYes')]
+    public function test_without_a_pending_replacement_none_of_them_authorizes_anything(string $answer): void
     {
         $this->existingPlanToday();
         $conversation = $this->incident();
-        $this->say('Agrega este entrenamiento a mi dashboard', $conversation, $this->save(), new AiResponse(text: 'Listo.'));
 
-        // Another conversation of the same user.
-        $fresh = $this->ask($this->user, 'Hola')['conversation'];
-        $this->say('Sí', $fresh, new AiResponse(text: 'Hola.'));
-        $this->assertSame('Plan anterior', WorkoutPlan::where('user_id', $this->user->id)->value('title'));
+        $this->say($answer, $conversation, new AiResponse(text: 'Hola.'));
 
-        // Another user, in their own conversation.
-        $this->app['auth']->forgetGuards();
-        $other = $this->newUser();
-        $theirs = $this->ask($other, 'Hola')['conversation'];
-        $this->fake->queue(new AiResponse(text: 'Hola.'));
-        $this->ask($other, 'Sí', $theirs);
-        $this->assertSame('Plan anterior', WorkoutPlan::where('user_id', $this->user->id)->value('title'));
-        $this->assertSame(0, $this->plans($other));
+        $this->assertSame('Plan anterior', $this->title(), $answer);
+        $this->assertSame(1, $this->plans());
     }
 
     public function test_a_started_or_completed_day_is_never_replaced(): void
@@ -784,10 +793,10 @@ class SpanishCoachWorkoutSaveHotfixTest extends PerformanceEvalCase
         $this->say($request, $conversation, $this->save(), new AiResponse(text: 'Listo.'));
         $this->assertSame('Plan anterior', $this->title(), 'Nothing is replaced before a confirmation.');
 
-        $this->say('si', $conversation, new AiResponse(text: 'ok'));
-        $this->assertSame('Plan anterior', $this->title(), 'A bare "si" confirms nothing, in any account language.');
+        $this->say('tal vez', $conversation, new AiResponse(text: 'ok'));
+        $this->assertSame('Plan anterior', $this->title(), 'A hedge confirms nothing, in any account language.');
 
-        $this->say($account === 'es' ? 'Sí' : 'yes', $conversation);
+        $this->say($account === 'es' ? 'si' : 'yes', $conversation);
         $this->assertSame('Torso y Core', $this->title());
     }
 }
